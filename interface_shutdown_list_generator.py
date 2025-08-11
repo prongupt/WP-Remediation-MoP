@@ -6,6 +6,7 @@ import re
 EXCLUDE_BY_NAME = ["Nu0", "Mg0/RP0/CPU0/0"]
 EXCLUDE_BY_PREFIX = ["BE", "Lo", "ti"]
 
+
 def get_device_credentials():
     """
     Prompts the user for device connection details.

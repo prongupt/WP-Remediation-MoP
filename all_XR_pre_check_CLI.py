@@ -9,11 +9,11 @@ import subprocess
 import datetime
 import os
 import sys  # Import sys module
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional # Added Optional
 
 # Set logger level to DEBUG for detailed parsing logs
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 # Initial cleanup of handlers to ensure a clean slate, especially if run multiple times
 if logger.handlers:
     for handler in logger.handlers[:]:
@@ -209,6 +209,7 @@ def parse_inventory_for_serial_numbers(inventory_output: str) -> Dict[str, Dict[
             }
             current_location = None
     return card_info
+
 
 # Continue from Part 1
 
@@ -1142,7 +1143,8 @@ def _run_section_check(section_name: str, check_func: callable, section_statuses
 # Continue from Part 2
 
 # --- New functions for Interface Status Comparison ---
-def find_latest_precheck_file(hostname: str, output_directory: str, current_file_path: str) -> str | None:
+def find_latest_precheck_file(hostname: str, output_directory: str, current_file_path: str) -> Optional[
+    str]:  # Changed return type
     """
     Finds the path to the most recent pre-check CLI output file for a given hostname,
     excluding the current file being generated.

@@ -13,7 +13,7 @@ from typing import List, Tuple, Dict, Any, Optional # Added Optional
 
 # Set logger level to DEBUG for detailed parsing logs
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 # Initial cleanup of handlers to ensure a clean slate, especially if run multiple times
 if logger.handlers:
     for handler in logger.handlers[:]:
@@ -92,6 +92,9 @@ class FanTrayError(Exception):
 
 
 class EnvironmentError(Exception):
+    pass
+
+class FpdStatusError(Exception):
     pass
 
 
@@ -209,9 +212,6 @@ def parse_inventory_for_serial_numbers(inventory_output: str) -> Dict[str, Dict[
             }
             current_location = None
     return card_info
-
-
-# Continue from Part 1
 
 def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None):
     logger.info(f"Checking Fabric Reachability (show controller fabric fsdb-pla rack 0)...")
@@ -1128,7 +1128,7 @@ def _run_section_check(section_name: str, check_func: callable, section_statuses
     except (RouterCommandError, PlatformStatusError, FabricReachabilityError,
             FabricLinkDownError, NpuLinkError, NpuStatsError, NpuDriverError,
             FabricPlaneStatsError, AsicErrorsError, InterfaceStatusError,
-            AlarmError, LcAsicErrorsError, FanTrayError, EnvironmentError) as e:
+            AlarmError, LcAsicErrorsError, FanTrayError, EnvironmentError, FpdStatusError) as e:
         logger.critical(f"{section_name} failed: {e}")
         overall_script_failed_ref[0] = True
         section_statuses[section_name] = "Bad"
@@ -1140,11 +1140,8 @@ def _run_section_check(section_name: str, check_func: callable, section_statuses
         print()
 
 
-# Continue from Part 2
-
-# --- New functions for Interface Status Comparison ---
 def find_latest_precheck_file(hostname: str, output_directory: str, current_file_path: str) -> Optional[
-    str]:  # Changed return type
+    str]:
     """
     Finds the path to the most recent pre-check CLI output file for a given hostname,
     excluding the current file being generated.
@@ -1216,32 +1213,15 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
             brief_output = output_section
             logger.debug(f"Found 'show interface brief' section. Length: {len(brief_output)}")
 
-    # Parse show interface summary (we will extract summary_status from brief output)
-    # The debug logs show that the 'show interface summary' output is aggregate data, not per-interface.
-    # Therefore, we will rely on 'show interface brief' for per-interface status.
-    # The 'summary_status' will effectively be the Admin Status from 'show interface brief'.
     if summary_output:
-        # This regex is for the "ALL TYPES" line in summary, not individual interfaces.
-        # It's kept for the overall summary display, but not for per-interface parsing here.
-        pass  # No per-interface parsing from summary_output needed for comparison
+        pass
 
-    # Parse show interface brief
     if brief_output:
-        # Regex for 'show interface brief' lines: Interface, Admin Status, Protocol Status
-        # This regex specifically targets the interface name, Admin Status, and Protocol Status.
-        # It's made more flexible for variable whitespace and handles interface names with numbers/slashes.
-        # Example lines from your debug:
-        # Nu0          up          up
-        # FH0/2/0/0  admin-down  admin-down
-        # Hu0/3/0/0  admin-down  admin-down
-        # Mg0/RP0/CPU0/0          up          up
         brief_line_pattern = re.compile(
             r"^\s*(\S+)\s+(up|down|admin-down|not connect|unknown|--)\s+(up|down|admin-down|not connect|unknown|--)\s+.*$",
-            re.IGNORECASE  # Make it case-insensitive for "Up", "Down", etc.
+            re.IGNORECASE
         )
 
-        # Skip header lines for brief
-        # Added more patterns to skip based on your debug log
         brief_lines = [
             line for line in brief_output.splitlines()
             if not re.match(
@@ -1259,12 +1239,11 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
                 brief_admin_status = match.group(2).strip()
                 brief_protocol_status = match.group(3).strip()
 
-                # Normalize status strings to lowercase for consistent comparison
                 brief_admin_status = brief_admin_status.lower()
                 brief_protocol_status = brief_protocol_status.lower()
 
                 interface_statuses.setdefault(intf_name, {})[
-                    "summary_status"] = brief_admin_status  # Using admin status from brief as summary
+                    "summary_status"] = brief_admin_status
                 interface_statuses.setdefault(intf_name, {})["brief_status"] = brief_admin_status
                 interface_statuses.setdefault(intf_name, {})["brief_protocol"] = brief_protocol_status
                 logger.debug(
@@ -1286,7 +1265,7 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
     differences_found = False
     comparison_table = PrettyTable()
     comparison_table.field_names = ["Interface", "Change Type", "Previous Status", "Current Status"]
-    comparison_table.align = "l"  # Align left for better readability
+    comparison_table.align = "l"
 
     all_interfaces = sorted(list(set(current_statuses.keys()) | set(previous_statuses.keys())))
 
@@ -1294,7 +1273,6 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
         current_data = current_statuses.get(intf, {})
         previous_data = previous_statuses.get(intf, {})
 
-        # Determine if interface is new or disappeared
         if intf not in previous_statuses and intf in current_statuses:
             summary_stat = current_data.get("summary_status", "N/A")
             brief_adm_stat = current_data.get("brief_status", "N/A")
@@ -1302,7 +1280,7 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
             comparison_table.add_row([intf, "Newly Appeared", "N/A",
                                       f"Summary: {summary_stat}, Brief: {brief_adm_stat}/{brief_prot_stat}"])
             differences_found = True
-            continue  # Move to next interface
+            continue
 
         if intf in previous_statuses and intf not in current_statuses:
             summary_stat = previous_data.get("summary_status", "N/A")
@@ -1312,25 +1290,21 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
                                       f"Summary: {summary_stat}, Brief: {brief_adm_stat}/{brief_prot_stat}",
                                       "N/A"])
             differences_found = True
-            continue  # Move to next interface
+            continue
 
-        # Compare statuses for common interfaces
         if intf in current_statuses and intf in previous_statuses:
-            # Compare 'summary_status' (which is brief_admin_status in this logic)
             current_sum = current_data.get("summary_status", "N/A")
             prev_sum = previous_data.get("summary_status", "N/A")
             if current_sum != prev_sum:
                 comparison_table.add_row([intf, "Summary Status Change", prev_sum, current_sum])
                 differences_found = True
 
-            # Compare 'brief_status' (admin status)
             current_brief_adm = current_data.get("brief_status", "N/A")
             prev_brief_adm = previous_data.get("brief_status", "N/A")
             if current_brief_adm != prev_brief_adm:
                 comparison_table.add_row([intf, "Brief Admin Status Change", prev_brief_adm, current_brief_adm])
                 differences_found = True
 
-            # Compare 'brief_protocol'
             current_brief_prot = current_data.get("brief_protocol", "N/A")
             prev_brief_prot = previous_data.get("brief_protocol", "N/A")
             if current_brief_prot != prev_brief_prot:
@@ -1346,15 +1320,150 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
         logger.info(f"No interface status differences detected between current and previous run.")
 
 
-# --- End of New functions ---
+def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Dict[str, str]]:
+    """
+    Parses 'show hw-module fpd' output from a CLI log file.
+    Returns a dictionary mapping (Location, FPD_Device) to their status details.
+    """
+    fpd_statuses: Dict[Tuple[str, str], Dict[str, str]] = {}
+    content = ""
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        logger.debug(f"Successfully read content from {file_path}, length: {len(content)}")
+    except FileNotFoundError:
+        logger.error(f"File not found: {file_path}")
+        return {}
+    except Exception as e:
+        logger.error(f"Error reading file {file_path}: {e}")
+        return {}
+
+    command_section_pattern = re.compile(
+        r"--- Command: show hw-module fpd ---\n(.*?)(?=\n--- Command:|\Z)", re.DOTALL)
+
+    fpd_output_section = ""
+    match = command_section_pattern.search(content)
+    if match:
+        fpd_output_section = match.group(1).strip()
+        logger.debug(f"Found 'show hw-module fpd' section. Length: {len(fpd_output_section)}")
+    else:
+        logger.debug("No 'show hw-module fpd' output found in file.")
+        return {}
+
+    # Regex for parsing a data line in 'show hw-module fpd'
+    # Groups:
+    # 1: Location
+    # 2: Card type
+    # 3: HWver
+    # 4: FPD device
+    # 5: ATR (optional, can be empty)
+    # 6: Status
+    # 7: Running version (can be empty)
+    # 8: Programd version (can be empty)
+    # 9: Reload Loc
+    fpd_line_pattern = re.compile(
+        r"^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(?:(\S+)\s+)?(\S+)\s+(\S*)\s+(\S*)\s+(\S+)\s*$"
+    )
+
+    lines = fpd_output_section.splitlines()
+    data_start_found = False
+    for line in lines:
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue
+
+        if "Location   Card type" in stripped_line and "FPD Versions" in stripped_line:
+            data_start_found = True
+            continue
+        if data_start_found and "--------------------------------" in stripped_line:
+            continue
+        if not data_start_found:
+            continue
+
+        if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line) or \
+                re.match(r'^RP/\d+/\S+:\S+#', stripped_line) or \
+                re.escape("show hw-module fpd") in re.escape(stripped_line):
+            continue
+
+        match = fpd_line_pattern.match(stripped_line)
+        if match:
+            location = match.group(1)
+            fpd_device = match.group(4)
+            status = match.group(6)
+
+            key = (location, fpd_device)
+            fpd_statuses[key] = {
+                "Location": location,
+                "FPD_Device": fpd_device,
+                "Status": status
+            }
+            logger.debug(f"Parsed FPD line: {key} -> Status: {status}")
+        else:
+            logger.debug(f"Skipping FPD line (no regex match): '{stripped_line}'")
+
+    logger.debug(f"Final parsed FPD statuses from {file_path}: {fpd_statuses}")
+    return fpd_statuses
+
+
+def compare_fpd_statuses(current_statuses: Dict[Tuple[str, str], Dict[str, str]],
+                         previous_statuses: Dict[Tuple[str, str], Dict[str, str]]):
+    """
+    Compares current and previous FPD statuses and prints differences for 'Status' and 'FPD Device'.
+    """
+    differences_found = False
+    comparison_table = PrettyTable()
+    comparison_table.field_names = ["Location", "FPD Device", "Change Type", "Previous Status", "Current Status"]
+    comparison_table.align = "l"
+
+    all_fpd_keys = sorted(list(set(current_statuses.keys()) | set(previous_statuses.keys())))
+
+    for key in all_fpd_keys:
+        current_data = current_statuses.get(key, {})
+        previous_data = previous_statuses.get(key, {})
+
+        location, fpd_device = key
+
+        if key not in previous_statuses and key in current_statuses:
+            current_status = current_data.get("Status", "N/A")
+            comparison_table.add_row([location, fpd_device, "Newly Appeared", "N/A", current_status])
+            differences_found = True
+            continue
+
+        if key in previous_statuses and key not in current_statuses:
+            previous_status = previous_data.get("Status", "N/A")
+            comparison_table.add_row([location, fpd_device, "Disappeared", previous_status, "N/A"])
+            differences_found = True
+            continue
+
+        if key in current_statuses and key in previous_statuses:
+            current_status_val = current_data.get("Status", "N/A")
+            previous_status_val = previous_data.get("Status", "N/A")
+
+            if current_status_val != previous_status_val:
+                comparison_table.add_row(
+                    [location, fpd_device, "Status Change", previous_status_val, current_status_val])
+                differences_found = True
+
+    if differences_found:
+        logger.warning(f"!!! FPD STATUS DIFFERENCES DETECTED BETWEEN CURRENT AND PREVIOUS RUN !!!")
+        print("\n--- FPD Status Comparison Report ---")
+        print(comparison_table)
+        logger.warning("Please review the FPD status changes above.")
+        raise FpdStatusError("FPD status check failed. Differences detected.")  # Raise error if differences found
+    else:
+        logger.info(f"No FPD status differences detected between current and previous run.")
+
+
+def check_hw_module_fpd_status(shell: paramiko.Channel, cli_output_file=None):
+    logger.info(f"Checking HW Module FPD Status...")
+    execute_command_in_shell(shell, "show hw-module fpd", "show hw-module fpd", timeout=120,
+                             print_real_time_output=False, cli_output_file=cli_output_file)
+    logger.info("show hw-module fpd executed silently.")
 
 
 def main():
-    # Store the original stdout
     original_stdout = sys.stdout
 
-    # Configure logger to print to the original stdout (console) initially
-    # This handler will remain active and print to console.
     console_handler = logging.StreamHandler(original_stdout)
     console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     console_handler.setFormatter(console_formatter)
@@ -1376,9 +1485,9 @@ def main():
     ft_locations_from_platform = []
     all_card_inventory_info = {}
     cli_output_file = None
-    session_log_file_handle = None  # Variable to hold the file object for the session log
+    session_log_file_handle = None
     section_statuses = {}
-    hostname = "unknown_host"  # Initialize hostname for finally block
+    hostname = "unknown_host"
 
     try:
         logger.info(f"Attempting to connect to {router_ip}...")
@@ -1388,7 +1497,6 @@ def main():
 
         shell = client.invoke_shell()
         time.sleep(1)
-        # This initial read_and_print_realtime will print to console only, before redirection
         read_and_print_realtime(shell, timeout_sec=2)
 
         execute_command_in_shell(shell, "terminal length 0", "set terminal length to 0", timeout=5,
@@ -1406,17 +1514,13 @@ def main():
 
         session_log_path = os.path.join(output_directory, f"{hostname}_pre_check_CLI_session_log_{timestamp}.txt")
 
-        # Open the session log file for writing
         session_log_file_handle = open(session_log_path, 'a', encoding='utf-8')
 
-        # Add a FileHandler to the logger, so logger messages also go to the file
         file_handler = logging.FileHandler(session_log_path, encoding='utf-8')
         file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
 
-        # Redirect sys.stdout to our custom Tee stream.
-        # Now, all subsequent print() statements will go to both the console and the session log file.
         sys.stdout = Tee(original_stdout, session_log_file_handle)
 
         logger.info(f"Session log will be saved to: {session_log_path}")
@@ -1424,9 +1528,8 @@ def main():
         cli_output_file = open(cli_output_path, 'a')
         logger.info(f"CLI output will be saved to: {cli_output_path}")
 
-        print(f"\n--- Device Information Report ---")  # This print will now be captured in the log file
+        print(f"\n--- Device Information Report ---")
 
-        # Run all checks
         _run_section_check("IOS-XR Version Check", check_ios_xr_version, section_statuses, overall_script_failed, shell,
                            cli_output_file)
         _run_section_check("Platform Status & Serial Numbers", check_platform_and_serial_numbers, section_statuses,
@@ -1450,6 +1553,11 @@ def main():
                            cli_output_file)
         section_statuses["Inventory Collection"] = "Collection Only"
         _run_section_check("Interface Status Check", check_interface_status, section_statuses, overall_script_failed,
+                           shell, cli_output_file)
+
+        # New FPD Status Check
+        _run_section_check("HW Module FPD Status Check", check_hw_module_fpd_status, section_statuses,
+                           overall_script_failed,
                            shell, cli_output_file)
 
         section_name_alarms = "Active Alarms Check"
@@ -1490,7 +1598,6 @@ def main():
         logger.critical(f"An unexpected error occurred during script execution: {e}", exc_info=True)
         overall_script_failed[0] = True
     finally:
-        # Perform SSH session cleanup
         if shell:
             logger.info("Exiting CLI session.")
             try:
@@ -1505,12 +1612,10 @@ def main():
             client.close()
         logger.info("SSH connection closed.")
 
-        # Close the CLI output file BEFORE parsing it
         if cli_output_file:
             cli_output_file.close()
             logger.info(f"CLI output saved to {cli_output_path}")
 
-        # --- Interface Status Comparison Logic ---
         logger.info(f"Starting interface status comparison...")
         latest_previous_file = find_latest_precheck_file(hostname, output_directory, cli_output_path)
 
@@ -1519,7 +1624,6 @@ def main():
             current_interface_statuses = parse_interface_status_from_cli_output(cli_output_path)
             previous_interface_statuses = parse_interface_status_from_cli_output(latest_previous_file)
 
-            # Changed condition to allow comparison even if one file is empty
             if current_interface_statuses or previous_interface_statuses:
                 compare_interface_statuses(current_interface_statuses, previous_interface_statuses)
             else:
@@ -1527,23 +1631,35 @@ def main():
         else:
             logger.info(f"No previous pre-check CLI output file found for {hostname}. Skipping interface comparison.")
         logger.info(f"Finished interface status comparison.")
-        # --- End Interface Status Comparison Logic ---
 
-        # Print final summary table. This will also be captured by the Tee class.
+        # FPD Status Comparison Logic
+        logger.info(f"Starting FPD status comparison...")
+        if latest_previous_file:
+            current_fpd_statuses = parse_fpd_status_from_cli_output(cli_output_path)
+            previous_fpd_statuses = parse_fpd_status_from_cli_output(latest_previous_file)
+
+            if current_fpd_statuses or previous_fpd_statuses:
+                try:
+                    compare_fpd_statuses(current_fpd_statuses, previous_fpd_statuses)
+                except FpdStatusError:
+                    overall_script_failed[0] = True  # Mark script as failed if FPD differences are found
+            else:
+                logger.warning("Could not parse FPD statuses from one or both files. Skipping comparison.")
+        else:
+            logger.info(f"No previous pre-check CLI output file found for {hostname}. Skipping FPD comparison.")
+        logger.info(f"Finished FPD status comparison.")
+
         print_final_summary_table(section_statuses)
 
-        # Log final script status
         if overall_script_failed[0]:
             logger.critical(f"--- Script Execution Finished with ERRORS ---")
         else:
             logger.info(f"--- Script Execution Finished Successfully ---")
 
-        # Close the session log file handle
         if session_log_file_handle:
             session_log_file_handle.flush()
             session_log_file_handle.close()
 
-        # Restore original stdout
         sys.stdout = original_stdout
 
 

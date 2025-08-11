@@ -13,7 +13,7 @@ from typing import List, Tuple, Dict, Any, Optional # Added Optional
 
 # Set logger level to DEBUG for detailed parsing logs
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 # Initial cleanup of handlers to ensure a clean slate, especially if run multiple times
 if logger.handlers:
     for handler in logger.handlers[:]:

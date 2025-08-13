@@ -1350,7 +1350,7 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
         logger.debug("No 'show hw-module fpd' output found in file.")
         return {}
 
-    # Regex for parsing a data line in 'show hw-module fpd'
+    # Corrected Regex for parsing a data line in 'show hw-module fpd'
     # Groups:
     # 1: Location
     # 2: Card type
@@ -1362,34 +1362,42 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
     # 8: Programd version (can be empty)
     # 9: Reload Loc
     fpd_line_pattern = re.compile(
-        r"^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(?:(\S+)\s+)?(\S+)\s+(\S*)\s+(\S*)\s+(\S+)\s*$"
+        r"^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S*?)\s*(\S+)\s+(\S*)\s+(\S*)\s+(\S+)\s*$"
     )
 
     lines = fpd_output_section.splitlines()
-    data_start_found = False
+    data_table_started = False # Renamed flag for clarity
     for line in lines:
         stripped_line = line.strip()
         if not stripped_line:
             continue
 
-        if "Location   Card type" in stripped_line and "FPD Versions" in stripped_line:
-            data_start_found = True
-            continue
-        if data_start_found and "--------------------------------" in stripped_line:
-            continue
-        if not data_start_found:
-            continue
-
+        # Skip timestamps and prompts that might appear anywhere in the output section
         if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line) or \
-                re.match(r'^RP/\d+/\S+:\S+#', stripped_line) or \
-                re.escape("show hw-module fpd") in re.escape(stripped_line):
+           re.match(r'^RP/\d+/\S+:\S+#', stripped_line) or \
+           re.escape("show hw-module fpd") in re.escape(stripped_line):
             continue
 
+        # Detect the actual data table header line
+        # The 'FPD Versions' header is above the column headers, so we look for the column names.
+        if "Location   Card type" in stripped_line and "HWver FPD device" in stripped_line:
+            data_table_started = True
+            continue # Skip this header line itself
+
+        # Detect the separator line immediately after the header
+        if data_table_started and "--------------------------------" in stripped_line:
+            continue # Skip the separator line itself
+
+        # Only process lines if the data table has clearly started (after header and separator)
+        if not data_table_started:
+            continue
+
+        # If we reach here, it's a potential data line
         match = fpd_line_pattern.match(stripped_line)
         if match:
             location = match.group(1)
             fpd_device = match.group(4)
-            status = match.group(6)
+            status = match.group(6) # Status is still group 6 after ATR fix
 
             key = (location, fpd_device)
             fpd_statuses[key] = {
@@ -1661,6 +1669,7 @@ def main():
             session_log_file_handle.close()
 
         sys.stdout = original_stdout
+
 
 if __name__ == "__main__":
     main()

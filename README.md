@@ -18,8 +18,8 @@ This script will provide version and uptime for a list of hostnames that are inp
 This script provides a list of interfaces that are currently down and also provides a list of interfaces that need to be shutdown before WP3 remediation. 
 This is mostly for PhyNet devices
  
-**7-7-7_3_5_post_check_part_I.py
-8-7_3_5_post_check_part_II.py**
+**7-7-7_3_5_post_check_part_I.py**
+**8-7_3_5_post_check_part_II.py**
 These two scripts will run all post-health checks which are in the MoP for systems running IOS-XR version 7.3.5
  
 **9-dataplane_archive_logging.py**

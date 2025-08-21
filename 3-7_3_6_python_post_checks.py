@@ -1,7 +1,3 @@
-# 3-7_3_6_python_post_checks.py
-# This script runs all the steps after the last reload as part of the MoP for devices running 7.3.6 IOS-XR version
-# or higher
-
 import paramiko
 import time
 import getpass
@@ -402,6 +398,21 @@ def poll_dataplane_monitoring_736(shell: paramiko.Channel, max_poll_duration_sec
     logging.info(f"Running 'monitor dataplane' command (IOS-XR 7.3.6+)...")
     shell.send("monitor dataplane\n")
     time.sleep(2)  # Small delay to allow command to start
+
+    # --- NEW: Consume initial output of 'monitor dataplane' and wait for prompt ---
+    logging.info("Waiting for initial 'monitor dataplane' output to complete and prompt to return...")
+    # Use a reasonable timeout for the initial output, and print it to console
+    initial_dataplane_output, prompt_found_after_dataplane = read_and_print_realtime(shell, timeout_sec=30, print_realtime=True)
+    if not prompt_found_after_dataplane:
+        # If prompt not found, try sending newline to force it, and re-check
+        logging.warning("Prompt not detected after initial 'monitor dataplane' output. Attempting to send newline and re-check.")
+        shell.send("\n")
+        retry_output, prompt_found_after_dataplane = read_and_print_realtime(shell, timeout_sec=5, print_realtime=True)
+        initial_dataplane_output += retry_output
+        if not prompt_found_after_dataplane:
+            raise RouterCommandError(f"Failed to reach prompt after 'monitor dataplane' command. Output: {initial_dataplane_output}")
+    logging.info("Prompt returned after 'monitor dataplane' initiation.")
+    # --- END NEW ---
 
     # Get the router's timestamp immediately after sending monitor dataplane
     # This is crucial for matching the *current* monitoring session's logs

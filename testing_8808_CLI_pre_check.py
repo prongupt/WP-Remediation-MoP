@@ -196,32 +196,21 @@ def get_hostname(shell: paramiko.Channel, cli_output_file=None) -> str:
 
 
 def get_chassis_model(shell: paramiko.Channel, cli_output_file=None) -> str:
-    """Retrieves the chassis model from 'show version' output."""
-    logger.info("Attempting to retrieve chassis model using 'show version'...")
-    output = execute_command_in_shell(shell, "show version", "get chassis model", timeout=30,
+    """Retrieves the chassis model (PID) from 'show inventory chassis' output."""
+    logger.info("Attempting to retrieve chassis model using 'show inventory chassis'...")
+    command = "show inventory chassis"
+    output = execute_command_in_shell(shell, command, "get chassis model from inventory", timeout=30,
                                       print_real_time_output=False, cli_output_file=cli_output_file)
 
-    lines = [line.strip() for line in output.splitlines() if line.strip()]
-    if not lines:
-        logger.warning("No output found for 'show version'. Cannot determine chassis model.")
-        return "unknown_chassis"
+    logger.debug(f"get_chassis_model: Full '{command}' output received:\n{output}")
 
-    last_line = lines[-1]
-    logger.debug(f"get_chassis_model: Last line of 'show version' output: '{last_line}'")
-
-    match = re.search(r"Cisco (\d{4}) \d+-slot Chassis", last_line)
+    match = re.search(r"PID:\s*(\S+)\s*,", output)
     if match:
-        chassis_model = match.group(1)
-        logger.info(f"Chassis model detected: {chassis_model}")
+        chassis_model = match.group(1).strip()
+        logger.info(f"Chassis model (PID) detected: {chassis_model}")
         return chassis_model
 
-    match_ncs = re.search(r"^(NCS-\d{4}-\S+)\(Active\)", output, re.MULTILINE)
-    if match_ncs:
-        chassis_model = match_ncs.group(1)
-        logger.info(f"Chassis model detected: {chassis_model}")
-        return chassis_model
-
-    logger.warning("Could not parse chassis model from 'show version' output. Using 'unknown_chassis'.")
+    logger.warning("Could not parse chassis model (PID) from 'show inventory chassis' output. Using 'unknown_chassis'.")
     return "unknown_chassis"
 
 
@@ -259,6 +248,7 @@ def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None, cha
     logger.debug(f"Fabric Reachability Check: chassis_model.startswith('88') = {chassis_model.startswith('88')}")
     logger.debug(f"Fabric Reachability Check: 'NCS-88' in chassis_model = {'NCS-88' in chassis_model}")
 
+    # Check if the chassis model indicates an 8800 series (e.g., "8808", "8818", or "NCS-88XX")
     if chassis_model.startswith("88") or "NCS-88" in chassis_model:
         valid_reach_masks.extend(["8/8", "16/16"])
 
@@ -402,7 +392,7 @@ def check_npu_stats_link(shell: paramiko.Channel, cli_output_file=None):
         stripped_line = line.strip()
         if not stripped_line: continue
         if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line) or \
-                re.match(r'^RP/\d+/\S+:\S+#$', stripped_line) or \
+                re.match(r'^RP/\d+/\S+:\S+#', stripped_line) or \
                 re.escape(command.strip()) in re.escape(stripped_line) or \
                 re.match(r'^-+$', stripped_line) or \
                 re.match(r'^In Data\s+Out Data\s+CE\s+UCE\s+CRC$', stripped_line): continue
@@ -555,9 +545,9 @@ def check_asic_errors(shell: paramiko.Channel, cli_output_file=None):
     for i, line in enumerate(lines):
         stripped_line = line.strip()
         if not stripped_line: continue
-        if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line) or \
-                re.match(r'^RP/\d+/\S+:\S+#$', stripped_line) or \
-                re.escape(command.strip()) in re.escape(stripped_line): continue
+        if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line): continue
+        if re.match(r'^RP/\d+/\S+:\S+#', stripped_line): continue
+        if re.escape(command.strip()) in re.escape(stripped_line): continue
         npu_info_match = re.match(r'^\s*\d+,\s*\S+,\s*(\d+/\S+),\s*npu\[(\d+)\]', stripped_line)
         error_count_match = re.search(r'Error count\s*:\s*(\d+)', stripped_line)
         if npu_info_match:

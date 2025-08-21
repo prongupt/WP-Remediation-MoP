@@ -92,13 +92,13 @@ It will also report any changes in Serial Numbers for RP/LC/FC
 +-----------------------------+-------------------------------+
 | Any links down?             |                               |
 +-----------------------------+                               |
-           | Yes                                             | No
-           v                                                 v
+           | Yes                                              | No
+           v                                                  v
 +-----------------------------+               +------------------------------------+
 | Troubleshoot optics         |               | 9. First reload, start 20 min timer|
 | (return to step 7)          |               +------------------------------------+
 +-----------------------------+                          |
-                                                        v
+                                                         v
                                 +--------------------------------------+
                                 | 10. After router/NSR/interfaces up,  |
                                 |     run 1-all_XR_pre_check_CLI.py    |
@@ -118,7 +118,7 @@ It will also report any changes in Serial Numbers for RP/LC/FC
                              +------------------------------+---------------------+
                              | Any problems in post-checks? |                     |
                              +------------------------------+                     |
-                                         | Yes               	                  | No
+                                         | Yes               	                    | No
                                          v                     	                  v
                             +-----------------------------+       +---------------------------+
                             | Troubleshoot as needed      |       |        Process Complete!  |

@@ -36,7 +36,7 @@ It will also report any changes in Serial Numbers for RP/LC/FC
 
 
 **For routers running IOS-XR version 7.3.6 and above:**
-
+```
 +-------------------------------------------------------------+
 | 0. Check router harddisk for dummy scripts                  |
 +-------------------------------+-----------------------------+
@@ -98,3 +98,4 @@ It will also report any changes in Serial Numbers for RP/LC/FC
 | Troubleshoot as needed   |                    | Process Complete!  |
 | Repeat Step 7            |                    +--------------------+
 +--------------------------+
+```

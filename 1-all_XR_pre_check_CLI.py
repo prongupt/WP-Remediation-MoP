@@ -1,4 +1,4 @@
-#1-all_XR_pre_check_CLI.py This script runs the CLI commands for the MoP and analyses for anamolies
+# 1-all_XR_pre_check_CLI.py This script runs the CLI commands for the MoP and analyses for anamolies
 
 import paramiko
 import time
@@ -10,13 +10,12 @@ import platform
 import subprocess
 import datetime
 import os
-import sys  # Import sys module
-from typing import List, Tuple, Dict, Any, Optional # Added Optional
+import sys
+from typing import List, Tuple, Dict, Any, Optional
 
-# Set logger level to DEBUG for detailed parsing logs
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-# Initial cleanup of handlers to ensure a clean slate, especially if run multiple times
+logger.setLevel(logging.INFO)  # Set logger level back to INFO
+
 if logger.handlers:
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
@@ -26,7 +25,7 @@ SSH_TIMEOUT_SECONDS = 15
 
 PROMPT_PATTERNS = [
     r'#\s*$',
-    r'>\s*$',  # Add for privilege mode if applicable
+    r'>\s*$',
 ]
 
 FAN_IMPACTED_VERSIONS = {
@@ -96,12 +95,14 @@ class FanTrayError(Exception):
 class EnvironmentError(Exception):
     pass
 
+
 class FpdStatusError(Exception):
     pass
 
 
-# New: Custom stream to redirect stdout to both console and a file
 class Tee:
+    """Custom stream to redirect stdout to both console and a file."""
+
     def __init__(self, stdout, file_object):
         self.stdout = stdout
         self.file_object = file_object
@@ -130,7 +131,6 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
                         print(f"{data}", end='')
                     full_output_buffer += data
                     prompt_check_buffer += data
-                    # Keep only the last 500 characters to check for prompt efficiently
                     if len(prompt_check_buffer) > 500:
                         prompt_check_buffer = prompt_check_buffer[-500:]
                     lines = prompt_check_buffer.strip().splitlines()
@@ -187,14 +187,29 @@ def get_hostname(shell: paramiko.Channel, cli_output_file=None) -> str:
         match = re.search(r"^\s*hostname\s+(\S+)", line)
         if match:
             hostname = match.group(1)
-            # First, replace dots with hyphens as explicitly requested for file names
             hostname = hostname.replace('.', '-')
-            # Then, sanitize further by removing any other characters not suitable for filenames
             hostname = re.sub(r'[^a-zA-Z0-9_-]', '', hostname)
             logger.info(f"Hostname detected: {hostname}")
             return hostname
     logger.warning("Could not parse hostname from 'show running-config | i hostname' output. Using 'unknown_host'.")
     return "unknown_host"
+
+
+def get_chassis_model(shell: paramiko.Channel, cli_output_file=None) -> str:
+    """Retrieves the chassis model (PID) from 'show inventory chassis' output."""
+    logger.info("Attempting to retrieve chassis model using 'show inventory chassis'...")
+    command = "show inventory chassis"
+    output = execute_command_in_shell(shell, command, "get chassis model from inventory", timeout=30,
+                                      print_real_time_output=False, cli_output_file=cli_output_file)
+
+    match = re.search(r"PID:\s*(\S+)\s*,", output)
+    if match:
+        chassis_model = match.group(1).strip()
+        logger.info(f"Chassis model (PID) detected: {chassis_model}")
+        return chassis_model
+
+    logger.warning("Could not parse chassis model (PID) from 'show inventory chassis' output. Using 'unknown_chassis'.")
+    return "unknown_chassis"
 
 
 def parse_inventory_for_serial_numbers(inventory_output: str) -> Dict[str, Dict[str, str]]:
@@ -215,7 +230,8 @@ def parse_inventory_for_serial_numbers(inventory_output: str) -> Dict[str, Dict[
             current_location = None
     return card_info
 
-def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None):
+
+def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None, chassis_model: str = "unknown_chassis"):
     logger.info(f"Checking Fabric Reachability (show controller fabric fsdb-pla rack 0)...")
     fabric_output = execute_command_in_shell(shell, "show controller fabric fsdb-pla rack 0",
                                              "show controller fabric fsdb-pla rack 0", timeout=120,
@@ -223,6 +239,13 @@ def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None):
     problematic_fabric_rows = []
     header_separator_found = False
     lines = fabric_output.splitlines()
+
+    valid_reach_masks = ["4/4", "2/2"]
+
+    # Check if the chassis model indicates an 8800 series (e.g., "8808", "8818", or "NCS-88XX")
+    if chassis_model.startswith("88") or "NCS-88" in chassis_model:
+        valid_reach_masks.extend(["8/8", "16/16"])
+
     for line in lines:
         if "----------------------------------------------------------------------------------------------" in line:
             header_separator_found = True
@@ -233,14 +256,15 @@ def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None):
                 continue
             parts = line.split()
             if len(parts) >= 12:
-                reach_mask_value = parts[9]
-                if reach_mask_value not in ["4/4", "2/2"]:
-                    if reach_mask_value != "----":
-                        problematic_fabric_rows.append([
-                            parts[0], parts[1], parts[2], parts[3], parts[4],
-                            parts[5], parts[6], parts[7], parts[8],
-                            parts[9], parts[11]
-                        ])
+                reach_mask_value = parts[9].strip()
+
+                if reach_mask_value not in valid_reach_masks and reach_mask_value != "----":
+                    logger.error(f"Problematic row detected: reach_mask_value='{reach_mask_value}'")
+                    problematic_fabric_rows.append([
+                        parts[0], parts[1], parts[2], parts[3], parts[4],
+                        parts[5], parts[6], parts[7], parts[8],
+                        parts[9], parts[11]
+                    ])
     if problematic_fabric_rows:
         logger.error(f"!!! FABRIC REACHABILITY ERRORS DETECTED !!!")
         fabric_table = PrettyTable()
@@ -319,7 +343,7 @@ def check_npu_link_info(shell: paramiko.Channel, cli_output_file=None):
         stripped_line = line.strip()
         if not stripped_line: continue
         if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line): continue
-        if re.match(r'^RP/\d+/\S+:\S+#$', stripped_line): continue
+        if re.match(r'^RP/\d+/\S+:\S+#', stripped_line): continue
         if re.escape(command.strip()) in re.escape(stripped_line): continue
         if re.match(r'^Node ID: (\S+)$', stripped_line): continue
         if re.match(r'^-+$', stripped_line): continue
@@ -357,7 +381,7 @@ def check_npu_stats_link(shell: paramiko.Channel, cli_output_file=None):
         stripped_line = line.strip()
         if not stripped_line: continue
         if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line) or \
-                re.match(r'^RP/\d+/\S+:\S+#$', stripped_line) or \
+                re.match(r'^RP/\d+/\S+:\S+#', stripped_line) or \
                 re.escape(command.strip()) in re.escape(stripped_line) or \
                 re.match(r'^-+$', stripped_line) or \
                 re.match(r'^In Data\s+Out Data\s+CE\s+UCE\s+CRC$', stripped_line): continue
@@ -468,9 +492,9 @@ def check_fabric_plane_stats(shell: paramiko.Channel, cli_output_file=None):
             continue
         if parsing_data:
             if not stripped_line or re.match(r'Mon\s+\w+\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+',
-                                             stripped_line) or re.match(r'RP/\d+/\S+#', stripped_line):
+                                             line.strip()) or re.match(r'RP/\d+/\S+#', line.strip()):
                 continue
-            parts = stripped_line.split()
+            parts = line.split()
             if len(parts) >= 6:
                 try:
                     plane_id = parts[0]
@@ -511,7 +535,7 @@ def check_asic_errors(shell: paramiko.Channel, cli_output_file=None):
         stripped_line = line.strip()
         if not stripped_line: continue
         if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line) or \
-                re.match(r'^RP/\d+/\S+:\S+#$', stripped_line) or \
+                re.match(r'^RP/\d+/\S+:\S+#', stripped_line) or \
                 re.escape(command.strip()) in re.escape(stripped_line): continue
         npu_info_match = re.match(r'^\s*\d+,\s*\S+,\s*(\d+/\S+),\s*npu\[(\d+)\]', stripped_line)
         error_count_match = re.search(r'Error count\s*:\s*(\d+)', stripped_line)
@@ -643,7 +667,7 @@ def check_lc_asic_errors(shell: paramiko.Channel, lc_locations: List[str], cli_o
             stripped_line = line.strip()
             if not stripped_line: continue
             if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line): continue
-            if re.match(r'^RP/\d+/\S+:\S+#$', stripped_line): continue
+            if re.match(r'^RP/\d+/\S+:\S+#', stripped_line): continue
             if command_pattern.search(stripped_line): continue
             lc_marker_regex = re.compile(r'^\*\s+\d+_\d+_CPU\d+\s+\*$')
             if lc_marker_regex.search(stripped_line): continue
@@ -773,28 +797,21 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
     current_section = None
     current_location = None
 
-    # Regex patterns for section headers
     temp_section_pattern = re.compile(r'Location\s+TEMPERATURE')
     voltage_section_pattern = re.compile(r'Location\s+VOLTAGE')
     current_section_pattern = re.compile(r'Location\s+CURRENT')
     power_supply_section_pattern = re.compile(r'Power\s+Module\s+Type')
 
-    # Regex for parsing location lines (e.g., "0/RP0/CPU0")
     location_line_pattern = re.compile(r'^\s*(\d+/\S+)\s*$')
 
-    # Corrected regex for temperature sensor data lines
-    # Groups: (Sensor Name), (Value), (Crit Lo), (Major Lo), (Minor Lo), (Minor Hi), (Major Hi), (Crit Hi - optional)
     temp_sensor_data_pattern = re.compile(
         r'^\s*(\S+)\s+([\d\.-]+)\s+([\d\.-]+|\S+)\s+([\d\.-]+|\S+)\s+([\d\.-]+|\S+)\s+([\d\.-]+|\S+)\s+([\d\.-]+|\S+)\s*([\d\.-]+|\S+)?\s*$'
     )
 
-    # Corrected regex for voltage sensor data lines
-    # Groups: (Sensor Name), (Value), (Crit Lo), (Minor Lo), (Minor Hi), (Crit Hi - optional)
     voltage_sensor_data_pattern = re.compile(
         r'^\s*(\S+)\s+([\d\.-]+)\s+([\d\.-]+|\S+)\s+([\d\.-]+|\S+)\s+([\d\.-]+|\S+)\s*([\d\.-]+|\S+)?\s*$'
     )
 
-    # Power supply pattern (as is)
     power_supply_data_pattern = re.compile(
         r'^\s*(\S+)\s+(\S+)\s+([\d\.]+)/([\d\.]+)\s+([\d\.]+)/([\d\.]+)\s+([\d\.]+)\s+([\d\.]+)\s+(.+)$'
     )
@@ -802,7 +819,6 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
     for i, line in enumerate(lines):
         stripped_line = line.strip()
 
-        # Skip common non-data lines (timestamps, prompts, separators)
         if not stripped_line or \
                 re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line) or \
                 re.match(r'^RP/\d+/\S+:\S+#', stripped_line) or \
@@ -811,46 +827,39 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
                 "Flags:" in stripped_line or "Check detail option." in stripped_line:
             continue
 
-        # Check for section headers
         if temp_section_pattern.search(stripped_line):
             current_section = "TEMPERATURE"
-            current_location = None  # Reset location for new section
+            current_location = None
             continue
         elif voltage_section_pattern.search(stripped_line):
             current_section = "VOLTAGE"
-            current_location = None  # Reset location for new section
+            current_location = None
             continue
         elif current_section_pattern.search(stripped_line):
-            current_section = "CURRENT"  # Changed from "SKIP" to "CURRENT"
+            current_section = "CURRENT"
             current_location = None
             continue
         elif power_supply_section_pattern.search(stripped_line):
             current_section = "POWER_SUPPLY"
-            current_location = None  # Reset location for new section
+            current_location = None
             continue
 
-        # Process data within identified sections
         if current_section == "TEMPERATURE":
-            # Check for location line within temperature block (e.g., "0/RP0/CPU0")
             location_match = location_line_pattern.match(stripped_line)
             if location_match:
                 current_location = location_match.group(1)
-                continue  # This line was just a location header
+                continue
 
-            # Skip the sensor header line within the temperature block (e.g., "Sensor Value Crit Major...")
             if re.match(r'^\s*Sensor\s+Value\s+Crit\s+Major\s+Minor\s+Minor\s+Major\s+Crit', stripped_line):
                 continue
 
-            # Process temperature sensor data
-            if current_location:  # Ensure a location has been identified before processing sensor data
+            if current_location:
                 match = temp_sensor_data_pattern.match(stripped_line)
                 if match:
-                    # Unpack the groups into the correct variables
                     sensor, value_str, crit_lo, major_lo, minor_lo, minor_hi, major_hi, crit_hi = match.groups()
 
                     try:
                         value = float(value_str)
-                        # Ensure None values are handled before float conversion
                         crit_lo = float(crit_lo) if crit_lo is not None and crit_lo not in ['NA', '-'] else None
                         major_lo = float(major_lo) if major_lo is not None and major_lo not in ['NA', '-'] else None
                         minor_lo = float(minor_lo) if minor_lo is not None and minor_lo not in ['NA', '-'] else None
@@ -861,28 +870,22 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
                         issue_found = False
                         issue_desc = []
 
-                        # Check critical low
                         if crit_lo is not None and value < crit_lo:
                             issue_desc.append(f"Critical Low (Value: {value}, Threshold: {crit_lo})")
                             issue_found = True
-                        # Check major low (only if not already critical low)
                         elif major_lo is not None and value < major_lo:
                             issue_desc.append(f"Major Low (Value: {value}, Threshold: {major_lo})")
                             issue_found = True
-                        # Check minor low (only if not already major/critical low)
                         elif minor_lo is not None and value < minor_lo:
                             issue_desc.append(f"Minor Low (Value: {value}, Threshold: {minor_lo})")
                             issue_found = True
 
-                        # Check critical high
                         if crit_hi is not None and value > crit_hi:
                             issue_desc.append(f"Critical High (Value: {value}, Threshold: {crit_hi})")
                             issue_found = True
-                        # Check major high (only if not already critical high)
                         elif major_hi is not None and value > major_hi:
                             issue_desc.append(f"Major High (Value: {value}, Threshold: {major_hi})")
                             issue_found = True
-                        # Check minor high (only if not already major/critical high)
                         elif minor_hi is not None and value > minor_hi:
                             issue_desc.append(f"Minor High (Value: {value}, Threshold: {minor_hi})")
                             issue_found = True
@@ -896,23 +899,19 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
                     except ValueError:
                         logger.warning(
                             f"Could not parse numeric values for temperature sensor '{sensor}' at '{current_location}'. Line: '{stripped_line}'")
-                        pass  # Skip this line if parsing fails
+                        pass
         elif current_section == "VOLTAGE":
-            # Check for location line within voltage block (e.g., "0/RP0/CPU0")
             location_match = location_line_pattern.match(stripped_line)
             if location_match:
                 current_location = location_match.group(1)
-                continue  # This line was just a location header
+                continue
 
-            # Skip the sensor header line within the voltage block (e.g., "Sensor Value Crit Minor Minor Crit")
             if re.match(r'^\s*Sensor\s+Value\s+Crit\s+Minor\s+Minor\s+Crit', stripped_line):
                 continue
 
-            # Process voltage sensor data
             if current_location:
                 match = voltage_sensor_data_pattern.match(stripped_line)
                 if match:
-                    # Groups: (Sensor Name), (Value), (Crit Lo), (Minor Lo), (Minor Hi), (Crit Hi - optional)
                     sensor, value_str, crit_lo, minor_lo, minor_hi, crit_hi = match.groups()
                     try:
                         value = float(value_str)
@@ -947,12 +946,10 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
                     except ValueError:
                         logger.warning(
                             f"Could not parse numeric values for voltage sensor '{sensor}' at '{current_location}'. Line: '{stripped_line}'")
-                        pass  # Skip this line if parsing fails
+                        pass
         elif current_section == "POWER_SUPPLY":
-            # Skip the header line for power supply section
             if re.match(r'^\s*Power\s+Module\s+Type\s+---Input----\s+---Output---\s+Status', stripped_line):
                 continue
-            # Also skip the sub-header line
             if re.match(r'^\s*Volts\s+A/B\s+Amps\s+A/B\s+Volts\s+Amps', stripped_line):
                 continue
 
@@ -1050,7 +1047,7 @@ def check_platform_and_serial_numbers(shell: paramiko.Channel,
                                       all_card_inventory_info: Dict[str, Dict[str, str]],
                                       all_cpu_locations_from_platform: List[str],
                                       ft_locations_from_platform: List[str],
-                                      cli_output_file=None):  # Moved to end
+                                      cli_output_file=None):
     logger.info(f"Retrieving Platform Status and Serial Numbers...")
     platform_output = execute_command_in_shell(shell, "show platform", "show platform", timeout=60,
                                                print_real_time_output=False, cli_output_file=cli_output_file)
@@ -1153,12 +1150,12 @@ def find_latest_precheck_file(hostname: str, output_directory: str, current_file
     latest_timestamp = None
 
     if not os.path.isdir(output_directory):
-        logger.debug(f"Output directory not found: {output_directory}")
+        logger.info(f"Output directory not found: {output_directory}")  # Changed to info
         return None
 
     for filename in os.listdir(output_directory):
         full_path = os.path.join(output_directory, filename)
-        if full_path == current_file_path:  # Skip the current file
+        if full_path == current_file_path:
             continue
 
         match = pattern.match(filename)
@@ -1179,18 +1176,13 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
     """
     Parses 'show interface summary' and 'show interface brief' outputs from a CLI log file.
     Returns a dictionary mapping interface names to their status from both commands.
-    Example:
-    {
-        "GigabitEthernet0/0/0/0": {"summary_status": "Up", "brief_status": "Up", "brief_protocol": "Up"},
-        ...
-    }
     """
     interface_statuses: Dict[str, Dict[str, str]] = {}
     content = ""
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        logger.debug(f"Successfully read content from {file_path}, length: {len(content)}")
+        logger.info(f"Successfully read content from {file_path}, length: {len(content)}")  # Changed to info
     except FileNotFoundError:
         logger.error(f"File not found: {file_path}")
         return {}
@@ -1198,7 +1190,6 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
         logger.error(f"Error reading file {file_path}: {e}")
         return {}
 
-    # Regex to find command sections, making it more robust
     command_section_pattern = re.compile(
         r"--- Command: (show interface (?:summary|brief)) ---\n(.*?)(?=\n--- Command:|\Z)", re.DOTALL)
 
@@ -1210,10 +1201,10 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
         output_section = match.group(2).strip()
         if command == "show interface summary":
             summary_output = output_section
-            logger.debug(f"Found 'show interface summary' section. Length: {len(summary_output)}")
+            logger.info(f"Found 'show interface summary' section. Length: {len(summary_output)}")  # Changed to info
         elif command == "show interface brief":
             brief_output = output_section
-            logger.debug(f"Found 'show interface brief' section. Length: {len(brief_output)}")
+            logger.info(f"Found 'show interface brief' section. Length: {len(brief_output)}")  # Changed to info
 
     if summary_output:
         pass
@@ -1232,7 +1223,8 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
                and line.strip()
         ]
 
-        logger.debug(f"Processing {len(brief_lines)} lines from 'show interface brief' after header filtering.")
+        logger.info(
+            f"Processing {len(brief_lines)} lines from 'show interface brief' after header filtering.")  # Changed to info
 
         for line in brief_lines:
             match = brief_line_pattern.match(line)
@@ -1248,14 +1240,12 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
                     "summary_status"] = brief_admin_status
                 interface_statuses.setdefault(intf_name, {})["brief_status"] = brief_admin_status
                 interface_statuses.setdefault(intf_name, {})["brief_protocol"] = brief_protocol_status
-                logger.debug(
-                    f"Parsed brief line: {intf_name} -> Admin: {brief_admin_status}, Protocol: {brief_protocol_status}")
             else:
-                logger.debug(f"Skipping brief line (no regex match): '{line}'")
+                logger.info(f"Skipping brief line (no regex match): '{line}'")  # Changed to info
     else:
-        logger.debug("No 'show interface brief' output found in file.")
+        logger.info("No 'show interface brief' output found in file.")  # Changed to info
 
-    logger.debug(f"Final parsed interface statuses from {file_path}: {interface_statuses}")
+    logger.info(f"Final parsed interface statuses from {file_path}: {interface_statuses}")  # Changed to info
     return interface_statuses
 
 
@@ -1332,7 +1322,7 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        logger.debug(f"Successfully read content from {file_path}, length: {len(content)}")
+        logger.info(f"Successfully read content from {file_path}, length: {len(content)}")  # Changed to info
     except FileNotFoundError:
         logger.error(f"File not found: {file_path}")
         return {}
@@ -1347,59 +1337,42 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
     match = command_section_pattern.search(content)
     if match:
         fpd_output_section = match.group(1).strip()
-        logger.debug(f"Found 'show hw-module fpd' section. Length: {len(fpd_output_section)}")
+        logger.info(f"Found 'show hw-module fpd' section. Length: {len(fpd_output_section)}")  # Changed to info
     else:
-        logger.debug("No 'show hw-module fpd' output found in file.")
+        logger.info("No 'show hw-module fpd' output found in file.")  # Changed to info
         return {}
 
-    # Corrected Regex for parsing a data line in 'show hw-module fpd'
-    # Groups:
-    # 1: Location
-    # 2: Card type
-    # 3: HWver
-    # 4: FPD device
-    # 5: ATR (optional, can be empty)
-    # 6: Status
-    # 7: Running version (can be empty)
-    # 8: Programd version (can be empty)
-    # 9: Reload Loc
     fpd_line_pattern = re.compile(
         r"^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S*?)\s*(\S+)\s+(\S*)\s+(\S*)\s+(\S+)\s*$"
     )
 
     lines = fpd_output_section.splitlines()
-    data_table_started = False # Renamed flag for clarity
+    data_table_started = False
     for line in lines:
         stripped_line = line.strip()
         if not stripped_line:
             continue
 
-        # Skip timestamps and prompts that might appear anywhere in the output section
         if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line) or \
-           re.match(r'^RP/\d+/\S+:\S+#', stripped_line) or \
-           re.escape("show hw-module fpd") in re.escape(stripped_line):
+                re.match(r'^RP/\d+/\S+:\S+#', stripped_line) or \
+                re.escape("show hw-module fpd") in re.escape(stripped_line):
             continue
 
-        # Detect the actual data table header line
-        # The 'FPD Versions' header is above the column headers, so we look for the column names.
         if "Location   Card type" in stripped_line and "HWver FPD device" in stripped_line:
             data_table_started = True
-            continue # Skip this header line itself
+            continue
 
-        # Detect the separator line immediately after the header
         if data_table_started and "--------------------------------" in stripped_line:
-            continue # Skip the separator line itself
+            continue
 
-        # Only process lines if the data table has clearly started (after header and separator)
         if not data_table_started:
             continue
 
-        # If we reach here, it's a potential data line
         match = fpd_line_pattern.match(stripped_line)
         if match:
             location = match.group(1)
             fpd_device = match.group(4)
-            status = match.group(6) # Status is still group 6 after ATR fix
+            status = match.group(6)
 
             key = (location, fpd_device)
             fpd_statuses[key] = {
@@ -1407,11 +1380,10 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
                 "FPD_Device": fpd_device,
                 "Status": status
             }
-            logger.debug(f"Parsed FPD line: {key} -> Status: {status}")
         else:
-            logger.debug(f"Skipping FPD line (no regex match): '{stripped_line}'")
+            logger.info(f"Skipping FPD line (no regex match): '{stripped_line}'")  # Changed to info
 
-    logger.debug(f"Final parsed FPD statuses from {file_path}: {fpd_statuses}")
+    logger.info(f"Final parsed FPD statuses from {file_path}: {fpd_statuses}")  # Changed to info
     return fpd_statuses
 
 
@@ -1459,7 +1431,7 @@ def compare_fpd_statuses(current_statuses: Dict[Tuple[str, str], Dict[str, str]]
         print("\n--- FPD Status Comparison Report ---")
         print(comparison_table)
         logger.warning("Please review the FPD status changes above.")
-        raise FpdStatusError("FPD status check failed. Differences detected.")  # Raise error if differences found
+        raise FpdStatusError("FPD status check failed. Differences detected.")
     else:
         logger.info(f"No FPD status differences detected between current and previous run.")
 
@@ -1498,6 +1470,7 @@ def main():
     session_log_file_handle = None
     section_statuses = {}
     hostname = "unknown_host"
+    chassis_model = "unknown_chassis"
 
     try:
         logger.info(f"Attempting to connect to {router_ip}...")
@@ -1516,6 +1489,9 @@ def main():
 
         hostname = get_hostname(shell)
         logger.info(f"Sanitized hostname for file paths: {hostname}")
+
+        chassis_model = get_chassis_model(shell, cli_output_file)
+        logger.info(f"Detected chassis model: {chassis_model}")
 
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         output_directory = os.path.join(os.getcwd(), hostname)
@@ -1546,7 +1522,7 @@ def main():
                            overall_script_failed, shell, all_card_inventory_info, all_cpu_locations_from_platform,
                            ft_locations_from_platform, cli_output_file)
         _run_section_check("Fabric Reachability Check", check_fabric_reachability, section_statuses,
-                           overall_script_failed, shell, cli_output_file)
+                           overall_script_failed, shell, cli_output_file, chassis_model=chassis_model)
         _run_section_check("Fabric Link Down Status Check", check_fabric_link_down_status, section_statuses,
                            overall_script_failed, shell, cli_output_file)
         _run_section_check("NPU Link Information Check", check_npu_link_info, section_statuses, overall_script_failed,
@@ -1565,7 +1541,6 @@ def main():
         _run_section_check("Interface Status Check", check_interface_status, section_statuses, overall_script_failed,
                            shell, cli_output_file)
 
-        # New FPD Status Check
         _run_section_check("HW Module FPD Status Check", check_hw_module_fpd_status, section_statuses,
                            overall_script_failed,
                            shell, cli_output_file)
@@ -1642,7 +1617,6 @@ def main():
             logger.info(f"No previous pre-check CLI output file found for {hostname}. Skipping interface comparison.")
         logger.info(f"Finished interface status comparison.")
 
-        # FPD Status Comparison Logic
         logger.info(f"Starting FPD status comparison...")
         if latest_previous_file:
             current_fpd_statuses = parse_fpd_status_from_cli_output(cli_output_path)
@@ -1652,7 +1626,7 @@ def main():
                 try:
                     compare_fpd_statuses(current_fpd_statuses, previous_fpd_statuses)
                 except FpdStatusError:
-                    overall_script_failed[0] = True  # Mark script as failed if FPD differences are found
+                    overall_script_failed[0] = True
             else:
                 logger.warning("Could not parse FPD statuses from one or both files. Skipping comparison.")
         else:
@@ -1671,6 +1645,7 @@ def main():
             session_log_file_handle.close()
 
         sys.stdout = original_stdout
+
 
 if __name__ == "__main__":
     main()

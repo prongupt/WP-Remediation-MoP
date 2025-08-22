@@ -1,5 +1,3 @@
-# 1-all_XR_pre_check_CLI.py This script runs the CLI commands for the MoP and analyses for anamolies
-
 import paramiko
 import time
 import getpass
@@ -494,7 +492,7 @@ def check_fabric_plane_stats(shell: paramiko.Channel, cli_output_file=None):
             if not stripped_line or re.match(r'Mon\s+\w+\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+',
                                              line.strip()) or re.match(r'RP/\d+/\S+#', line.strip()):
                 continue
-            parts = line.split()
+            parts = stripped_line.split()
             if len(parts) >= 6:
                 try:
                     plane_id = parts[0]
@@ -709,7 +707,7 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
             replacement_recommended = "Yes (Missing)"
             problematic_fan_trays.append({
                 "Fan Tray Location": ft_location,
-                "Detected Issues": "; ".join(issues),
+                "Detected Issues": "\n".join(issues), # Changed to use newline
                 "Replacement Recommended": replacement_recommended
             })
             continue
@@ -792,7 +790,7 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
         if issues:
             problematic_fan_trays.append({
                 "Fan Tray Location": ft_location,
-                "Detected Issues": "; ".join(issues),
+                "Detected Issues": "\n".join(issues), # Changed to use newline
                 "Replacement Recommended": replacement_recommended
             })
     if problematic_fan_trays:
@@ -1178,7 +1176,7 @@ def find_latest_precheck_file(hostname: str, output_directory: str, current_file
     latest_timestamp = None
 
     if not os.path.isdir(output_directory):
-        logger.info(f"Output directory not found: {output_directory}")  # Changed to info
+        logger.info(f"Output directory not found: {output_directory}")
         return None
 
     for filename in os.listdir(output_directory):
@@ -1210,7 +1208,7 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        logger.info(f"Successfully read content from {file_path}, length: {len(content)}")  # Changed to info
+        logger.debug(f"Successfully read content from {file_path}, length: {len(content)}") # Changed to debug
     except FileNotFoundError:
         logger.error(f"File not found: {file_path}")
         return {}
@@ -1229,10 +1227,10 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
         output_section = match.group(2).strip()
         if command == "show interface summary":
             summary_output = output_section
-            logger.info(f"Found 'show interface summary' section. Length: {len(summary_output)}")  # Changed to info
+            logger.debug(f"Found 'show interface summary' section. Length: {len(summary_output)}") # Changed to debug
         elif command == "show interface brief":
             brief_output = output_section
-            logger.info(f"Found 'show interface brief' section. Length: {len(brief_output)}")  # Changed to info
+            logger.debug(f"Found 'show interface brief' section. Length: {len(brief_output)}") # Changed to debug
 
     if summary_output:
         pass
@@ -1251,8 +1249,8 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
                and line.strip()
         ]
 
-        logger.info(
-            f"Processing {len(brief_lines)} lines from 'show interface brief' after header filtering.")  # Changed to info
+        logger.debug(
+            f"Processing {len(brief_lines)} lines from 'show interface brief' after header filtering.") # Changed to debug
 
         for line in brief_lines:
             match = brief_line_pattern.match(line)
@@ -1269,11 +1267,11 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
                 interface_statuses.setdefault(intf_name, {})["brief_status"] = brief_admin_status
                 interface_statuses.setdefault(intf_name, {})["brief_protocol"] = brief_protocol_status
             else:
-                logger.info(f"Skipping brief line (no regex match): '{line}'")  # Changed to info
+                logger.debug(f"Skipping brief line (no regex match): '{line}'") # Changed to debug
     else:
-        logger.info("No 'show interface brief' output found in file.")  # Changed to info
+        logger.debug("No 'show interface brief' output found in file.") # Changed to debug
 
-    logger.info(f"Final parsed interface statuses from {file_path}: {interface_statuses}")  # Changed to info
+    logger.debug(f"Final parsed interface statuses from {file_path}: {interface_statuses}") # Changed to debug
     return interface_statuses
 
 
@@ -1337,7 +1335,7 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
         print(comparison_table)
         logger.warning("Please review the interface status changes above.")
     else:
-        logger.info(f"No interface status differences detected between current and previous run.")
+        logger.debug(f"No interface status differences detected between current and previous run.") # Changed to debug
 
 
 def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Dict[str, str]]:
@@ -1350,7 +1348,7 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        logger.info(f"Successfully read content from {file_path}, length: {len(content)}")  # Changed to info
+        logger.debug(f"Successfully read content from {file_path}, length: {len(content)}") # Changed to debug
     except FileNotFoundError:
         logger.error(f"File not found: {file_path}")
         return {}
@@ -1365,9 +1363,9 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
     match = command_section_pattern.search(content)
     if match:
         fpd_output_section = match.group(1).strip()
-        logger.info(f"Found 'show hw-module fpd' section. Length: {len(fpd_output_section)}")  # Changed to info
+        logger.debug(f"Found 'show hw-module fpd' section. Length: {len(fpd_output_section)}") # Changed to debug
     else:
-        logger.info("No 'show hw-module fpd' output found in file.")  # Changed to info
+        logger.debug("No 'show hw-module fpd' output found in file.") # Changed to debug
         return {}
 
     fpd_line_pattern = re.compile(
@@ -1409,9 +1407,9 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
                 "Status": status
             }
         else:
-            logger.info(f"Skipping FPD line (no regex match): '{stripped_line}'")  # Changed to info
+            logger.debug(f"Skipping FPD line (no regex match): '{stripped_line}'") # Changed to debug
 
-    logger.info(f"Final parsed FPD statuses from {file_path}: {fpd_statuses}")  # Changed to info
+    logger.debug(f"Final parsed FPD statuses from {file_path}: {fpd_statuses}") # Changed to debug
     return fpd_statuses
 
 
@@ -1461,7 +1459,7 @@ def compare_fpd_statuses(current_statuses: Dict[Tuple[str, str], Dict[str, str]]
         logger.warning("Please review the FPD status changes above.")
         raise FpdStatusError("FPD status check failed. Differences detected.")
     else:
-        logger.info(f"No FPD status differences detected between current and previous run.")
+        logger.debug(f"No FPD status differences detected between current and previous run.") # Changed to debug
 
 
 def check_hw_module_fpd_status(shell: paramiko.Channel, cli_output_file=None):

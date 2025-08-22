@@ -707,7 +707,7 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
             replacement_recommended = "Yes (Missing)"
             problematic_fan_trays.append({
                 "Fan Tray Location": ft_location,
-                "Detected Issues": "\n".join(issues), # Changed to use newline
+                "Detected Issues": "\n".join(issues),
                 "Replacement Recommended": replacement_recommended
             })
             continue
@@ -715,8 +715,8 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
         input_voltage_mv = None
         input_current_ma = None
 
-        # FIX 1: Correct regex for Input_Vol
-        voltage_line_match = re.search(r'Input_Vol\s+(\d+)', output)
+        # MODIFIED LOGIC: Check for both Input_Vol and Input Voltage
+        voltage_line_match = re.search(r'(?:Input_Vol|Input Voltage)\s+(\d+)', output)
         if voltage_line_match:
             voltage_str = voltage_line_match.group(1).strip()
             if voltage_str == "-":
@@ -734,8 +734,8 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
         else:
             issues.append("Input Voltage reading not found.")
 
-        # FIX 2: Correct regex for Input_Cur
-        current_line_match = re.search(r'Input_Cur\s+(\d+)', output)
+        # MODIFIED LOGIC: Check for both Input_Cur and Input Current
+        current_line_match = re.search(r'(?:Input_Cur|Input Current)\s+(\d+)', output)
         if current_line_match:
             current_str = current_line_match.group(1).strip()
             if current_str == "-":
@@ -790,7 +790,7 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
         if issues:
             problematic_fan_trays.append({
                 "Fan Tray Location": ft_location,
-                "Detected Issues": "\n".join(issues), # Changed to use newline
+                "Detected Issues": "\n".join(issues),
                 "Replacement Recommended": replacement_recommended
             })
     if problematic_fan_trays:
@@ -1208,7 +1208,7 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        logger.debug(f"Successfully read content from {file_path}, length: {len(content)}") # Changed to debug
+        logger.debug(f"Successfully read content from {file_path}, length: {len(content)}")
     except FileNotFoundError:
         logger.error(f"File not found: {file_path}")
         return {}
@@ -1227,10 +1227,10 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
         output_section = match.group(2).strip()
         if command == "show interface summary":
             summary_output = output_section
-            logger.debug(f"Found 'show interface summary' section. Length: {len(summary_output)}") # Changed to debug
+            logger.debug(f"Found 'show interface summary' section. Length: {len(summary_output)}")
         elif command == "show interface brief":
             brief_output = output_section
-            logger.debug(f"Found 'show interface brief' section. Length: {len(brief_output)}") # Changed to debug
+            logger.debug(f"Found 'show interface brief' section. Length: {len(brief_output)}")
 
     if summary_output:
         pass
@@ -1250,7 +1250,7 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
         ]
 
         logger.debug(
-            f"Processing {len(brief_lines)} lines from 'show interface brief' after header filtering.") # Changed to debug
+            f"Processing {len(brief_lines)} lines from 'show interface brief' after header filtering.")
 
         for line in brief_lines:
             match = brief_line_pattern.match(line)
@@ -1267,11 +1267,11 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
                 interface_statuses.setdefault(intf_name, {})["brief_status"] = brief_admin_status
                 interface_statuses.setdefault(intf_name, {})["brief_protocol"] = brief_protocol_status
             else:
-                logger.debug(f"Skipping brief line (no regex match): '{line}'") # Changed to debug
+                logger.debug(f"Skipping brief line (no regex match): '{line}'")
     else:
-        logger.debug("No 'show interface brief' output found in file.") # Changed to debug
+        logger.debug("No 'show interface brief' output found in file.")
 
-    logger.debug(f"Final parsed interface statuses from {file_path}: {interface_statuses}") # Changed to debug
+    logger.debug(f"Final parsed interface statuses from {file_path}: {interface_statuses}")
     return interface_statuses
 
 
@@ -1335,7 +1335,7 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
         print(comparison_table)
         logger.warning("Please review the interface status changes above.")
     else:
-        logger.debug(f"No interface status differences detected between current and previous run.") # Changed to debug
+        logger.debug(f"No interface status differences detected between current and previous run.")
 
 
 def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Dict[str, str]]:
@@ -1348,7 +1348,7 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        logger.debug(f"Successfully read content from {file_path}, length: {len(content)}") # Changed to debug
+        logger.debug(f"Successfully read content from {file_path}, length: {len(content)}")
     except FileNotFoundError:
         logger.error(f"File not found: {file_path}")
         return {}
@@ -1363,9 +1363,9 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
     match = command_section_pattern.search(content)
     if match:
         fpd_output_section = match.group(1).strip()
-        logger.debug(f"Found 'show hw-module fpd' section. Length: {len(fpd_output_section)}") # Changed to debug
+        logger.debug(f"Found 'show hw-module fpd' section. Length: {len(fpd_output_section)}")
     else:
-        logger.debug("No 'show hw-module fpd' output found in file.") # Changed to debug
+        logger.debug("No 'show hw-module fpd' output found in file.")
         return {}
 
     fpd_line_pattern = re.compile(
@@ -1407,9 +1407,9 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
                 "Status": status
             }
         else:
-            logger.debug(f"Skipping FPD line (no regex match): '{stripped_line}'") # Changed to debug
+            logger.debug(f"Skipping FPD line (no regex match): '{stripped_line}'")
 
-    logger.debug(f"Final parsed FPD statuses from {file_path}: {fpd_statuses}") # Changed to debug
+    logger.debug(f"Final parsed FPD statuses from {file_path}: {fpd_statuses}")
     return fpd_statuses
 
 
@@ -1459,7 +1459,7 @@ def compare_fpd_statuses(current_statuses: Dict[Tuple[str, str], Dict[str, str]]
         logger.warning("Please review the FPD status changes above.")
         raise FpdStatusError("FPD status check failed. Differences detected.")
     else:
-        logger.debug(f"No FPD status differences detected between current and previous run.") # Changed to debug
+        logger.debug(f"No FPD status differences detected between current and previous run.")
 
 
 def check_hw_module_fpd_status(shell: paramiko.Channel, cli_output_file=None):

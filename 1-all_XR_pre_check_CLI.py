@@ -713,9 +713,12 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
                 "Replacement Recommended": replacement_recommended
             })
             continue
+
         input_voltage_mv = None
         input_current_ma = None
-        voltage_line_match = re.search(r'Input Voltage\s+(\d+)', output)
+
+        # FIX 1: Correct regex for Input_Vol
+        voltage_line_match = re.search(r'Input_Vol\s+(\d+)', output)
         if voltage_line_match:
             voltage_str = voltage_line_match.group(1).strip()
             if voltage_str == "-":
@@ -732,7 +735,9 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
                     issues.append(f"Invalid Sensor Read: Input Voltage '{voltage_str}' is not a valid number.")
         else:
             issues.append("Input Voltage reading not found.")
-        current_line_match = re.search(r'Input Current\s+(\d+)', output)
+
+        # FIX 2: Correct regex for Input_Cur
+        current_line_match = re.search(r'Input_Cur\s+(\d+)', output)
         if current_line_match:
             current_str = current_line_match.group(1).strip()
             if current_str == "-":
@@ -745,6 +750,28 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
                     issues.append(f"Invalid Sensor Read: Input Current '{current_str}' is not a valid number.")
         else:
             issues.append("Input Current reading not found.")
+
+        # NEW LOGIC: Check for "Power Used" as "-" and overall status
+        # Regex to capture Allocated, Used, and Status from the power section for the specific fan tray
+        # Example line:    0/FT2        8808-FAN                687         -            ON
+        power_line_match = re.search(
+            r'^\s*' + re.escape(ft_location) + r'\s+\S+\s+(\S+)\s+(\S+)\s+(ON|OFF|UNPOWERED|POWERED_OFF|SHUTDOWN)',
+            output, re.MULTILINE
+        )
+        if power_line_match:
+            # power_allocated = power_line_match.group(1) # Not directly used for flagging, but captured
+            power_used = power_line_match.group(2)
+            status = power_line_match.group(3)
+
+            if power_used == "-":
+                issues.append("Power Used is reported as '-' (Not Available/Operational).")
+
+            if status != "ON":
+                issues.append(f"Fan Tray Status is '{status}' (Expected: ON).")
+        else:
+            issues.append("Could not parse Power Used/Status information for fan tray.")
+
+        # Rest of your existing logic for FAN_IMPACTED_VERSIONS remains the same
         fan_tray_inventory = all_card_inventory_info.get(ft_location, {})
         pid = fan_tray_inventory.get("PID", "N/A")
         vid = fan_tray_inventory.get("VID", "N/A")
@@ -761,6 +788,7 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
                 replacement_recommended = f"Unknown (PID: {pid}, VID: {vid} not in known versions)"
         else:
             replacement_recommended = f"Unknown (PID: {pid} not in known impacted list)"
+
         if issues:
             problematic_fan_trays.append({
                 "Fan Tray Location": ft_location,

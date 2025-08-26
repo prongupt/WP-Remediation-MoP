@@ -118,7 +118,7 @@ It will also report any changes in Serial Numbers for RP/LC/FC
                              +------------------------------+---------------------+
                              | Any problems in post-checks? |                     |
                              +------------------------------+                     |
-                                         | Yes               	                     | No
+                                         | Yes               	                   | No
                                          v                     	                  v
                             +-----------------------------+       +---------------------------+
                             | Troubleshoot as needed      |       |        Process Complete!  |

@@ -24,9 +24,8 @@ START
                                        v
         /------------------------------------------------------------------\
         |            +---------------------------------------+             |
-        |            | Troubleshoot/Remediate degraded links |             |
-        |            | (If errors from previous steps or    |             |
-        |            |  from 2-all_XR_python_pre_check.py)   |             |
+        |            | Gather baseline of faulty / degraded  |             |
+        |            | links in the system                   |             |
         |            +---------------------------------------+             |
         |                            |                                     |
         |                            v                                     |
@@ -73,4 +72,4 @@ START
                                    |      END
                                    |
                                    +------------------------------------->
-                                   (Loop back to "Troubleshoot/Remediate degraded links" box)
+                                   (Loop back to previous step after remediating faulty / bad links)

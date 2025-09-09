@@ -242,7 +242,8 @@ def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None, cha
 
     # Check if the chassis model indicates an 8800 series (e.g., "8808", "8818", or "NCS-88XX")
     if chassis_model.startswith("88") or "NCS-88" in chassis_model:
-        valid_reach_masks.extend(["8/8", "16/16"])
+        # Added "6/6" as a valid reach mask for 8800 series chassis
+        valid_reach_masks.extend(["6/6", "8/8", "16/16"])
 
     for line in lines:
         if "----------------------------------------------------------------------------------------------" in line:
@@ -532,9 +533,9 @@ def check_asic_errors(shell: paramiko.Channel, cli_output_file=None):
     for i, line in enumerate(lines):
         stripped_line = line.strip()
         if not stripped_line: continue
-        if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line) or \
-                re.match(r'^RP/\d+/\S+:\S+#', stripped_line) or \
-                re.escape(command.strip()) in re.escape(stripped_line): continue
+        if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line): continue
+        if re.match(r'^RP/\d+/\S+:\S+#', stripped_line): continue
+        if re.escape(command.strip()) in re.escape(stripped_line): continue
         npu_info_match = re.match(r'^\s*\d+,\s*\S+,\s*(\d+/\S+),\s*npu\[(\d+)\]', stripped_line)
         error_count_match = re.search(r'Error count\s*:\s*(\d+)', stripped_line)
         if npu_info_match:
@@ -1165,39 +1166,6 @@ def _run_section_check(section_name: str, check_func: callable, section_statuses
         print()
 
 
-def find_latest_precheck_file(hostname: str, output_directory: str, current_file_path: str) -> Optional[
-    str]:
-    """
-    Finds the path to the most recent pre-check CLI output file for a given hostname,
-    excluding the current file being generated.
-    """
-    pattern = re.compile(rf"^{re.escape(hostname)}_pre_check_cli_output_(\d{{8}}_\d{{6}})\.txt$")
-    latest_file = None
-    latest_timestamp = None
-
-    if not os.path.isdir(output_directory):
-        logger.info(f"Output directory not found: {output_directory}")
-        return None
-
-    for filename in os.listdir(output_directory):
-        full_path = os.path.join(output_directory, filename)
-        if full_path == current_file_path:
-            continue
-
-        match = pattern.match(filename)
-        if match:
-            timestamp_str = match.group(1)
-            try:
-                current_timestamp = datetime.datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
-                if latest_timestamp is None or current_timestamp > latest_timestamp:
-                    latest_timestamp = current_timestamp
-                    latest_file = full_path
-            except ValueError:
-                logger.warning(f"Could not parse timestamp from filename: {filename}")
-                continue
-    return latest_file
-
-
 def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str, str]]:
     """
     Parses 'show interface summary' and 'show interface brief' outputs from a CLI log file.
@@ -1275,69 +1243,6 @@ def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str
     return interface_statuses
 
 
-def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
-                               previous_statuses: Dict[str, Dict[str, str]]):
-    """
-    Compares current and previous interface statuses and prints differences.
-    """
-    differences_found = False
-    comparison_table = PrettyTable()
-    comparison_table.field_names = ["Interface", "Change Type", "Previous Status", "Current Status"]
-    comparison_table.align = "l"
-
-    all_interfaces = sorted(list(set(current_statuses.keys()) | set(previous_statuses.keys())))
-
-    for intf in all_interfaces:
-        current_data = current_statuses.get(intf, {})
-        previous_data = previous_statuses.get(intf, {})
-
-        if intf not in previous_statuses and intf in current_statuses:
-            summary_stat = current_data.get("summary_status", "N/A")
-            brief_adm_stat = current_data.get("brief_status", "N/A")
-            brief_prot_stat = current_data.get("brief_protocol", "N/A")
-            comparison_table.add_row([intf, "Newly Appeared", "N/A",
-                                      f"Summary: {summary_stat}, Brief: {brief_adm_stat}/{brief_prot_stat}"])
-            differences_found = True
-            continue
-
-        if intf in previous_statuses and intf not in current_statuses:
-            summary_stat = previous_data.get("summary_status", "N/A")
-            brief_adm_stat = previous_data.get("brief_status", "N/A")
-            brief_prot_stat = previous_data.get("brief_protocol", "N/A")
-            comparison_table.add_row([intf, "Disappeared",
-                                      f"Summary: {summary_stat}, Brief: {brief_adm_stat}/{brief_prot_stat}",
-                                      "N/A"])
-            differences_found = True
-            continue
-
-        if intf in current_statuses and intf in previous_statuses:
-            current_sum = current_data.get("summary_status", "N/A")
-            prev_sum = previous_data.get("summary_status", "N/A")
-            if current_sum != prev_sum:
-                comparison_table.add_row([intf, "Summary Status Change", prev_sum, current_sum])
-                differences_found = True
-
-            current_brief_adm = current_data.get("brief_status", "N/A")
-            prev_brief_adm = previous_data.get("brief_status", "N/A")
-            if current_brief_adm != prev_brief_adm:
-                comparison_table.add_row([intf, "Brief Admin Status Change", prev_brief_adm, current_brief_adm])
-                differences_found = True
-
-            current_brief_prot = current_data.get("brief_protocol", "N/A")
-            prev_brief_prot = previous_data.get("brief_protocol", "N/A")
-            if current_brief_prot != prev_brief_prot:
-                comparison_table.add_row([intf, "Brief Protocol Status Change", prev_brief_prot, current_brief_prot])
-                differences_found = True
-
-    if differences_found:
-        logger.warning(f"!!! INTERFACE STATUS DIFFERENCES DETECTED BETWEEN CURRENT AND PREVIOUS RUN !!!")
-        print("\n--- Interface Status Comparison Report ---")
-        print(comparison_table)
-        logger.warning("Please review the interface status changes above.")
-    else:
-        logger.debug(f"No interface status differences detected between current and previous run.")
-
-
 def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Dict[str, str]]:
     """
     Parses 'show hw-module fpd' output from a CLI log file.
@@ -1369,7 +1274,7 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
         return {}
 
     fpd_line_pattern = re.compile(
-        r"^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S*?)\s*(\S+)\s+(\S*)\s+(\S*)\s+(\S+)\s*$"
+        r"^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S*?)\s*(\S+)\s+(\S+)\s+(\S*)\s+(\S*)\s+(\S+)\s*$"
     )
 
     lines = fpd_output_section.splitlines()
@@ -1411,55 +1316,6 @@ def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Di
 
     logger.debug(f"Final parsed FPD statuses from {file_path}: {fpd_statuses}")
     return fpd_statuses
-
-
-def compare_fpd_statuses(current_statuses: Dict[Tuple[str, str], Dict[str, str]],
-                         previous_statuses: Dict[Tuple[str, str], Dict[str, str]]):
-    """
-    Compares current and previous FPD statuses and prints differences for 'Status' and 'FPD Device'.
-    """
-    differences_found = False
-    comparison_table = PrettyTable()
-    comparison_table.field_names = ["Location", "FPD Device", "Change Type", "Previous Status", "Current Status"]
-    comparison_table.align = "l"
-
-    all_fpd_keys = sorted(list(set(current_statuses.keys()) | set(previous_statuses.keys())))
-
-    for key in all_fpd_keys:
-        current_data = current_statuses.get(key, {})
-        previous_data = previous_statuses.get(key, {})
-
-        location, fpd_device = key
-
-        if key not in previous_statuses and key in current_statuses:
-            current_status = current_data.get("Status", "N/A")
-            comparison_table.add_row([location, fpd_device, "Newly Appeared", "N/A", current_status])
-            differences_found = True
-            continue
-
-        if key in previous_statuses and key not in current_statuses:
-            previous_status = previous_data.get("Status", "N/A")
-            comparison_table.add_row([location, fpd_device, "Disappeared", previous_status, "N/A"])
-            differences_found = True
-            continue
-
-        if key in current_statuses and key in previous_statuses:
-            current_status_val = current_data.get("Status", "N/A")
-            previous_status_val = previous_data.get("Status", "N/A")
-
-            if current_status_val != previous_status_val:
-                comparison_table.add_row(
-                    [location, fpd_device, "Status Change", previous_status_val, current_status_val])
-                differences_found = True
-
-    if differences_found:
-        logger.warning(f"!!! FPD STATUS DIFFERENCES DETECTED BETWEEN CURRENT AND PREVIOUS RUN !!!")
-        print("\n--- FPD Status Comparison Report ---")
-        print(comparison_table)
-        logger.warning("Please review the FPD status changes above.")
-        raise FpdStatusError("FPD status check failed. Differences detected.")
-    else:
-        logger.debug(f"No FPD status differences detected between current and previous run.")
 
 
 def check_hw_module_fpd_status(shell: paramiko.Channel, cli_output_file=None):
@@ -1626,38 +1482,6 @@ def main():
         if cli_output_file:
             cli_output_file.close()
             logger.info(f"CLI output saved to {cli_output_path}")
-
-        logger.info(f"Starting interface status comparison...")
-        latest_previous_file = find_latest_precheck_file(hostname, output_directory, cli_output_path)
-
-        if latest_previous_file:
-            logger.info(f"Found previous pre-check file: {latest_previous_file}")
-            current_interface_statuses = parse_interface_status_from_cli_output(cli_output_path)
-            previous_interface_statuses = parse_interface_status_from_cli_output(latest_previous_file)
-
-            if current_interface_statuses or previous_interface_statuses:
-                compare_interface_statuses(current_interface_statuses, previous_interface_statuses)
-            else:
-                logger.warning("Could not parse interface statuses from one or both files. Skipping comparison.")
-        else:
-            logger.info(f"No previous pre-check CLI output file found for {hostname}. Skipping interface comparison.")
-        logger.info(f"Finished interface status comparison.")
-
-        logger.info(f"Starting FPD status comparison...")
-        if latest_previous_file:
-            current_fpd_statuses = parse_fpd_status_from_cli_output(cli_output_path)
-            previous_fpd_statuses = parse_fpd_status_from_cli_output(latest_previous_file)
-
-            if current_fpd_statuses or previous_fpd_statuses:
-                try:
-                    compare_fpd_statuses(current_fpd_statuses, previous_fpd_statuses)
-                except FpdStatusError:
-                    overall_script_failed[0] = True
-            else:
-                logger.warning("Could not parse FPD statuses from one or both files. Skipping comparison.")
-        else:
-            logger.info(f"No previous pre-check CLI output file found for {hostname}. Skipping FPD comparison.")
-        logger.info(f"Finished FPD status comparison.")
 
         print_final_summary_table(section_statuses)
 

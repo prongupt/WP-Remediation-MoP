@@ -73,6 +73,6 @@
            | Yes                                              | No
            v                                                  v
 +-----------------------------+               +---------------------------+
-| Return to Step 3            |               |        Process Complete!  |
+| Return to previous step     |               |        Process Complete!  |
 | (Troubleshoot / Remediate)  |               +---------------------------+
 +-----------------------------+

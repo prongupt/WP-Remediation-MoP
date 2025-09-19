@@ -5,7 +5,7 @@ import paramiko
 
 remote_path = '/misc/disk1/'
 # Use the Downloads folder path with the file pattern
-local_file_pattern = os.path.expanduser('~/Downloads/monitor*')
+local_file_pattern = os.path.expanduser('/Users/prongupt/Downloads/monitor_8800_system_v2_3*')
 
 
 def sftp_upload_files():

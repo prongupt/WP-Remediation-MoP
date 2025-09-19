@@ -6,16 +6,18 @@ import logging
 import os
 from typing import Dict
 
-# Import all common functionalities from common_utils.py
-from common_utils import (
-    SSHConnectionError, RouterCommandError, ScriptExecutionError, DataplaneError, ShowTechError, AsicErrorShowError,
-    colorful_countdown_timer, read_and_print_realtime, execute_command_in_shell,
-    run_script_list_phase, get_hostname, parse_script_output_for_errors,
-    format_and_print_error_report, run_dataplane_monitor_phase, run_show_tech_phase,  # <--- ADDED run_show_tech_phase
-    run_clear_asic_counters, print_final_summary,  # <--- ADDED run_clear_asic_counters
+# Import the entire module to access its global variables
+import utils_7_3_5_common
+
+# Import specific functionalities from utils_7_3_5_common.py
+from utils_7_3_5_common import (
+    SSHConnectionError, RouterCommandError, ScriptExecutionError, DataplaneError,
+    colorful_countdown_timer, execute_command_in_shell,
+    get_hostname, run_dataplane_monitor_phase, execute_script_phase,
+    print_final_summary,
     SSH_TIMEOUT_SECONDS, DATAPLANE_MONITOR_TIMEOUT_SECONDS, WAIT_TIME_MINUTES,
-    COUNTDOWN_DURATION_MINUTES,
-    session_log_file_console_mirror, session_log_file_raw_output  # Import global variables
+    # This might become unused if the countdown is removed entirely
+    # Import global variables
 )
 
 # --- Initial Logging Configuration (temporary, will be reconfigured after hostname) ---
@@ -27,9 +29,9 @@ logging.basicConfig(
     ]
 )
 
-# --- Main execution block for Script 2 (Steps f-j) ---
+# --- Main execution block for Script 1 (Steps a-e) ---
 if __name__ == "__main__":
-    logging.info(f"--- IOS-XR Router Automation Script - Part 2 (Steps f-j) ---")
+    logging.info(f"--- IOS-XR Router Automation Script - Part 1 (Steps a-e) ---")
 
     # --- Router details (prompted) ---
     ROUTER_IP = input(f"Enter Router IP_add / Host: ")
@@ -84,8 +86,7 @@ if __name__ == "__main__":
 
     # --- Reconfigure Application Logging to the new directory ---
     timestamp_for_app_log = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    app_log_filename = os.path.join(router_log_dir,
-                                    f"{hostname_for_log}_automation_7_3_5_log_{timestamp_for_app_log}_part2.log")  # Added _part2
+    app_log_filename = os.path.join(router_log_dir, f"{hostname_for_log}_automation_7_3_5_log_{timestamp_for_app_log}.log")
 
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
@@ -101,33 +102,28 @@ if __name__ == "__main__":
 
     # --- Open Session Log Files in the new directory ---
     timestamp_for_session_logs = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    console_mirror_filename = os.path.join(router_log_dir,
-                                           f"{hostname_for_log}_post_check_7_3_5_session_log_{timestamp_for_session_logs}_part2.txt")  # Added _part2
-    raw_output_filename = os.path.join(router_log_dir,
-                                       f"{hostname_for_log}_post_check7_3_5_outputs_{timestamp_for_session_logs}_part2.txt")  # Added _part2
+    console_mirror_filename = os.path.join(router_log_dir, f"{hostname_for_log}_post_check_7_3_5_session_log_{timestamp_for_session_logs}.txt")
+    raw_output_filename = os.path.join(router_log_dir, f"{hostname_for_log}_post_check7_3_5_outputs_{timestamp_for_session_logs}.txt")
 
     try:
-        # Assign to the global variable imported from common_utils
-        import common_utils
-
-        common_utils.session_log_file_console_mirror = open(console_mirror_filename, 'w', encoding='utf-8')
+        # Assign to the global variable imported from utils_7_3_5_common
+        utils_7_3_5_common.session_log_file_console_mirror = open(console_mirror_filename, 'w', encoding='utf-8')
         logging.info(f"Console mirror session output will be logged to: {console_mirror_filename}")
     except IOError as e:
         logging.error(
             f"Could not open console mirror session log file {console_mirror_filename}: {e}. Console mirror output will not be logged to file.")
-        common_utils.session_log_file_console_mirror = None
+        utils_7_3_5_common.session_log_file_console_mirror = None
 
     try:
-        # Assign to the global variable imported from common_utils
-        common_utils.session_log_file_raw_output = open(raw_output_filename, 'w', encoding='utf-8')
+        # Assign to the global variable imported from utils_7_3_5_common
+        utils_7_3_5_common.session_log_file_raw_output = open(raw_output_filename, 'w', encoding='utf-8')
         logging.info(f"Raw SSH output will be logged to: {raw_output_filename}")
     except IOError as e:
         logging.error(
             f"Could not open raw SSH output log file {raw_output_filename}: {e}. Raw SSH output will not be logged to file.")
-        common_utils.session_log_file_raw_output = None
+        utils_7_3_5_common.session_log_file_raw_output = None
 
     # --- List of scripts to run (hardcoded) ---
-    # This list is included for consistency but not directly used in steps f-j
     scripts_to_run = [
         "monitor_8800_system_v2_3_msft_bash_group0.py",
         "monitor_8800_system_v2_3_msft_bash_group1.py",
@@ -139,70 +135,69 @@ if __name__ == "__main__":
     script_aborted = False
 
     try:
-        # f) Monitor dataplane
+        # a) Dummy yes
         logging.info(f"\n{'#' * 70}")
-        logging.info("### Step f: Second Dataplane Monitor ###")
+        logging.info("### Step a: Running scripts with '--dummy' yes ###")
         try:
-            run_dataplane_monitor_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, "SECOND", SSH_TIMEOUT_SECONDS,
-                                        DATAPLANE_MONITOR_TIMEOUT_SECONDS)
-            results_summary["Step f"] = "Second Dataplane Monitor: Success"
-            logging.info("Second Dataplane Monitor completed successfully.")
-        except (SSHConnectionError, RouterCommandError, DataplaneError) as e:
-            results_summary["Step f"] = f"Second Dataplane Monitor: Failed - {e}"
-            logging.critical(f"Second Dataplane Monitor failed: {e}")
+            execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run, "'--dummy' yes",
+                                 SSH_TIMEOUT_SECONDS)
+            results_summary["Step a"] = "Dummy Yes: Success"
+            logging.info("Dummy yes phase completed successfully.")
+        except (SSHConnectionError, RouterCommandError, ScriptExecutionError) as e:
+            results_summary["Step a"] = f"Dummy Yes: Failed - {e}"
+            logging.critical(f"Dummy yes phase failed: {e}")
             script_aborted = True
             raise
 
-        # g) Wait time of 20 minutes
+        # b) Monitor dataplane
         logging.info(f"\n{'#' * 70}")
-        logging.info(f"### Step g: Second {WAIT_TIME_MINUTES}-minute Wait Time ###")
+        logging.info("### Step b: First Dataplane Monitor ###")
+        try:
+            run_dataplane_monitor_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, "FIRST", SSH_TIMEOUT_SECONDS,
+                                        DATAPLANE_MONITOR_TIMEOUT_SECONDS)
+            results_summary["Step b"] = "First Dataplane Monitor: Success"
+            logging.info("First Dataplane Monitor completed successfully.")
+        except (SSHConnectionError, RouterCommandError, DataplaneError) as e:
+            results_summary["Step b"] = f"First Dataplane Monitor: Failed - {e}"
+            logging.critical(f"First Dataplane Monitor failed: {e}")
+            script_aborted = True
+            raise
+
+        # c) Wait time of 20 minutes
+        logging.info(f"\n{'#' * 70}")
+        logging.info(f"### Step c: {WAIT_TIME_MINUTES}-minute Wait Time ###")
         try:
             colorful_countdown_timer(WAIT_TIME_MINUTES * 60)
-            results_summary["Step g"] = f"Second {WAIT_TIME_MINUTES}-minute Wait: Success"
-            logging.info(f"Second {WAIT_TIME_MINUTES}-minute wait completed.")
+            results_summary["Step c"] = f"{WAIT_TIME_MINUTES}-minute Wait: Success"
+            logging.info(f"{WAIT_TIME_MINUTES}-minute wait completed.")
         except Exception as e:
-            results_summary["Step g"] = f"Second {WAIT_TIME_MINUTES}-minute Wait: Failed - {e}"
-            logging.critical(f"Second {WAIT_TIME_MINUTES}-minute wait failed: {e}")
+            results_summary["Step c"] = f"{WAIT_TIME_MINUTES}-minute Wait: Failed - {e}"
+            logging.critical(f"{WAIT_TIME_MINUTES}-minute wait failed: {e}")
             script_aborted = True
             raise
 
-        # h) Monitor dataplane
+        # d) Dummy no
         logging.info(f"\n{'#' * 70}")
-        logging.info("### Step h: Third Dataplane Monitor ###")
+        logging.info("### Step d: Running scripts with '--dummy' no ###")
         try:
-            run_dataplane_monitor_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, "THIRD", SSH_TIMEOUT_SECONDS,
-                                        DATAPLANE_MONITOR_TIMEOUT_SECONDS)
-            results_summary["Step h"] = "Third Dataplane Monitor: Success"
-            logging.info("Third Dataplane Monitor completed successfully.")
-        except (SSHConnectionError, RouterCommandError, DataplaneError) as e:
-            results_summary["Step h"] = f"Third Dataplane Monitor: Failed - {e}"
-            logging.critical(f"Third Dataplane Monitor failed: {e}")
+            execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run, "'--dummy' no",
+                                 SSH_TIMEOUT_SECONDS)
+            results_summary["Step d"] = "Dummy No: Success"
+            logging.info("Dummy no phase completed successfully.")
+        except (SSHConnectionError, RouterCommandError, ScriptExecutionError) as e:
+            results_summary["Step d"] = f"Dummy No: Failed - {e}"
+            logging.critical(f"Dummy no phase failed: {e}")
             script_aborted = True
             raise
 
-        # i) Show tech collection
+        # e) Placeholder for reloads
         logging.info(f"\n{'#' * 70}")
-        logging.info("### Step i: Show Tech Collection ###")
-        try:
-            run_show_tech_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, SSH_TIMEOUT_SECONDS)
-            results_summary["Step i"] = "Show Tech Collection: Success"
-            logging.info("Show tech collection completed successfully.")
-        except (SSHConnectionError, RouterCommandError, ShowTechError) as e:
-            results_summary["Step i"] = f"Show Tech Collection: Failed - {e}"
-            logging.critical(f"Show tech collection failed: {e}")
-            # Don't abort on show tech failure, continue to clear counters
-
-        # j) Clear ASIC counters
-        logging.info(f"\n{'#' * 70}")
-        logging.info("### Step j: Clear ASIC Counters ###")
-        try:
-            run_clear_asic_counters(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, SSH_TIMEOUT_SECONDS)
-            results_summary["Step j"] = "Clear ASIC Counters: Success"
-            logging.info("Clear ASIC counters completed successfully.")
-        except (SSHConnectionError, RouterCommandError, AsicErrorShowError) as e:
-            results_summary["Step j"] = f"Clear ASIC Counters: Failed - {e}"
-            logging.critical(f"Clear ASIC counters failed: {e}")
-            # Don't abort on final step failure
+        logging.critical("### Step e: MANUAL INTERVENTION REQUIRED ###")
+        logging.critical("Please perform the two reloads now.")
+        results_summary["Step e"] = "Manual Reload Step: Instructed User"
+        # No exception handling here as it's a manual step, and we want the message to always appear.
+        # If the script were to wait for confirmation, that logic would go here.
+        # For now, it just prints the message and continues.
 
     except Exception as e:
         logging.critical(f"An unhandled critical error occurred during script execution: {e}", exc_info=True)
@@ -212,18 +207,18 @@ if __name__ == "__main__":
 
     # Print Final Summary
     logging.info(f"\n{'#' * 70}")
-    logging.info("### Final Summary for Part 2 ###")
+    logging.info("### Final Summary for Part 1 ###")
     if script_aborted:
-        logging.critical("Script Part 2 execution was aborted due to a critical error.")
+        logging.critical("Script Part 1 execution was aborted due to a critical error.")
     else:
-        logging.info("All planned steps for Part 2 completed.")
+        logging.info("All planned steps for Part 1 completed.")
     print_final_summary(results_summary)
-    logging.info(f"--- Script Part 2 Execution Finished ---")
+    logging.info(f"--- Script Part 1 Execution Finished ---")
 
     # Close the session log files at the very end
-    if common_utils.session_log_file_console_mirror:
-        common_utils.session_log_file_console_mirror.close()
+    if utils_7_3_5_common.session_log_file_console_mirror:
+        utils_7_3_5_common.session_log_file_console_mirror.close()
         logging.info(f"Console mirror session log file closed.")
-    if common_utils.session_log_file_raw_output:
-        common_utils.session_log_file_raw_output.close()
+    if utils_7_3_5_common.session_log_file_raw_output:
+        utils_7_3_5_common.session_log_file_raw_output.close()
         logging.info(f"Raw SSH output log file closed.")

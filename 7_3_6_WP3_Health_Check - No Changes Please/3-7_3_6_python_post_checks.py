@@ -1120,6 +1120,7 @@ def execute_script_phase(router_ip: str, username: str, password: str, scripts_t
 def run_asic_errors_show_command(router_ip: str, username: str, password: str, ssh_timeout: int) -> bool:
     """
     Connects to the router, runs the asic_errors_show command from bash.
+    The command varies based on the IOS-XR version (7.x.x vs 24.x.x).
     Ensures full output is displayed and INFO logs are not interleaved.
     Raises SSHConnectionError, RouterCommandError, AsicErrorShowError.
     """
@@ -1148,11 +1149,27 @@ def run_asic_errors_show_command(router_ip: str, username: str, password: str, s
                                         print_realtime_output=False):
             raise RouterCommandError("Failed to set terminal width 511.")
 
+        # --- Get IOS-XR version for conditional asic_errors_show command ---
+        ios_xr_version_str = get_ios_xr_version(shell)
+        ios_xr_version_tuple = parse_version_string(ios_xr_version_str)
+        major_version = ios_xr_version_tuple[0]
+
+        asic_command = ""
+        if major_version == 7:
+            asic_command = 'asic_errors_show "-n" "A" "-a" "0x7" "-i" "0x100" "-C" "0x0" "-e" "0x0" "-c"'
+            logging.info(f"IOS-XR version {ios_xr_version_str} detected. Using command for 7.x.x.")
+        elif major_version == 24:
+            asic_command = 'asic_errors_show "-n" "all" "-a" "0x7" "-i" "0x100" "-C" "0x0" "-e" "0x0" "-c"'
+            logging.info(f"IOS-XR version {ios_xr_version_str} detected. Using command for 24.x.x.")
+        else:
+            logging.warning(f"Unsupported IOS-XR major version {major_version} detected. Defaulting to 7.x.x command.")
+            asic_command = 'asic_errors_show "-n" "A" "-a" "0x7" "-i" "0x100" "-C" "0x0" "-e" "0x0" "-c"'
+        # --- End of IOS-XR version check ---
+
         if not execute_command_in_shell(shell, "attach location 0/RP0/CPU0", "attach location 0/RP0/CPU0", timeout=30,
                                         print_realtime_output=False):
             raise RouterCommandError("Failed to establish bash prompt for asic_errors_show.")
 
-        asic_command = 'asic_errors_show "-n" "A" "-a" "0x7" "-i" "0x100" "-C" "0x0" "-e" "0x0" "-c"'
         logging.info(f"Running command: {asic_command}")
 
         # Send the command and capture its output without printing real-time

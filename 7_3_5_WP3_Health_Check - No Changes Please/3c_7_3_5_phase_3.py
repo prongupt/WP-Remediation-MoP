@@ -6,16 +6,16 @@ import logging
 import os
 from typing import Dict
 
-# Import all common functionalities from common_utils.py
-from common_utils import (
+# Import the entire module to access its global variables (like session_log_file_console_mirror)
+import utils_7_3_5_common
+
+# Import specific functionalities from utils_7_3_5_common.py
+from utils_7_3_5_common import (
     SSHConnectionError, RouterCommandError, ScriptExecutionError, DataplaneError,
-    colorful_countdown_timer, read_and_print_realtime, execute_command_in_shell,
-    run_script_list_phase, get_hostname, parse_script_output_for_errors,
-    format_and_print_error_report, run_dataplane_monitor_phase, execute_script_phase,
+    colorful_countdown_timer, execute_command_in_shell,
+    get_hostname, run_dataplane_monitor_phase, execute_script_phase,
     print_final_summary,
-    SSH_TIMEOUT_SECONDS, DATAPLANE_MONITOR_TIMEOUT_SECONDS, WAIT_TIME_MINUTES,
-    COUNTDOWN_DURATION_MINUTES,
-    session_log_file_console_mirror, session_log_file_raw_output # Import global variables
+    SSH_TIMEOUT_SECONDS, DATAPLANE_MONITOR_TIMEOUT_SECONDS, WAIT_TIME_MINUTES
 )
 
 # --- Initial Logging Configuration (temporary, will be reconfigured after hostname) ---
@@ -107,23 +107,22 @@ if __name__ == "__main__":
                                        f"{hostname_for_log}_post_check7_3_5_outputs_{timestamp_for_session_logs}_part3.txt") # Added _part3
 
     try:
-        # Assign to the global variable imported from common_utils
-        import common_utils
-        common_utils.session_log_file_console_mirror = open(console_mirror_filename, 'w', encoding='utf-8')
+        # Assign to the global variable imported from utils_7_3_5_common
+        utils_7_3_5_common.session_log_file_console_mirror = open(console_mirror_filename, 'w', encoding='utf-8')
         logging.info(f"Console mirror session output will be logged to: {console_mirror_filename}")
     except IOError as e:
         logging.error(
             f"Could not open console mirror session log file {console_mirror_filename}: {e}. Console mirror output will not be logged to file.")
-        common_utils.session_log_file_console_mirror = None
+        utils_7_3_5_common.session_log_file_console_mirror = None
 
     try:
-        # Assign to the global variable imported from common_utils
-        common_utils.session_log_file_raw_output = open(raw_output_filename, 'w', encoding='utf-8')
+        # Assign to the global variable imported from utils_7_3_5_common
+        utils_7_3_5_common.session_log_file_raw_output = open(raw_output_filename, 'w', encoding='utf-8')
         logging.info(f"Raw SSH output will be logged to: {raw_output_filename}")
     except IOError as e:
         logging.error(
             f"Could not open raw SSH output log file {raw_output_filename}: {e}. Raw SSH output will not be logged to file.")
-        common_utils.session_log_file_raw_output = None
+        utils_7_3_5_common.session_log_file_raw_output = None
 
     # --- List of scripts to run (hardcoded) ---
     scripts_to_run = [
@@ -250,9 +249,9 @@ if __name__ == "__main__":
     logging.info(f"--- Script Part 3 Execution Finished ---")
 
     # Close the session log files at the very end
-    if common_utils.session_log_file_console_mirror:
-        common_utils.session_log_file_console_mirror.close()
+    if utils_7_3_5_common.session_log_file_console_mirror:
+        utils_7_3_5_common.session_log_file_console_mirror.close()
         logging.info(f"Console mirror session log file closed.")
-    if common_utils.session_log_file_raw_output:
-        common_utils.session_log_file_raw_output.close()
+    if utils_7_3_5_common.session_log_file_raw_output:
+        utils_7_3_5_common.session_log_file_raw_output.close()
         logging.info(f"Raw SSH output log file closed.")

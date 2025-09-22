@@ -8,6 +8,7 @@ import datetime
 import os
 import sys
 from typing import List, Tuple, Dict, Any, Optional
+import tempfile # Import for temporary file handling
 
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
@@ -144,25 +145,37 @@ def get_hostname(shell: paramiko.Channel) -> str:
 
 def find_latest_cli_output_file(hostname_prefix: str, output_directory: str, current_file_path: Optional[str] = None) -> \
 Optional[str]:
-    pattern = re.compile(rf"^{re.escape(hostname_prefix)}_pre_check_cli_output_(\d{{8}}_\d{{6}})\.txt$")
+    # Define patterns for both new (comparison) and old (pre-check) naming conventions
+    new_pattern = re.compile(rf"^{re.escape(hostname_prefix)}_comparison_cli_output_(\d{{8}}_\d{{6}})\.txt$")
+    old_pattern = re.compile(rf"^{re.escape(hostname_prefix)}_pre_check_cli_output_(\d{{8}}_\d{{6}})\.txt$")
+
     latest_file, latest_timestamp = None, None
     if not os.path.isdir(output_directory):
         return None
 
+    files_to_check = []
     for filename in os.listdir(output_directory):
         full_path = os.path.join(output_directory, filename)
         if current_file_path and full_path == current_file_path:
-            continue
-        match = pattern.match(filename)
-        if match:
-            timestamp_str = match.group(1)
-            try:
-                ts = datetime.datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
-                if latest_timestamp is None or ts > latest_timestamp:
-                    latest_timestamp = ts
-                    latest_file = full_path
-            except ValueError:
-                continue
+            continue # Skip the file currently being written
+
+        new_match = new_pattern.match(filename)
+        old_match = old_pattern.match(filename)
+
+        if new_match:
+            files_to_check.append((new_match.group(1), full_path))
+        elif old_match:
+            files_to_check.append((old_match.group(1), full_path))
+
+    # Sort files by timestamp in descending order to easily find the latest
+    files_to_check.sort(key=lambda x: datetime.datetime.strptime(x[0], '%Y%m%d_%H%M%S'), reverse=True)
+
+    if files_to_check:
+        latest_file = files_to_check[0][1] # The first element after sorting is the latest
+        logger.debug(f"Found latest previous file: {latest_file}")
+    else:
+        logger.debug("No previous CLI output files found matching known patterns.")
+
     return latest_file
 
 
@@ -176,12 +189,12 @@ def extract_command_output(file_path: str, command_string: str) -> str:
         raise FileProcessingError(f"Error reading file {file_path}: {e}")
 
     escaped_command = re.escape(command_string.strip())
-    pattern = re.compile(rf"--- Command: {escaped_command} ---\n(.*?)(?=\n--- Command:|\Z)", re.DOTALL)
+    # This pattern assumes the command itself is on a line after "--- Command: " and before the output.
+    # The output is then captured until the next "--- Command:" or end of file.
+    pattern = re.compile(rf"--- Command: {escaped_command} ---\n(?:{escaped_command}\s*\n)?(.*?)(?=\n--- Command:|\Z)", re.DOTALL)
     match = pattern.search(content)
     if match:
         output_lines = match.group(1).strip().splitlines()
-        if output_lines and output_lines[0].strip() == command_string.strip():
-            output_lines = output_lines[1:]
         cleaned = [line for line in output_lines if line.strip()]
         return "\n".join(cleaned).strip()
     return ""
@@ -234,7 +247,158 @@ def parse_inventory_lcfc(output: str) -> Dict[str, Dict[str, str]]:
     return lcfc_info
 
 
-# --- New Comparison Functions ---
+def parse_interface_status_from_cli_output(file_path: str) -> Dict[str, Dict[str, str]]:
+    """
+    Parses 'show interface summary' and 'show interface brief' outputs from a CLI log file.
+    Returns a dictionary mapping interface names to their status from both commands.
+    """
+    interface_statuses: Dict[str, Dict[str, str]] = {}
+    content = ""
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        logger.debug(f"Successfully read content from {file_path}, length: {len(content)}")
+    except FileNotFoundError:
+        logger.error(f"File not found: {file_path}")
+        return {}
+    except Exception as e:
+        logger.error(f"Error reading file {file_path}: {e}")
+        return {}
+
+    # Updated pattern to correctly match the command headers as written by execute_command_in_shell
+    command_section_pattern = re.compile(
+        r"--- Command: (show interface (?:summary|brief)) ---\n(?:show interface (?:summary|brief)\s*\n)?(.*?)(?=\n--- Command:|\Z)", re.DOTALL)
+
+
+    summary_output_section = ""
+    brief_output_section = ""
+
+    for match in command_section_pattern.finditer(content): # Corrected from find_iter to finditer
+        command = match.group(1).strip()
+        output_section = match.group(2).strip()
+        if command == "show interface summary":
+            summary_output_section = output_section
+            logger.debug(f"Found 'show interface summary' section. Length: {len(summary_output_section)}")
+        elif command == "show interface brief":
+            brief_output_section = output_section
+            logger.debug(f"Found 'show interface brief' section. Length: {len(brief_output_section)}")
+
+    if brief_output_section:
+        brief_line_pattern = re.compile(
+            r"^\s*(\S+)\s+(up|down|admin-down|not connect|unknown|--)\s+(up|down|admin-down|not connect|unknown|--)\s+.*$",
+            re.IGNORECASE
+        )
+
+        brief_lines = [
+            line for line in brief_output_section.splitlines()
+            if not re.match(
+                r"^\s*(Intf|Name|State|LineP|Encap|MTU|BW|---|\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+|RP/\d+/\S+#|show interface brief)\s*$",
+                line.strip())
+               and line.strip()
+        ]
+
+        logger.debug(
+            f"Processing {len(brief_lines)} lines from 'show interface brief' after header filtering.")
+
+        for line in brief_lines:
+            match = brief_line_pattern.match(line)
+            if match:
+                intf_name = match.group(1).strip()
+                brief_admin_status = match.group(2).strip()
+                brief_protocol_status = match.group(3).strip()
+
+                brief_admin_status = brief_admin_status.lower()
+                brief_protocol_status = brief_protocol_status.lower()
+
+                interface_statuses.setdefault(intf_name, {})["summary_status"] = brief_admin_status
+                interface_statuses.setdefault(intf_name, {})["brief_status"] = brief_admin_status
+                interface_statuses.setdefault(intf_name, {})["brief_protocol"] = brief_protocol_status
+            else:
+                logger.debug(f"Skipping brief line (no regex match): '{line}'")
+    else:
+        logger.debug("No 'show interface brief' output section found for parsing.")
+
+    logger.debug(f"Final parsed interface statuses from {file_path}: {interface_statuses}")
+    return interface_statuses
+
+
+def parse_fpd_status_from_cli_output(file_path: str) -> Dict[Tuple[str, str], Dict[str, str]]:
+    """
+    Parses 'show hw-module fpd' output from a CLI log file.
+    Returns a dictionary mapping (Location, FPD_Device) to their status details.
+    """
+    fpd_statuses: Dict[Tuple[str, str], Dict[str, str]] = {}
+    content = ""
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        logger.debug(f"Successfully read content from {file_path}, length: {len(content)}")
+    except FileNotFoundError:
+        logger.error(f"File not found: {file_path}")
+        return {}
+    except Exception as e:
+        logger.error(f"Error reading file {file_path}: {e}")
+        return {}
+
+    # Updated pattern to correctly match the command headers as written by execute_command_in_shell
+    command_section_pattern = re.compile(
+        r"--- Command: show hw-module fpd ---\n(?:show hw-module fpd\s*\n)?(.*?)(?=\n--- Command:|\Z)", re.DOTALL)
+
+    fpd_output_section = ""
+    match = command_section_pattern.search(content)
+    if match:
+        fpd_output_section = match.group(1).strip()
+        logger.debug(f"Found 'show hw-module fpd' section. Length: {len(fpd_output_section)}")
+    else:
+        logger.debug("No 'show hw-module fpd' output section found in file.")
+        return {}
+
+    fpd_line_pattern = re.compile(
+        r"^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S*?)\s*(\S+)\s+(\S+)\s+(\S*)\s+(\S*)\s+(\S+)\s*$"
+    )
+
+    lines = fpd_output_section.splitlines()
+    data_table_started = False
+    for line in lines:
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue
+
+        if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line) or \
+                re.match(r'^RP/\d+/\S+:\S+#', stripped_line) or \
+                re.escape("show hw-module fpd") in re.escape(stripped_line):
+            continue
+
+        if "Location   Card type" in stripped_line and "HWver FPD device" in stripped_line:
+            data_table_started = True
+            continue
+
+        if data_table_started and "--------------------------------" in stripped_line:
+            continue
+
+        if not data_table_started:
+            continue
+
+        match = fpd_line_pattern.match(stripped_line)
+        if match:
+            location = match.group(1)
+            fpd_device = match.group(4)
+            status = match.group(6)
+
+            key = (location, fpd_device)
+            fpd_statuses[key] = {
+                "Location": location,
+                "FPD_Device": fpd_device,
+                "Status": status
+            }
+        else:
+            logger.debug(f"Skipping FPD line (no regex match): '{stripped_line}'")
+
+    logger.debug(f"Final parsed FPD statuses from {file_path}: {fpd_statuses}")
+    return fpd_statuses
+
+
+# --- Comparison Functions ---
 def compare_optics_inventory(current_optics: Dict[str, Dict[str, str]],
                              previous_optics: Dict[str, Dict[str, str]]) -> Tuple[str, bool]:
     logger.info("Comparing optics inventory...")
@@ -351,6 +515,119 @@ def compare_lcfc_inventory(current_lcfc: Dict[str, Dict[str, str]],
     return report_output, differences_found
 
 
+def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
+                               previous_statuses: Dict[str, Dict[str, str]]) -> Tuple[str, bool]:
+    """
+    Compares current and previous interface statuses and prints differences.
+    """
+    differences_found = False
+    comparison_table = PrettyTable()
+    comparison_table.field_names = ["Interface", "Change Type", "Previous Status", "Current Status"]
+    comparison_table.align = "l"
+
+    all_interfaces = sorted(list(set(current_statuses.keys()) | set(previous_statuses.keys())))
+
+    for intf in all_interfaces:
+        current_data = current_statuses.get(intf, {})
+        previous_data = previous_statuses.get(intf, {})
+
+        if intf not in previous_statuses and intf in current_statuses:
+            summary_stat = current_data.get("summary_status", "N/A")
+            brief_adm_stat = current_data.get("brief_status", "N/A")
+            brief_prot_stat = current_data.get("brief_protocol", "N/A")
+            comparison_table.add_row([intf, "Newly Appeared", "N/A",
+                                      f"Summary: {summary_stat}, Brief: {brief_adm_stat}/{brief_prot_stat}"])
+            differences_found = True
+            continue
+
+        if intf in previous_statuses and intf not in current_statuses:
+            summary_stat = previous_data.get("summary_status", "N/A")
+            brief_adm_stat = previous_data.get("brief_status", "N/A")
+            brief_prot_stat = previous_data.get("brief_protocol", "N/A")
+            comparison_table.add_row([intf, "Disappeared",
+                                      f"Summary: {summary_stat}, Brief: {brief_adm_stat}/{brief_prot_stat}",
+                                      "N/A"])
+            differences_found = True
+            continue
+
+        if intf in current_statuses and intf in previous_statuses:
+            current_sum = current_data.get("summary_status", "N/A")
+            prev_sum = previous_data.get("summary_status", "N/A")
+            if current_sum != prev_sum:
+                comparison_table.add_row([intf, "Summary Status Change", prev_sum, current_sum])
+                differences_found = True
+
+            current_brief_adm = current_data.get("brief_status", "N/A")
+            prev_brief_adm = previous_data.get("brief_status", "N/A")
+            if current_brief_adm != prev_brief_adm:
+                comparison_table.add_row([intf, "Brief Admin Status Change", prev_brief_adm, current_brief_adm])
+                differences_found = True
+
+            current_brief_prot = current_data.get("brief_protocol", "N/A")
+            prev_brief_prot = previous_data.get("brief_protocol", "N/A")
+            if current_brief_prot != prev_brief_prot:
+                comparison_table.add_row([intf, "Brief Protocol Status Change", prev_brief_prot, current_brief_prot])
+                differences_found = True
+
+    report_output = f"\n{'-' * 80}\n"
+    report_output += f"{'INTERFACE STATUS COMPARISON REPORT':^80}\n"
+    report_output += f"{'-' * 80}\n"
+    if differences_found:
+        report_output += str(comparison_table) + "\nPlease review the interface status changes above.\n"
+    else:
+        report_output += "No interface status differences detected between current and previous run.\n"
+    return report_output, differences_found
+
+
+def compare_fpd_statuses(current_statuses: Dict[Tuple[str, str], Dict[str, str]],
+                         previous_statuses: Dict[Tuple[str, str], Dict[str, str]]) -> Tuple[str, bool]:
+    """
+    Compares current and previous FPD statuses and prints differences for 'Status' and 'FPD Device'.
+    """
+    differences_found = False
+    comparison_table = PrettyTable()
+    comparison_table.field_names = ["Location", "FPD Device", "Change Type", "Previous Status", "Current Status"]
+    comparison_table.align = "l"
+
+    all_fpd_keys = sorted(list(set(current_statuses.keys()) | set(previous_statuses.keys())))
+
+    for key in all_fpd_keys:
+        current_data = current_statuses.get(key, {})
+        previous_data = previous_statuses.get(key, {})
+
+        location, fpd_device = key
+
+        if key not in previous_statuses and key in current_statuses:
+            current_status = current_data.get("Status", "N/A")
+            comparison_table.add_row([location, fpd_device, "Newly Appeared", "N/A", current_status])
+            differences_found = True
+            continue
+
+        if key in previous_statuses and key not in current_statuses:
+            previous_status = previous_data.get("Status", "N/A")
+            comparison_table.add_row([location, fpd_device, "Disappeared", previous_status, "N/A"])
+            differences_found = True
+            continue
+
+        if key in current_statuses and key in previous_statuses:
+            current_status_val = current_data.get("Status", "N/A")
+            previous_status_val = previous_data.get("Status", "N/A")
+
+            if current_status_val != previous_status_val:
+                comparison_table.add_row(
+                    [location, fpd_device, "Status Change", previous_status_val, current_status_val])
+                differences_found = True
+
+    report_output = f"\n{'-' * 80}\n"
+    report_output += f"{'FPD STATUS COMPARISON REPORT':^80}\n"
+    report_output += f"{'-' * 80}\n"
+    if differences_found:
+        report_output += str(comparison_table) + "\nPlease review the FPD status changes above.\n"
+    else:
+        report_output += "No FPD status differences detected between current and previous run.\n"
+    return report_output, differences_found
+
+
 # --- Main ---
 def main():
     original_stdout = sys.stdout
@@ -360,7 +637,7 @@ def main():
 
     client = None
     shell = None
-    current_inventory_file_handle = None
+    current_cli_output_file_handle = None # Renamed for clarity
     session_log_file_handle = None
 
     try:
@@ -401,47 +678,174 @@ def main():
                 os.makedirs(chosen_output_directory, exist_ok=True)
 
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        current_inventory_output_path = os.path.join(chosen_output_directory,
-                                                     f"{chosen_hostname_prefix}_inventory_optics_compare.txt")
-        current_inventory_file_handle = open(current_inventory_output_path, 'a', encoding='utf-8')
+        # Renamed the output file to be more generic for comparison data
+        current_cli_output_path = os.path.join(chosen_output_directory,
+                                                     f"{chosen_hostname_prefix}_comparison_cli_output_{timestamp}.txt")
+        current_cli_output_file_handle = open(current_cli_output_path, 'a', encoding='utf-8')
 
         session_log_path = os.path.join(chosen_output_directory,
-                                        f"{chosen_hostname_prefix}_inventory_compare_session_log_{timestamp}.txt")
+                                        f"{chosen_hostname_prefix}_comparison_session_log_{timestamp}.txt")
         session_log_file_handle = open(session_log_path, 'a', encoding='utf-8')
 
         sys.stdout = Tee(original_stdout, session_log_file_handle)
-        print(f"\n--- Starting Inventory Comparison for {chosen_hostname_prefix} ---")
+        print(f"\n--- Starting Comparisons for {chosen_hostname_prefix} ---")
 
-        current_show_inventory_raw = execute_command_in_shell(shell, "show inventory", "show inventory", timeout=120,
-                                                              cli_output_file=current_inventory_file_handle)
+        # Collect current data for all comparisons
+        logger.info("Collecting current CLI outputs for comparison...")
+        execute_command_in_shell(shell, "show inventory", "show inventory", timeout=120,
+                               cli_output_file=current_cli_output_file_handle)
+        execute_command_in_shell(shell, "show interface summary", "show interface summary", timeout=60,
+                               cli_output_file=current_cli_output_file_handle)
+        execute_command_in_shell(shell, "show interface brief", "show interface brief", timeout=120,
+                               cli_output_file=current_cli_output_file_handle)
+        execute_command_in_shell(shell, "show hw-module fpd", "show hw-module fpd", timeout=120,
+                               cli_output_file=current_cli_output_file_handle)
+        logger.info("Finished collecting current CLI outputs.")
+
+
         previous_cli_output_path = find_latest_cli_output_file(chosen_hostname_prefix, chosen_output_directory,
-                                                               current_file_path=None)
+                                                               current_file_path=current_cli_output_path)
+
+        all_diffs_found = False
 
         if previous_cli_output_path:
-            previous_show_inventory_raw = extract_command_output(previous_cli_output_path, "show inventory")
-            if previous_show_inventory_raw:
-                current_optics_data = parse_inventory_optics(current_show_inventory_raw)
-                previous_optics_data = parse_inventory_optics(previous_show_inventory_raw)
+            logger.info(f"Found previous CLI output file for comparison: {previous_cli_output_path}")
 
-                current_lcfc_data = parse_inventory_lcfc(current_show_inventory_raw)
-                previous_lcfc_data = parse_inventory_lcfc(previous_show_inventory_raw)
-
-                optics_report_str, optics_diffs_found = compare_optics_inventory(current_optics_data,
-                                                                                 previous_optics_data)
-                lcfc_report_str, lcfc_diffs_found = compare_lcfc_inventory(current_lcfc_data, previous_lcfc_data)
-
-                print(optics_report_str)
-                print(lcfc_report_str)
-
-                if optics_diffs_found or lcfc_diffs_found:
-                    print(f"\n--- Inventory Comparison Completed for {chosen_hostname_prefix} with DIFFERENCES ---")
+            # --- Optics Inventory Comparison ---
+            optics_diffs_found = False
+            try:
+                current_show_inventory_raw = extract_command_output(current_cli_output_path, "show inventory")
+                previous_show_inventory_raw = extract_command_output(previous_cli_output_path, "show inventory")
+                if current_show_inventory_raw and previous_show_inventory_raw:
+                    current_optics_data = parse_inventory_optics(current_show_inventory_raw)
+                    previous_optics_data = parse_inventory_optics(previous_show_inventory_raw)
+                    optics_report_str, optics_diffs_found = compare_optics_inventory(current_optics_data,
+                                                                                     previous_optics_data)
+                    print(optics_report_str)
+                    if optics_diffs_found:
+                        all_diffs_found = True
                 else:
-                    print(
-                        f"\n--- Inventory Comparison Completed for {chosen_hostname_prefix} (No Differences Found) ---")
+                    print("\n--- Optics Inventory Comparison Skipped (Missing 'show inventory' data) ---")
+            except FileProcessingError as e:
+                print(f"\n--- Optics Inventory Comparison Skipped (Error processing files: {e}) ---")
+            except Exception as e:
+                print(f"\n--- Optics Inventory Comparison Failed (Unexpected error: {e}) ---")
+
+
+            # --- LC/FC/RP Inventory Comparison ---
+            lcfc_diffs_found = False
+            try:
+                # Reuse current_show_inventory_raw and previous_show_inventory_raw if already extracted
+                if 'current_show_inventory_raw' not in locals(): # Check if variable exists from previous block
+                    current_show_inventory_raw = extract_command_output(current_cli_output_path, "show inventory")
+                if 'previous_show_inventory_raw' not in locals(): # Check if variable exists from previous block
+                    previous_show_inventory_raw = extract_command_output(previous_cli_output_path, "show inventory")
+
+                if current_show_inventory_raw and previous_show_inventory_raw:
+                    current_lcfc_data = parse_inventory_lcfc(current_show_inventory_raw)
+                    previous_lcfc_data = parse_inventory_lcfc(previous_show_inventory_raw)
+                    lcfc_report_str, lcfc_diffs_found = compare_lcfc_inventory(current_lcfc_data, previous_lcfc_data)
+                    print(lcfc_report_str)
+                    if lcfc_diffs_found:
+                        all_diffs_found = True
+                else:
+                    print("\n--- LC/FC/RP Inventory Comparison Skipped (Missing 'show inventory' data) ---")
+            except FileProcessingError as e:
+                print(f"\n--- LC/FC/RP Inventory Comparison Skipped (Error processing files: {e}) ---")
+            except Exception as e:
+                print(f"\n--- LC/FC/RP Inventory Comparison Failed (Unexpected error: {e}) ---")
+
+
+            # --- Interface Status Comparison ---
+            intf_diffs_found = False
+            current_temp_intf_file = None
+            previous_temp_intf_file = None
+            try:
+                current_intf_summary_content = extract_command_output(current_cli_output_path, "show interface summary")
+                current_intf_brief_content = extract_command_output(current_cli_output_path, "show interface brief")
+                previous_intf_summary_content = extract_command_output(previous_cli_output_path, "show interface summary")
+                previous_intf_brief_content = extract_command_output(previous_cli_output_path, "show interface brief")
+
+                # Create temporary files for parsing functions, adding the command headers back
+                # This is necessary because parse_interface_status_from_cli_output expects a file containing multiple commands with headers.
+                current_temp_intf_file = tempfile.NamedTemporaryFile(mode='w+', delete=False, encoding='utf-8', dir=chosen_output_directory)
+                current_temp_intf_file.write(f"--- Command: show interface summary ---\n{current_intf_summary_content}\n")
+                current_temp_intf_file.write(f"--- Command: show interface brief ---\n{current_intf_brief_content}\n")
+                current_temp_intf_file.close() # Close to ensure content is written and can be read by parse function
+
+                previous_temp_intf_file = tempfile.NamedTemporaryFile(mode='w+', delete=False, encoding='utf-8', dir=chosen_output_directory)
+                previous_temp_intf_file.write(f"--- Command: show interface summary ---\n{previous_intf_summary_content}\n")
+                previous_temp_intf_file.write(f"--- Command: show interface brief ---\n{previous_intf_brief_content}\n")
+                previous_temp_intf_file.close() # Close to ensure content is written and can be read by parse function
+
+
+                current_interface_statuses = parse_interface_status_from_cli_output(current_temp_intf_file.name)
+                previous_interface_statuses = parse_interface_status_from_cli_output(previous_temp_intf_file.name)
+
+                if current_interface_statuses or previous_interface_statuses:
+                    intf_report_str, intf_diffs_found = compare_interface_statuses(current_interface_statuses, previous_interface_statuses)
+                    print(intf_report_str)
+                    if intf_diffs_found:
+                        all_diffs_found = True
+                else:
+                    print("\n--- Interface Status Comparison Skipped (No interface data found) ---")
+            except FileProcessingError as e:
+                print(f"\n--- Interface Status Comparison Skipped (Error processing files: {e}) ---")
+            except Exception as e:
+                print(f"\n--- Interface Status Comparison Failed (Unexpected error: {e}) ---")
+            finally:
+                if current_temp_intf_file and os.path.exists(current_temp_intf_file.name):
+                    os.remove(current_temp_intf_file.name)
+                if previous_temp_intf_file and os.path.exists(previous_temp_intf_file.name):
+                    os.remove(previous_temp_intf_file.name)
+
+
+            # --- FPD Status Comparison ---
+            fpd_diffs_found = False
+            current_temp_fpd_file = None
+            previous_temp_fpd_file = None
+            try:
+                current_fpd_content = extract_command_output(current_cli_output_path, "show hw-module fpd")
+                previous_fpd_content = extract_command_output(previous_cli_output_path, "show hw-module fpd")
+
+                # Create temporary files for parsing functions
+                current_temp_fpd_file = tempfile.NamedTemporaryFile(mode='w+', delete=False, encoding='utf-8', dir=chosen_output_directory)
+                current_temp_fpd_file.write(f"--- Command: show hw-module fpd ---\n{current_fpd_content}\n")
+                current_temp_fpd_file.close()
+
+                previous_temp_fpd_file = tempfile.NamedTemporaryFile(mode='w+', delete=False, encoding='utf-8', dir=chosen_output_directory)
+                previous_temp_fpd_file.write(f"--- Command: show hw-module fpd ---\n{previous_fpd_content}\n")
+                previous_temp_fpd_file.close()
+
+                current_fpd_statuses = parse_fpd_status_from_cli_output(current_temp_fpd_file.name)
+                previous_fpd_statuses = parse_fpd_status_from_cli_output(previous_temp_fpd_file.name)
+
+                if current_fpd_statuses or previous_fpd_statuses:
+                    fpd_report_str, fpd_diffs_found = compare_fpd_statuses(current_fpd_statuses, previous_fpd_statuses)
+                    print(fpd_report_str)
+                    if fpd_diffs_found:
+                        all_diffs_found = True
+                else:
+                    print("\n--- FPD Status Comparison Skipped (No FPD data found) ---")
+            except FileProcessingError as e:
+                print(f"\n--- FPD Status Comparison Skipped (Error processing files: {e}) ---")
+            except Exception as e:
+                print(f"\n--- FPD Status Comparison Failed (Unexpected error: {e}) ---")
+            finally:
+                if current_temp_fpd_file and os.path.exists(current_temp_fpd_file.name):
+                    os.remove(current_temp_fpd_file.name)
+                if previous_temp_fpd_file and os.path.exists(previous_temp_fpd_file.name):
+                    os.remove(previous_temp_fpd_file.name)
+
+
+            # Final summary based on all comparisons
+            if all_diffs_found:
+                print(f"\n--- All Comparisons Completed for {chosen_hostname_prefix} with DIFFERENCES ---")
             else:
-                print("\n--- Comparison Skipped (Previous 'show inventory' not found) ---")
+                print(f"\n--- All Comparisons Completed for {chosen_hostname_prefix} (No Differences Found) ---")
+
         else:
-            print("\n--- Comparison Skipped (No previous CLI output file found) ---")
+            print("\n--- All Comparisons Skipped (No previous CLI output file found) ---")
 
     finally:
         if shell:
@@ -450,13 +854,13 @@ def main():
                 time.sleep(1)
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Error during shell exit: {e}")
             shell.close()
         if client:
             client.close()
-        if current_inventory_file_handle:
-            current_inventory_file_handle.close()
+        if current_cli_output_file_handle:
+            current_cli_output_file_handle.close()
         sys.stdout = original_stdout
         if session_log_file_handle:
             session_log_file_handle.close()

@@ -413,7 +413,7 @@ if __name__ == "__main__":
 
         elif choice == 'c':
             print("\n--- Starting continuous interface status monitoring ---")
-            polling_interval = 10 # seconds, can be made configurable
+            polling_interval = 30 # seconds, changed from 10 to 30
             previous_states = {} # Initialize empty for the first run
 
             # Get initial states before entering the continuous loop

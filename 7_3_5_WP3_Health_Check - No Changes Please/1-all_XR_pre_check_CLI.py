@@ -647,7 +647,7 @@ def check_and_capture_alarms_and_logs(shell: paramiko.Channel, cli_output_file=N
         raise AlarmError("Active alarms detected after filtering.")
     else:
         logger.info(f"No active alarms detected (excluding Optics/Coherent).")
-    execute_command_in_shell(shell, "show install log detail", "show install log detail", timeout=120,
+    execute_command_in_shell(shell, "show install log detail", "show install log detail", timeout=300,
                              print_real_time_output=False, cli_output_file=cli_output_file)
     logger.info("show install log detail executed and output captured.")
 

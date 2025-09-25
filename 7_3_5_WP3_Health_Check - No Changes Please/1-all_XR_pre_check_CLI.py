@@ -1118,23 +1118,25 @@ def check_platform_and_serial_numbers(shell: paramiko.Channel,
                     is_problematic = True
                     platform_issues_found = True
                 display_state = f"{current_state} (Expected: {expected_state})" if is_problematic else current_state
-                inventory_data = all_card_inventory_info.get(location, {"SN": "N/A", "VID": "N/A"})
+                inventory_data = all_card_inventory_info.get(location, {"SN": "N/A", "VID": "N/A", "PID": "N/A"})
                 serial_num = inventory_data["SN"]
                 vid = inventory_data["VID"]
+                pid = inventory_data["PID"]
                 all_cards_details.append({
                     "Location": location,
                     "State": display_state,
                     "Serial Number": serial_num,
-                    "VID": vid
+                    "VID": vid,
+                    "PID": pid
                 })
     print(f"Platform Status:")
     platform_table = PrettyTable()
-    platform_table.field_names = ["LC / FC / RP / FT Location", "State", "Serial Number", "VID"]
+    platform_table.field_names = ["LC / FC / RP / FT Location", "State", "Serial Number", "VID", "PID"]
     if all_cards_details:
         for card in all_cards_details:
-            platform_table.add_row([card["Location"], card["State"], card["Serial Number"], card["VID"]])
+            platform_table.add_row([card["Location"], card["State"], card["Serial Number"], card["VID"], card["PID"]])
     else:
-        platform_table.add_row(["N/A", "No relevant cards found in 'show platform' output", "N/A", "N/A"])
+        platform_table.add_row(["N/A", "No relevant cards found in 'show platform' output", "N/A", "N/A", "N/A"])
     print(platform_table)
     if platform_issues_found:
         logger.error(

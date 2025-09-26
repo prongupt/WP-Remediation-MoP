@@ -3,19 +3,20 @@ graph TD
     subgraph Initialization
         A[Start] --> B{Check for dummy yes/no scripts?};
         B -- No --> C[Run 4-file_upload.py <br> Upload files to hard disk];
-        C --> D[Run 1-all_XR_pre_check_and_comparison.py];
-        B -- Yes --> D;
+        
     end
 
     subgraph Pre-Checks and Remediation
+        C --> D[Run 1-all_XR_pre_check_and_comparison.py];
+        B -- Yes --> D;
         D --> E[Run 2-all_XR_python_pre_check.py <br> Provides baseline of degraded links];
         E --> F[Get baseline for faulty / degraded links];
         F --> G[Perform installation on the chassis / <br> remediation of fabric cards];
-        G --> H[Device powered back on];
-        H --> I[Run 1-all_XR_pre_check_and_comparison.py <br> compares optics/interfaces, FPD, serial numbers];
+        G --> H[Device powered back on]
     end
 
-    subgraph Testing Phases
+    subgraph Post-check Phases
+        H --> I[Run 1-all_XR_pre_check_and_comparison.py <br> compares optics/interfaces, FPD, serial numbers];
         I --> J[Run 3a_7_3_5_phase_1.py <br> Asks for manual reloads at end];
         J --> K{Errors in Phase 1?};
         K -- Yes --> L[Remediate Phase 1 errors];

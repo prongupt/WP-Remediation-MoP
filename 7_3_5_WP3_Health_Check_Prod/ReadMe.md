@@ -1,5 +1,8 @@
 ```mermaid
 graph TD
+    %% Mermaid configuration (optional, might not affect all renderers like GitHub)
+    %%{init: {'flowchart': {'htmlLabels': true}}}%%
+
     subgraph Initialization
         A[Start] --> B{Check for dummy yes/no scripts?};
         B -- No --> C[Run 4-file_upload.py <br> Upload files to hard disk];
@@ -38,26 +41,28 @@ graph TD
         T --> U[End];
     end
 
-    %% Styling for better readability
-    style A fill:#D4EDDA,stroke:#28A745,stroke-width:2px,color:#212529
-    style U fill:#D4EDDA,stroke:#28A745,stroke-width:2px,color:#212529
-    style B fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
-    style K fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
-    style O fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
-    style R fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
-    style C fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style D fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style E fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style F fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style G fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style H fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style I fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style J fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style M fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style N fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style Q fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style T fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style L fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
-    style P fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
-    style S fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
+    %% Brighter and prettier styling
+    style A fill:#4CAF50,stroke:#388E3C,stroke-width:2px,color:#FFFFFF; %% Vibrant Green Start
+    style U fill:#4CAF50,stroke:#388E3C,stroke-width:2px,color:#FFFFFF; %% Vibrant Green End
+    style B fill:#FFD700,stroke:#FFA000,stroke-width:2px,color:#333333; %% Bright Gold Decision
+    style K fill:#FFD700,stroke:#FFA000,stroke-width:2px,color:#333333; %% Bright Gold Decision
+    style O fill:#FFD700,stroke:#FFA000,stroke-width:2px,color:#333333; %% Bright Gold Decision
+    style R fill:#FFD700,stroke:#FFA000,stroke-width:2px,color:#333333; %% Bright Gold Decision
+
+    style C fill:#BBDEFB,stroke:#2196F3,stroke-width:1px,color:#1A237E; %% Light Blue Action
+    style D fill:#BBDEFB,stroke:#2196F3,stroke-width:1px,color:#1A237E; %% Light Blue Action
+    style E fill:#BBDEFB,stroke:#2196F3,stroke-width:1px,color:#1A237E; %% Light Blue Action
+    style F fill:#BBDEFB,stroke:#2196F3,stroke-width:1px,color:#1A237E; %% Light Blue Action
+    style G fill:#BBDEFB,stroke:#2196F3,stroke-width:1px,color:#1A237E; %% Light Blue Action
+    style H fill:#BBDEFB,stroke:#2196F3,stroke-width:1px,color:#1A237E; %% Light Blue Action
+    style I fill:#BBDEFB,stroke:#2196F3,stroke-width:1px,color:#1A237E; %% Light Blue Action
+    style J fill:#BBDEFB,stroke:#2196F3,stroke-width:1px,color:#1A237E; %% Light Blue Action
+    style M fill:#BBDEFB,stroke:#2196F3,stroke-width:1px,color:#1A237E; %% Light Blue Action
+    style N fill:#BBDEFB,stroke:#2196F3,stroke-width:1px,color:#1A237E; %% Light Blue Action
+    style Q fill:#BBDEFB,stroke:#2196F3,stroke-width:1px,color:#1A237E; %% Light Blue Action
+    style T fill:#BBDEFB,stroke:#2196F3,stroke-width:1px,color:#1A237E; %% Light Blue Action
+
+    style L fill:#FFCDD2,stroke:#F44336,stroke-width:1px,color:#B71C1C; %% Light Red Remediation
+    style P fill:#FFCDD2,stroke:#F44336,stroke-width:1px,color:#B71C1C; %% Light Red Remediation
+    style S fill:#FFCDD2,stroke:#F44336,stroke-width:1px,color:#B71C1C; %% Light Red Remediation
 ```

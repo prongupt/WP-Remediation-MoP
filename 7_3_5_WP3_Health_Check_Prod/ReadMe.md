@@ -3,7 +3,7 @@
 graph TD
     subgraph Initialization
         A[Start] --> B{Check for dummy yes/no scripts?};
-        B -- No --> C[Run 4-file_upload.py <br> (Upload files to hard disk)];
+        B -- No --> C[Run 4-file_upload.py <br> Upload files to hard disk]; %% Removed parentheses
         C --> D[Run 1-all_XR_pre_check_and_comparison.py];
         B -- Yes --> D;
     end

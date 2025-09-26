@@ -8,25 +8,25 @@ graph TD
     end
 
     subgraph Pre-Checks & Remediation
-        D --> E[Run 2-all_XR_python_pre_check.py <br> (Provides baseline of degraded links)];
+        D --> E[Run 2-all_XR_python_pre_check.py <br> Provides baseline of degraded links]; %% Parentheses removed
         E --> F[Get baseline for faulty / degraded links];
         F --> G[Perform installation on the chassis / <br> remediation of fabric cards];
         G --> H[Device powered back on];
-        H --> I[Run 1-all_XR_pre_check_and_comparison.py <br> (compares optics/interfaces, FPD, serial numbers)];
+        H --> I[Run 1-all_XR_pre_check_and_comparison.py <br> compares optics/interfaces, FPD, serial numbers]; %% Parentheses removed
     end
 
     subgraph Testing Phases
-        I --> J[Run 3a_7_3_5_phase_1.py <br> (Asks for manual reloads at end)];
+        I --> J[Run 3a_7_3_5_phase_1.py <br> Asks for manual reloads at end]; %% Parentheses removed
         J --> K{Errors in Phase 1?};
         K -- Yes --> L[Remediate Phase 1 errors];
         L --> J;
-        K -- No --> M[Perform 2 reloads <br> (30 minutes wait after each)];
+        K -- No --> M[Perform 2 reloads <br> 30 minutes wait after each]; %% Parentheses removed
 
-        M --> N[Run 3b_7_3_5_phase_2.py <br> (Monitor dataplanes, show tech, clear ASIC counters)];
+        M --> N[Run 3b_7_3_5_phase_2.py <br> Monitor dataplanes, show tech, clear ASIC counters]; %% Parentheses removed
         N --> O{Errors in Phase 2?};
         O -- Yes --> P[Remediate Phase 2 errors];
         P --> N;
-        O -- No --> Q[Run 3c_7_3_5_phase_3.py <br> (Last round of dummy yes/no, monitor dataplanes)];
+        O -- No --> Q[Run 3c_7_3_5_phase_3.py <br> Last round of dummy yes/no, monitor dataplanes]; %% Parentheses removed
 
         Q --> R{Errors in Phase 3?};
         R -- Yes --> S[Remediate Phase 3 errors];

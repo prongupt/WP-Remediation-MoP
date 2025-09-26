@@ -14,14 +14,14 @@ graph TD
         G -- Yes --> H[Perform initial remediation];
         H --> I[Power on device];
         G -- No --> I;
-        J[Run 1-all_XR_pre_check_and_comparison.py <br> re-check optics, interfaces]; %% Changed: Removed parentheses
+        J[Run 1-all_XR_pre_check_and_comparison.py <br> re-check optics, interfaces];
         I --> J;
         J --> K{Pre-checks OK?};
         K -- No --> H;
     end
 
     subgraph Post-Check & Finalization
-        K -- Yes --> L[Reload device twice <br> 20 min wait each]; %% Changed: Removed parentheses
+        K -- Yes --> L[Reload device twice <br> 20 min wait each];
         L --> M[Run 3-7_3_6+_python_post_checks.py];
         M --> N{Problems after post-checks?};
         N -- Yes --> O[Remediate post-check problems];

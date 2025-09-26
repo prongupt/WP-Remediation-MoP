@@ -7,7 +7,7 @@ graph TD
         B -- Yes --> D;
     end
 
-    subgraph Pre-Checks & Remediation
+    subgraph Pre-Checks and Remediation
         D --> E[Run 2-all_XR_python_pre_check.py <br> Provides baseline of degraded links];
         E --> F[Get baseline for faulty / degraded links];
         F --> G[Perform installation on the chassis / <br> remediation of fabric cards];

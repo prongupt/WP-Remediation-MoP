@@ -4,12 +4,12 @@ This document outlines the steps and scripts involved in the device commissionin
 
 ## Script Descriptions
 
-| Script Name                                   | Description                                                                                                                                       |
-| :-------------------------------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------|
-| `1-all_XR_pre_check_and_comparison.py`        | <ol type="a"><li>Performs CLI pre-check commands.</li><li>Captures baseline for optics / FPD / Serial Number change and comparison after bootup.</li><li>First file captures is considered the baseline.</li></ol> |
-| `2-all_XR_python_pre_check.py`                | Provides a baseline of degraded links.                                                                                                            |
-| `3-7_3_6+_python_post_checks.py`              | <ol type="a"><li>Monitor dummy yes.</li><li>Monitor dataplane.</li><li>Wait 10 minutes.</li><li>Monitor dummy no.</li><li>Monitor dataplane.</li><li>Wait 15 minutes and capture show tech.</li><li>Monitor dummy.</li><li>ASIC counters clear.</li></ol> |
-| `4-file_upload.py`                            | Uploads the monitorxx.xx.py files to the device's hard disk.                                                                                      |
+| Script Name                            | Description                                                                                                                                                                                                                                               |
+|:---------------------------------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `1-all_XR_pre_check_and_comparison.py` | <ol type="a"><li>Performs CLI pre-check commands.</li><li>Captures baseline for optics / FPD / Serial Number change and comparison after bootup.</li><li>First file captures is considered the baseline.</li></ol>                                        |
+| `2-all_XR_python_pre_check.py`         | Provides a baseline of degraded links.                                                                                                                                                                                                                    |
+| `3-7_3_6+_python_post_checks.py`       | <ol type="a"><li>Monitor dummy yes.</li><li>Monitor dataplane.</li><li>Wait 10 minutes.</li><li>Monitor dummy no.</li><li>Monitor dataplane.</li><li>Wait 15 minutes and capture show tech.</li><li>Monitor dummy.</li><li>ASIC counters clear.</li></ol> |
+| `4-file_upload.py`                     | Uploads the monitorxx.xx.py files to the device's hard disk.                                                                                                                                                                                              |
 
 ## Process Flow
 

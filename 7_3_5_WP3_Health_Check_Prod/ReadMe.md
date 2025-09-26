@@ -1,9 +1,8 @@
 ```mermaid
-
 graph TD
     subgraph Initialization
         A[Start] --> B{Check for dummy yes/no scripts?};
-        B -- No --> C[Run 4-file_upload.py <br> Upload files to hard disk]; %% Removed parentheses
+        B -- No --> C[Run 4-file_upload.py <br> Upload files to hard disk];
         C --> D[Run 1-all_XR_pre_check_and_comparison.py];
         B -- Yes --> D;
     end
@@ -20,18 +19,18 @@ graph TD
         I --> J[Run 3a_7_3_5_phase_1.py <br> (Asks for manual reloads at end)];
         J --> K{Errors in Phase 1?};
         K -- Yes --> L[Remediate Phase 1 errors];
-        L --> J; %% Loop back to re-run phase 1
+        L --> J;
         K -- No --> M[Perform 2 reloads <br> (30 minutes wait after each)];
 
         M --> N[Run 3b_7_3_5_phase_2.py <br> (Monitor dataplanes, show tech, clear ASIC counters)];
         N --> O{Errors in Phase 2?};
         O -- Yes --> P[Remediate Phase 2 errors];
-        P --> N; %% Loop back to re-run phase 2
+        P --> N;
         O -- No --> Q[Run 3c_7_3_5_phase_3.py <br> (Last round of dummy yes/no, monitor dataplanes)];
 
         Q --> R{Errors in Phase 3?};
         R -- Yes --> S[Remediate Phase 3 errors];
-        S --> Q; %% Loop back to re-run phase 3
+        S --> Q;
     end
 
     subgraph Finalization

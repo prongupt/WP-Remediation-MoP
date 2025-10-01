@@ -129,7 +129,7 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
     full_output_buffer = ""
     start_time = time.time()
     prompt_found = False
-    prompt_check_buffer = ""
+    prompt_check_buffer = "" # Keep this for efficient prompt checking
     while time.time() - start_time < timeout_sec:
         if shell_obj.recv_ready():
             try:
@@ -150,7 +150,7 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
                                 prompt_found = True
                                 if print_real_time and not data.endswith('\n'):
                                     print()
-                                return full_output_buffer, prompt_found
+                                return full_output_buffer, prompt_found # Return immediately once prompt is found
             except Exception as e:
                 logger.error(f"Error receiving data: {e}")
                 break
@@ -168,12 +168,34 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
     if cli_output_file:
         cli_output_file.write(f"\n--- Command: {command} ---\n")
         cli_output_file.flush()
+
+    # Optional: Small pre-command flush to clear any truly unexpected lingering data
+    pre_command_flush_output = ""
+    pre_flush_start_time = time.time()
+    while time.time() - pre_flush_start_time < 0.5:  # Small window (0.5s) to clear
+        if shell.recv_ready():
+            data = shell.recv(65535).decode('utf-8', errors='ignore')
+            if data:
+                pre_command_flush_output += data
+            else:
+                break  # No more data immediately available
+        else:
+            time.sleep(0.01)
+    if pre_command_flush_output:
+        logger.debug(f"Flushed {len(pre_command_flush_output)} characters from buffer BEFORE '{command_description}'.")
+        if cli_output_file:
+            cli_output_file.write(f"\n--- Pre-command Buffer Flush before '{command_description}' ---\n")
+            cli_output_file.write(pre_command_flush_output)
+            cli_output_file.flush()
+
     shell.send(command + "\n")
     time.sleep(0.5)  # Small delay after sending to allow initial output to buffer
     output, prompt_found = read_and_print_realtime(shell, timeout_sec=timeout, print_real_time=print_real_time_output)
     if cli_output_file:
         cli_output_file.write(output)
         cli_output_file.flush()
+
+    # If prompt was not found after the primary read, try sending newline and re-check
     if not prompt_found:
         logger.warning(f"Prompt not detected after '{command_description}'. Attempting to send newline and re-check.")
         shell.send("\n")
@@ -187,6 +209,35 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
         if not prompt_found:
             raise RouterCommandError(
                 f"Failed to reach prompt after '{command_description}' re-check. Output: {output}")
+
+    # --- CRITICAL NEW ADDITION: Explicit buffer flush after command execution ---
+    # This step ensures that any lingering output from the previous command,
+    # even if a prompt was detected, is fully consumed before the *next* command is sent.
+    logger.debug(f"Performing post-command buffer flush after '{command_description}'.")
+    post_command_flush_output = ""
+    post_flush_start_time = time.time()
+    # Give it a reasonable amount of time to drain, e.g., 5 seconds for potentially very large outputs
+    while time.time() - post_flush_start_time < 5:
+        if shell.recv_ready():
+            # Read as much as possible
+            data = shell.recv(65535).decode('utf-8', errors='ignore')
+            if data:
+                post_command_flush_output += data
+            else:
+                # recv returned empty string, meaning no more data is immediately available.
+                # We can break here. If more data comes later, the next command's pre-flush will catch it.
+                break
+        else:
+            time.sleep(0.05)  # Small sleep to prevent busy-waiting
+
+    if post_command_flush_output:
+        logger.debug(f"Flushed {len(post_command_flush_output)} characters from buffer AFTER '{command_description}'.")
+        if cli_output_file:
+            cli_output_file.write(f"\n--- Post-command Buffer Flush after '{command_description}' ---\n")
+            cli_output_file.write(post_command_flush_output)
+            cli_output_file.flush()
+    # --- END CRITICAL NEW ADDITION ---
+
     return output
 
 
@@ -1521,7 +1572,14 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
     for intf in all_interfaces:
         # Filter for physical interfaces only
         # Updated regex to include 'FH' for Fiber Hybrid interfaces
-        if not re.match(r"^(?:(?:Gi|Te|Hu|Fo|Eth|Fa|Se|POS|Ce|nve|Vxlan|FH)\S+)", intf, re.IGNORECASE):
+        # Old regex
+        # if not re.match(r"^(?:(?:Gi|Te|Hu|Fo|Eth|Fa|Se|POS|Ce|nve|Vxlan|FH)\S+)", intf, re.IGNORECASE):
+        # New, more robust regex for physical interfaces:
+        physical_intf_pattern = re.compile(
+            r"^(?:(?:GigabitEthernet|TenGigE|FortyGigE|HundredGigE|FourHundredGigE|Ethernet|FastEthernet|Serial|POS|Cellular|MgmtEth|PTP|FH)\S+)",
+            re.IGNORECASE
+        )
+        if not physical_intf_pattern.match(intf):
             logger.debug(f"Skipping logical interface '{intf}' for comparison.")
             continue
 

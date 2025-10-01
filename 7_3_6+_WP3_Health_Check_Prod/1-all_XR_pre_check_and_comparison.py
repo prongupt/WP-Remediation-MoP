@@ -129,10 +129,7 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
     full_output_buffer = ""
     start_time = time.time()
     prompt_found = False
-
-    # Check the last N characters of the full buffer for the prompt
-    prompt_check_window_size = 1024
-
+    prompt_check_buffer = "" # Keep this for efficient prompt checking
     while time.time() - start_time < timeout_sec:
         if shell_obj.recv_ready():
             try:
@@ -141,38 +138,24 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
                     if print_real_time:
                         print(f"{data}", end='')
                     full_output_buffer += data
-
-                    # Check for prompt in the last part of the accumulated buffer
-                    check_area = full_output_buffer[-prompt_check_window_size:] if len(
-                        full_output_buffer) > prompt_check_window_size else full_output_buffer
-
-                    for pattern in PROMPT_PATTERNS:
-                        if re.search(pattern, check_area):
-                            prompt_found = True
-                            # --- CRITICAL CHANGE: Aggressively drain any remaining data ---
-                            # This loop ensures the SSH channel's buffer is truly empty
-                            # before the function returns, preventing output bleed-through.
-                            while shell_obj.recv_ready():
-                                time.sleep(0.01)  # Small delay to allow more data to arrive if it's in chunks
-                                extra_data = shell_obj.recv(65535).decode('utf-8', errors='ignore')
-                                if extra_data:
-                                    full_output_buffer += extra_data
-                                    if print_real_time:
-                                        print(f"{extra_data}", end='')
-                                else:
-                                    break  # No more data
-                            # --- END CRITICAL CHANGE ---
-
-                            if print_real_time and not full_output_buffer.endswith('\n'):
-                                print()
-                            return full_output_buffer, prompt_found
+                    prompt_check_buffer += data
+                    # Keep only the last 500 characters to check for prompt efficiently
+                    if len(prompt_check_buffer) > 500:
+                        prompt_check_buffer = prompt_check_buffer[-500:]
+                    lines = prompt_check_buffer.strip().splitlines()
+                    if lines:
+                        last_line = lines[-1]
+                        for pattern in PROMPT_PATTERNS:
+                            if re.search(pattern, last_line):
+                                prompt_found = True
+                                if print_real_time and not data.endswith('\n'):
+                                    print()
+                                return full_output_buffer, prompt_found # Return immediately once prompt is found
             except Exception as e:
                 logger.error(f"Error receiving data: {e}")
                 break
         else:
-            time.sleep(0.1)  # Only sleep if no data is ready
-
-    # If loop finishes due to timeout and prompt was never found
+            time.sleep(0.1)
     if print_real_time and full_output_buffer and not full_output_buffer.endswith('\n'):
         print()
     return full_output_buffer, prompt_found
@@ -185,12 +168,34 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
     if cli_output_file:
         cli_output_file.write(f"\n--- Command: {command} ---\n")
         cli_output_file.flush()
+
+    # Optional: Small pre-command flush to clear any truly unexpected lingering data
+    pre_command_flush_output = ""
+    pre_flush_start_time = time.time()
+    while time.time() - pre_flush_start_time < 0.5:  # Small window (0.5s) to clear
+        if shell.recv_ready():
+            data = shell.recv(65535).decode('utf-8', errors='ignore')
+            if data:
+                pre_command_flush_output += data
+            else:
+                break  # No more data immediately available
+        else:
+            time.sleep(0.01)
+    if pre_command_flush_output:
+        logger.debug(f"Flushed {len(pre_command_flush_output)} characters from buffer BEFORE '{command_description}'.")
+        if cli_output_file:
+            cli_output_file.write(f"\n--- Pre-command Buffer Flush before '{command_description}' ---\n")
+            cli_output_file.write(pre_command_flush_output)
+            cli_output_file.flush()
+
     shell.send(command + "\n")
     time.sleep(0.5)  # Small delay after sending to allow initial output to buffer
     output, prompt_found = read_and_print_realtime(shell, timeout_sec=timeout, print_real_time=print_real_time_output)
     if cli_output_file:
         cli_output_file.write(output)
         cli_output_file.flush()
+
+    # If prompt was not found after the primary read, try sending newline and re-check
     if not prompt_found:
         logger.warning(f"Prompt not detected after '{command_description}'. Attempting to send newline and re-check.")
         shell.send("\n")
@@ -204,6 +209,35 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
         if not prompt_found:
             raise RouterCommandError(
                 f"Failed to reach prompt after '{command_description}' re-check. Output: {output}")
+
+    # --- CRITICAL NEW ADDITION: Explicit buffer flush after command execution ---
+    # This step ensures that any lingering output from the previous command,
+    # even if a prompt was detected, is fully consumed before the *next* command is sent.
+    logger.debug(f"Performing post-command buffer flush after '{command_description}'.")
+    post_command_flush_output = ""
+    post_flush_start_time = time.time()
+    # Give it a reasonable amount of time to drain, e.g., 5 seconds for potentially very large outputs
+    while time.time() - post_flush_start_time < 5:
+        if shell.recv_ready():
+            # Read as much as possible
+            data = shell.recv(65535).decode('utf-8', errors='ignore')
+            if data:
+                post_command_flush_output += data
+            else:
+                # recv returned empty string, meaning no more data is immediately available.
+                # We can break here. If more data comes later, the next command's pre-flush will catch it.
+                break
+        else:
+            time.sleep(0.05)  # Small sleep to prevent busy-waiting
+
+    if post_command_flush_output:
+        logger.debug(f"Flushed {len(post_command_flush_output)} characters from buffer AFTER '{command_description}'.")
+        if cli_output_file:
+            cli_output_file.write(f"\n--- Post-command Buffer Flush after '{command_description}' ---\n")
+            cli_output_file.write(post_command_flush_output)
+            cli_output_file.flush()
+    # --- END CRITICAL NEW ADDITION ---
+
     return output
 
 

@@ -13,7 +13,7 @@ from typing import List, Tuple, Dict, Any, Optional
 
 # --- Logger Setup ---
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)  # Set logger level back to INFO
+logger.setLevel(logging.INFO)  # Set logger level back to INFO
 
 # Clear existing handlers to prevent duplicate logging if script is run multiple times in same session
 if logger.handlers:
@@ -129,7 +129,10 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
     full_output_buffer = ""
     start_time = time.time()
     prompt_found = False
-    prompt_check_buffer = ""
+
+    # Check the last N characters of the full buffer for the prompt
+    prompt_check_window_size = 1024
+
     while time.time() - start_time < timeout_sec:
         if shell_obj.recv_ready():
             try:
@@ -138,24 +141,38 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
                     if print_real_time:
                         print(f"{data}", end='')
                     full_output_buffer += data
-                    prompt_check_buffer += data
-                    # Keep only the last 500 characters to check for prompt efficiently
-                    if len(prompt_check_buffer) > 500:
-                        prompt_check_buffer = prompt_check_buffer[-500:]
-                    lines = prompt_check_buffer.strip().splitlines()
-                    if lines:
-                        last_line = lines[-1]
-                        for pattern in PROMPT_PATTERNS:
-                            if re.search(pattern, last_line):
-                                prompt_found = True
-                                if print_real_time and not data.endswith('\n'):
-                                    print()
-                                return full_output_buffer, prompt_found
+
+                    # Check for prompt in the last part of the accumulated buffer
+                    check_area = full_output_buffer[-prompt_check_window_size:] if len(
+                        full_output_buffer) > prompt_check_window_size else full_output_buffer
+
+                    for pattern in PROMPT_PATTERNS:
+                        if re.search(pattern, check_area):
+                            prompt_found = True
+                            # --- CRITICAL CHANGE: Aggressively drain any remaining data ---
+                            # This loop ensures the SSH channel's buffer is truly empty
+                            # before the function returns, preventing output bleed-through.
+                            while shell_obj.recv_ready():
+                                time.sleep(0.01)  # Small delay to allow more data to arrive if it's in chunks
+                                extra_data = shell_obj.recv(65535).decode('utf-8', errors='ignore')
+                                if extra_data:
+                                    full_output_buffer += extra_data
+                                    if print_real_time:
+                                        print(f"{extra_data}", end='')
+                                else:
+                                    break  # No more data
+                            # --- END CRITICAL CHANGE ---
+
+                            if print_real_time and not full_output_buffer.endswith('\n'):
+                                print()
+                            return full_output_buffer, prompt_found
             except Exception as e:
                 logger.error(f"Error receiving data: {e}")
                 break
         else:
-            time.sleep(0.1)
+            time.sleep(0.1)  # Only sleep if no data is ready
+
+    # If loop finishes due to timeout and prompt was never found
     if print_real_time and full_output_buffer and not full_output_buffer.endswith('\n'):
         print()
     return full_output_buffer, prompt_found
@@ -596,7 +613,6 @@ def check_interface_status(shell: paramiko.Channel, cli_output_file=None) -> Tup
     logger.info(f"Checking Interface Status...")
     summary_output = execute_command_in_shell(shell, "show interface summary", "show interface summary", timeout=60,
                                               print_real_time_output=False, cli_output_file=cli_output_file)
-    logger.debug(f"Raw 'show interface summary' output:\nSTART_SUMMARY_OUTPUT\n{summary_output}\nEND_SUMMARY_OUTPUT")
     all_types_data = None
     lines = summary_output.splitlines()
 

@@ -662,7 +662,12 @@ def run_show_tech_fabric_threaded(shell: paramiko.Channel, hostname: str,
             logging.warning(
                 f"Show tech completion string not found within internal timeout ({SHOW_TECH_MONITOR_TIMEOUT_SECONDS}s).")
 
-        shell.send("\x03")
+        # Attempt to send Ctrl+C if not already sent or if the loop timed out
+        try:
+            shell.send("\x03")
+        except Exception as e:
+            logging.warning(f"Error sending Ctrl+C to shell: {e}")
+
         if SHOW_TECH_END_TIMESTAMP_FROM_LOG is None:
             SHOW_TECH_END_TIMESTAMP_FROM_LOG = datetime.datetime.now().strftime(
                 "%Y-%b-%d.%H%M%S.UTC")
@@ -754,16 +759,23 @@ def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, mo
     finally:
         if shell:
             logging.info(f"Exiting CLI session after {monitor_description} dataplane monitor.")
-            shell.send("exit\n")
-            time.sleep(1)
             try:
+                shell.send("exit\n")
+                time.sleep(1)
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
             except Exception as e:
-                logging.warning(f"Error clearing shell buffer on exit: {e}")
-            shell.close()
+                logging.warning(f"Error during graceful shell exit in {monitor_description} monitor: {e}. The socket might have already been closed.")
+            finally:
+                try:
+                    shell.close()
+                except Exception as e:
+                    logging.warning(f"Error closing Paramiko shell channel in {monitor_description} monitor: {e}")
         if client:
-            client.close()
+            try:
+                client.close()
+            except Exception as e:
+                logging.warning(f"Error closing Paramiko SSH client in {monitor_description} monitor: {e}")
         logging.info(f"SSH connection for {monitor_description} monitor closed.")
 
 def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, password: str,
@@ -837,20 +849,33 @@ def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, passwo
     except ShowTechError as e:
         raise ShowTechError(f"Show tech collection failed during concurrent tasks phase: {e}")
     except Exception as e:
+        # Catch any other unexpected errors that might occur before the finally block
+        logging.error(f"An unexpected error occurred during concurrent tasks phase: {e}", exc_info=True)
         raise Exception(f"An unexpected error occurred during concurrent tasks phase: {e}")
     finally:
         if shell:
-            logging.info("Exiting CLI session after concurrent tasks phase.")
-            shell.send("exit\n")
-            time.sleep(1)
+            logging.info("Attempting to gracefully exit CLI session after concurrent tasks phase.")
             try:
+                # Attempt to send exit command. This might fail if the socket is already closed.
+                shell.send("exit\n")
+                time.sleep(1)
+                # Clear any remaining buffer, ignoring errors if socket is closed
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
             except Exception as e:
-                logging.warning(f"Error clearing shell buffer on exit: {e}")
-            shell.close()
+                logging.warning(f"Error during graceful shell exit attempt: {e}. The socket might have already been closed.")
+            finally:
+                # Ensure the shell channel is closed, even if the exit command failed
+                try:
+                    shell.close()
+                except Exception as e:
+                    logging.warning(f"Error closing Paramiko shell channel: {e}")
         if client:
-            client.close()
+            logging.info("Attempting to close SSH client connection.")
+            try:
+                client.close()
+            except Exception as e:
+                logging.warning(f"Error closing Paramiko SSH client: {e}")
         logging.info("SSH connection closed for concurrent tasks phase.")
 
 def execute_script_phase(router_ip: str, username: str, password: str, scripts_to_run: List[str],
@@ -922,16 +947,23 @@ def execute_script_phase(router_ip: str, username: str, password: str, scripts_t
     finally:
         if shell:
             logging.info("Exiting bash prompt...")
-            shell.send("exit\n")
-            time.sleep(1)
             try:
+                shell.send("exit\n")
+                time.sleep(1)
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
             except Exception as e:
-                logging.warning(f"Error clearing shell buffer on exit: {e}")
-            shell.close()
+                logging.warning(f"Error during graceful shell exit in script phase: {e}. The socket might have already been closed.")
+            finally:
+                try:
+                    shell.close()
+                except Exception as e:
+                    logging.warning(f"Error closing Paramiko shell channel in script phase: {e}")
         if client:
-            client.close()
+            try:
+                client.close()
+            except Exception as e:
+                logging.warning(f"Error closing Paramiko SSH client in script phase: {e}")
         logging.info("SSH connection closed.")
 
 def run_asic_errors_show_command(router_ip: str, username: str, password: str, ssh_timeout: int) -> bool:
@@ -1016,16 +1048,23 @@ def run_asic_errors_show_command(router_ip: str, username: str, password: str, s
     finally:
         if shell:
             logging.info("Ensuring bash prompt is exited after asic_errors_show.")
-            shell.send("exit\n")
-            time.sleep(1)
             try:
+                shell.send("exit\n")
+                time.sleep(1)
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
             except Exception as e:
-                logging.warning(f"Error clearing shell buffer on exit: {e}")
-            shell.close()
+                logging.warning(f"Error during graceful shell exit after asic_errors_show: {e}. The socket might have already been closed.")
+            finally:
+                try:
+                    shell.close()
+                except Exception as e:
+                    logging.warning(f"Error closing Paramiko shell channel after asic_errors_show: {e}")
         if client:
-            client.close()
+            try:
+                client.close()
+            except Exception as e:
+                logging.warning(f"Error closing Paramiko SSH client after asic_errors_show: {e}")
         logging.info("SSH connection closed.")
 
 def print_final_summary(results: Dict[str, str]):
@@ -1137,9 +1176,9 @@ if __name__ == "__main__":
     script_aborted = False
 
     try:
-        # 2. Phase 1: Dummy Yes
+        # Step 1: Phase 1: Dummy Yes
         logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info("### Step 2: Starting Phase 1: Running scripts with '--dummy' yes ###")
+        logging.info("### Step 1: Starting Phase 1: Running scripts with '--dummy' yes ###")
         try:
             execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run, "'--dummy' yes",
                                  SSH_TIMEOUT_SECONDS)
@@ -1151,9 +1190,9 @@ if __name__ == "__main__":
             script_aborted = True
             raise
 
-        # 3. Monitor Dataplane (First instance)
+        # Step 2: Monitor Dataplane (First instance)
         logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info("### Step 3: Running First Dataplane Monitor ###")
+        logging.info("### Step 2: Running First Dataplane Monitor ###")
         try:
             run_dataplane_monitor_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, "FIRST", SSH_TIMEOUT_SECONDS,
                                         DATAPLANE_MONITOR_TIMEOUT_SECONDS)
@@ -1165,9 +1204,9 @@ if __name__ == "__main__":
             script_aborted = True
             raise
 
-        # 4. Wait 15 minutes (Sequential timer)
+        # Step 3: Wait 15 minutes (Sequential timer)
         logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info(f"### Step 4: Starting Sequential {COUNTDOWN_DURATION_MINUTES}-minute Countdown ###")
+        logging.info(f"### Step 3: Starting Sequential {COUNTDOWN_DURATION_MINUTES}-minute Countdown ###")
         try:
             colorful_countdown_timer(COUNTDOWN_DURATION_MINUTES * 60)
             results_summary["Step 3"] = "Sequential 15-minute Countdown: Success"
@@ -1178,9 +1217,9 @@ if __name__ == "__main__":
             script_aborted = True
             raise
 
-        # 5. Phase 2: Dummy no
+        # Step 4: Phase 2: Dummy no
         logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info("### Step 5: Starting Phase 2: Running scripts with '--dummy' no ###")
+        logging.info("### Step 4: Starting Phase 2: Running scripts with '--dummy' no ###")
         try:
             execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run, "'--dummy' no",
                                  SSH_TIMEOUT_SECONDS)
@@ -1192,9 +1231,9 @@ if __name__ == "__main__":
             script_aborted = True
             raise
 
-        # 6. Monitor dataplane (Second instance)
+        # Step 5: Monitor dataplane (Second instance)
         logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info("### Step 6: Running Second Dataplane Monitor ###")
+        logging.info("### Step 5: Running Second Dataplane Monitor ###")
         try:
             run_dataplane_monitor_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, "SECOND", SSH_TIMEOUT_SECONDS,
                                         DATAPLANE_MONITOR_TIMEOUT_SECONDS)
@@ -1206,31 +1245,31 @@ if __name__ == "__main__":
             script_aborted = True
             raise
 
-        # --- MODIFIED STEP 7: Concurrent 15 minute timer and show tech collection ---
+        # Step 6: Concurrent 15 minute timer and show tech collection
         logging.info(f"\n{'#' * 70}{'#' * 70}")
         logging.info(
-            f"### Step 7: Starting Concurrent {COUNTDOWN_DURATION_MINUTES}-minute Countdown and Show Tech Collection ###")
+            f"### Step 6: Starting Concurrent {COUNTDOWN_DURATION_MINUTES}-minute Countdown and Show Tech Collection ###")
         try:
             concurrent_success = run_concurrent_countdown_and_show_tech(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD,
                                                                         SSH_TIMEOUT_SECONDS, COUNTDOWN_DURATION_MINUTES,
                                                                         SHOW_TECH_MONITOR_TIMEOUT_SECONDS)
             if concurrent_success:
-                results_summary["Step 6"] = "Sequential 15-minute Countdown and Show Tech: Success"
+                results_summary["Step 6"] = "Concurrent 15-minute Countdown and Show Tech: Success"
                 logging.info("Concurrent countdown and show tech phase completed successfully.")
             else:
-                results_summary["Step 6"] = "Sequential 15-minute Countdown and Show Tech: Failed - Show tech issue"
+                results_summary["Step 6"] = "Concurrent 15-minute Countdown and Show Tech: Failed - Show tech issue"
                 logging.critical("Concurrent countdown and show tech phase failed due to show tech issue.")
                 script_aborted = True
                 raise ShowTechError("Show tech collection failed during concurrent tasks phase.")
         except (SSHConnectionError, RouterCommandError, ShowTechError) as e:
-            results_summary["Step 6"] = f"Sequential 15-minute Countdown and Show Tech: Failed - {e}"
+            results_summary["Step 6"] = f"Concurrent 15-minute Countdown and Show Tech: Failed - {e}"
             logging.critical(f"Concurrent countdown and show tech phase failed: {e}")
             script_aborted = True
             raise
 
-        # --- NEW STEP 8: Final Dummy No Run ---
+        # Step 7: Final Dummy No Run
         logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info("### Step 8: Starting Final Phase: Running scripts with '--dummy' no again ###")
+        logging.info("### Step 7: Starting Final Phase: Running scripts with '--dummy' no again ###")
         try:
             execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run,
                                  "'--dummy' no",
@@ -1243,9 +1282,9 @@ if __name__ == "__main__":
             script_aborted = True
             raise
 
-        # --- NEW STEP 9: Run asic_errors_show command ---
+        # Step 8: Run asic_errors_show command
         logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info("### Step 9: Running asic_errors_show command ###")
+        logging.info("### Step 8: Running asic_errors_show command ###")
         try:
             run_asic_errors_show_command(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, SSH_TIMEOUT_SECONDS)
             results_summary["Step 8"] = "asic_errors_show Command: Success"

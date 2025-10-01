@@ -1521,7 +1521,14 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
     for intf in all_interfaces:
         # Filter for physical interfaces only
         # Updated regex to include 'FH' for Fiber Hybrid interfaces
-        if not re.match(r"^(?:(?:Gi|Te|Hu|Fo|Eth|Fa|Se|POS|Ce|nve|Vxlan|FH)\S+)", intf, re.IGNORECASE):
+        # Old regex
+        # if not re.match(r"^(?:(?:Gi|Te|Hu|Fo|Eth|Fa|Se|POS|Ce|nve|Vxlan|FH)\S+)", intf, re.IGNORECASE):
+        # New, more robust regex for physical interfaces:
+        physical_intf_pattern = re.compile(
+            r"^(?:(?:GigabitEthernet|TenGigE|FortyGigE|HundredGigE|FourHundredGigE|Ethernet|FastEthernet|Serial|POS|Cellular|MgmtEth|PTP|FH)\S+)",
+            re.IGNORECASE
+        )
+        if not physical_intf_pattern.match(intf):
             logger.debug(f"Skipping logical interface '{intf}' for comparison.")
             continue
 

@@ -13,7 +13,7 @@ from typing import List, Tuple, Dict, Any, Optional
 
 # --- Logger Setup ---
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)  # Set logger level back to INFO
+logger.setLevel(logging.DEBUG)  # Set logger level back to INFO
 
 # Clear existing handlers to prevent duplicate logging if script is run multiple times in same session
 if logger.handlers:
@@ -596,6 +596,7 @@ def check_interface_status(shell: paramiko.Channel, cli_output_file=None) -> Tup
     logger.info(f"Checking Interface Status...")
     summary_output = execute_command_in_shell(shell, "show interface summary", "show interface summary", timeout=60,
                                               print_real_time_output=False, cli_output_file=cli_output_file)
+    logger.debug(f"Raw 'show interface summary' output:\nSTART_SUMMARY_OUTPUT\n{summary_output}\nEND_SUMMARY_OUTPUT")
     all_types_data = None
     lines = summary_output.splitlines()
 

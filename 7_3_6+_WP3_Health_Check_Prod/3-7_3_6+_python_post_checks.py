@@ -1143,10 +1143,10 @@ if __name__ == "__main__":
         try:
             execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run, "'--dummy' yes",
                                  SSH_TIMEOUT_SECONDS)
-            results_summary["Step 2"] = "Phase 1 (Dummy Yes): Success"
+            results_summary["Step 1"] = "Phase 1 (Dummy Yes): Success"
             logging.info("Phase 1 completed successfully.")
         except (SSHConnectionError, RouterCommandError, ScriptExecutionError) as e:
-            results_summary["Step 2"] = f"Phase 1 (Dummy Yes): Failed - {e}"
+            results_summary["Step 1"] = f"Phase 1 (Dummy Yes): Failed - {e}"
             logging.critical(f"Phase 1 failed: {e}")
             script_aborted = True
             raise
@@ -1157,10 +1157,10 @@ if __name__ == "__main__":
         try:
             run_dataplane_monitor_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, "FIRST", SSH_TIMEOUT_SECONDS,
                                         DATAPLANE_MONITOR_TIMEOUT_SECONDS)
-            results_summary["Step 3"] = "First Dataplane Monitor: Success"
+            results_summary["Step 2"] = "First Dataplane Monitor: Success"
             logging.info("First Dataplane Monitor completed successfully.")
         except (SSHConnectionError, RouterCommandError, DataplaneError) as e:
-            results_summary["Step 3"] = f"First Dataplane Monitor: Failed - {e}"
+            results_summary["Step 2"] = f"First Dataplane Monitor: Failed - {e}"
             logging.critical(f"First Dataplane Monitor failed: {e}")
             script_aborted = True
             raise
@@ -1170,10 +1170,10 @@ if __name__ == "__main__":
         logging.info(f"### Step 4: Starting Sequential {COUNTDOWN_DURATION_MINUTES}-minute Countdown ###")
         try:
             colorful_countdown_timer(COUNTDOWN_DURATION_MINUTES * 60)
-            results_summary["Step 4"] = "Sequential 15-minute Countdown: Success"
+            results_summary["Step 3"] = "Sequential 15-minute Countdown: Success"
             logging.info(f"Sequential {COUNTDOWN_DURATION_MINUTES}-minute countdown finished.")
         except Exception as e:
-            results_summary["Step 4"] = f"Sequential 15-minute Countdown: Failed - {e}"
+            results_summary["Step 3"] = f"Sequential 15-minute Countdown: Failed - {e}"
             logging.critical(f"Sequential countdown failed: {e}")
             script_aborted = True
             raise
@@ -1184,10 +1184,10 @@ if __name__ == "__main__":
         try:
             execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run, "'--dummy' no",
                                  SSH_TIMEOUT_SECONDS)
-            results_summary["Step 5"] = "Phase 2 (Dummy No): Success"
+            results_summary["Step 4"] = "Phase 2 (Dummy No): Success"
             logging.info("Phase 2 completed successfully.")
         except (SSHConnectionError, RouterCommandError, ScriptExecutionError) as e:
-            results_summary["Step 5"] = f"Phase 2 (Dummy No): Failed - {e}"
+            results_summary["Step 4"] = f"Phase 2 (Dummy No): Failed - {e}"
             logging.critical(f"Phase 2 failed: {e}")
             script_aborted = True
             raise
@@ -1198,10 +1198,10 @@ if __name__ == "__main__":
         try:
             run_dataplane_monitor_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, "SECOND", SSH_TIMEOUT_SECONDS,
                                         DATAPLANE_MONITOR_TIMEOUT_SECONDS)
-            results_summary["Step 6"] = "Second Dataplane Monitor: Success"
+            results_summary["Step 5"] = "Second Dataplane Monitor: Success"
             logging.info("Second Dataplane Monitor completed successfully.")
         except (SSHConnectionError, RouterCommandError, DataplaneError) as e:
-            results_summary["Step 6"] = f"Second Dataplane Monitor: Failed - {e}"
+            results_summary["Step 5"] = f"Second Dataplane Monitor: Failed - {e}"
             logging.critical(f"Second Dataplane Monitor failed: {e}")
             script_aborted = True
             raise
@@ -1215,15 +1215,15 @@ if __name__ == "__main__":
                                                                         SSH_TIMEOUT_SECONDS, COUNTDOWN_DURATION_MINUTES,
                                                                         SHOW_TECH_MONITOR_TIMEOUT_SECONDS)
             if concurrent_success:
-                results_summary["Step 7"] = "Sequential 15-minute Countdown and Show Tech: Success"
+                results_summary["Step 6"] = "Sequential 15-minute Countdown and Show Tech: Success"
                 logging.info("Concurrent countdown and show tech phase completed successfully.")
             else:
-                results_summary["Step 7"] = "Sequential 15-minute Countdown and Show Tech: Failed - Show tech issue"
+                results_summary["Step 6"] = "Sequential 15-minute Countdown and Show Tech: Failed - Show tech issue"
                 logging.critical("Concurrent countdown and show tech phase failed due to show tech issue.")
                 script_aborted = True
                 raise ShowTechError("Show tech collection failed during concurrent tasks phase.")
         except (SSHConnectionError, RouterCommandError, ShowTechError) as e:
-            results_summary["Step 7"] = f"Sequential 15-minute Countdown and Show Tech: Failed - {e}"
+            results_summary["Step 6"] = f"Sequential 15-minute Countdown and Show Tech: Failed - {e}"
             logging.critical(f"Concurrent countdown and show tech phase failed: {e}")
             script_aborted = True
             raise
@@ -1235,10 +1235,10 @@ if __name__ == "__main__":
             execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run,
                                  "'--dummy' no",
                                  SSH_TIMEOUT_SECONDS)
-            results_summary["Step 8"] = "Final Dummy No: Success"
+            results_summary["Step 7"] = "Final Dummy No: Success"
             logging.info("Final 'dummy no' phase completed successfully.")
         except (SSHConnectionError, RouterCommandError, ScriptExecutionError) as e:
-            results_summary["Step 8"] = f"Final Dummy No: Failed - {e}"
+            results_summary["Step 7"] = f"Final Dummy No: Failed - {e}"
             logging.critical(f"Final 'dummy no' phase failed: {e}")
             script_aborted = True
             raise
@@ -1248,10 +1248,10 @@ if __name__ == "__main__":
         logging.info("### Step 9: Running asic_errors_show command ###")
         try:
             run_asic_errors_show_command(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, SSH_TIMEOUT_SECONDS)
-            results_summary["Step 9"] = "asic_errors_show Command: Success"
+            results_summary["Step 8"] = "asic_errors_show Command: Success"
             logging.info("asic_errors_show command completed successfully.")
         except (SSHConnectionError, RouterCommandError, AsicErrorShowError) as e:
-            results_summary["Step 9"] = f"asic_errors_show Command: Failed - {e}"
+            results_summary["Step 8"] = f"asic_errors_show Command: Failed - {e}"
             logging.critical(f"asic_errors_show command failed: {e}")
 
     except Exception as e:

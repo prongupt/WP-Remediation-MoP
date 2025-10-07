@@ -133,8 +133,13 @@ def get_line_card_info(device_name, show_platform_output):
                 try:
                     slot_num = int(slot_num_str)
                     line_card_slots.append(slot_num)
-                    # Uncomment the line below for debugging the exact card type string
-                    # print(f"DEBUG: Device {device_name}, Slot {slot_num}, Extracted Card Type: '{card_type}'")
+
+                    # --- IMPORTANT DEBUGGING LINE ---
+                    # This will show you exactly what card type string is being identified.
+                    # Look for this output when you run the script.
+                    print(f"DEBUG: Device {device_name}, Slot {slot_num}, Extracted Card Type: '{card_type}'")
+                    # --- END DEBUGGING LINE ---
+
                     card_type_counts[card_type] = card_type_counts.get(card_type, 0) + 1
                 except ValueError:
                     # Should not happen if regex matches digits, but good for robustness
@@ -273,14 +278,20 @@ def main():
 
     # Print the total line card type counts for the specific types requested
     print("\nTotal Line Card Type Counts Across All Devices:")
+    # Use .get() with a default of 0 to handle cases where a specific type wasn't found at all
     print(f"Number of 88-LC0-36FH-M cards: {all_aggregated_lc_type_counts.get('88-LC0-36FH-M', 0)}")
     print(f"Number of 88-LC0-36FH cards: {all_aggregated_lc_type_counts.get('88-LC0-36FH', 0)}")
     print(f"Number of 8800-LC-48H cards: {all_aggregated_lc_type_counts.get('8800-LC-48H', 0)}")
 
-    # Optionally, print all found types for comprehensive overview
-    # print("\nAll aggregated Line Card Types found:")
-    # for card_type, count in sorted(all_aggregated_lc_type_counts.items()):
-    #     print(f"  {card_type}: {count}")
+    # --- IMPORTANT: This section will show ALL unique card types found ---
+    print("\n--- All aggregated Line Card Types found (for debugging) ---")
+    if not all_aggregated_lc_type_counts:
+        print("No line cards found or processed.")
+    else:
+        for card_type, count in sorted(all_aggregated_lc_type_counts.items()):
+            print(f"  '{card_type}': {count}")
+    print("------------------------------------------------------------")
+    # --- END IMPORTANT SECTION ---
 
     print(f"\nTotal execution time: {end_time - start_time:.2f} seconds")
 

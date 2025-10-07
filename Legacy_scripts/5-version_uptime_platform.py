@@ -1,3 +1,5 @@
+#Added code to get slot population per device per DC
+
 import time
 import paramiko
 import re

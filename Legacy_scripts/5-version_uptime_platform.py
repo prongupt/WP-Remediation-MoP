@@ -2,13 +2,13 @@ import time
 import paramiko
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import getpass  # Import getpass for secure password input
+import getpass
 
 # Define the list of commands to be executed
 commands = [
     "show version | i Label",
     "show version | i uptime",
-    "show platform"  # Added the show platform command
+    "show platform"
 ]
 
 
@@ -56,7 +56,7 @@ def format_slots_to_ranges(slots):
     if not slots:
         return ""
 
-    slots = sorted(list(set(slots)))  # Ensure unique and sorted
+    slots = sorted(list(set(slots)))
 
     ranges = []
     if not slots:
@@ -105,12 +105,16 @@ def get_line_card_info(device_name, show_platform_output):
         if "----" in line:
             continue
 
+        # Regex to capture node (e.g., 0/0/CPU0) and the Type field
         match = re.match(r"^(0/(\d+)/CPU0)\s+(\S+.*?)\s+.*", line)
         if match:
             slot_num_str = match.group(2)
             raw_card_type = match.group(3).strip()
+
+            # Clean up the card type if it contains (Active) or (Standby)
             card_type = re.sub(r'\s*\(Active\)|\s*\(Standby\)', '', raw_card_type).strip()
 
+            # Apply filtering logic for line cards (must contain "LC" and not be RP, BMC, FC, FT, PT)
             if "LC" in card_type and \
                     "RP" not in card_type and \
                     "BMC" not in card_type and \
@@ -120,13 +124,9 @@ def get_line_card_info(device_name, show_platform_output):
                 try:
                     slot_num = int(slot_num_str)
                     line_card_slots.append(slot_num)
-
-                    # This debug line was useful for identifying the exact string
-                    # print(f"DEBUG: Device {device_name}, Slot {slot_num}, Extracted Card Type: '{card_type}'")
-
                     card_type_counts[card_type] = card_type_counts.get(card_type, 0) + 1
                 except ValueError:
-                    pass
+                    pass  # Should not happen if regex matches digits
 
     line_card_slots.sort()
 
@@ -236,7 +236,7 @@ def main():
     print(f"{'-' * 25} | {'-' * 20} | {'-' * 12}")
 
     all_aggregated_lc_type_counts = {}
-    total_slots_used_from_script = 0  # New variable to sum slots used
+    total_slots_used_from_script = 0
 
     for idx in range(len(devices_input)):
         data = processed_device_data.get(idx, {})
@@ -246,7 +246,7 @@ def main():
         print(
             f"{lc_info.get('Name of Device', 'N/A'):<25} | {lc_info.get('Slots populated', 'N/A'):<20} | {current_slots_used:<12}")
 
-        if isinstance(current_slots_used, int):  # Only sum if it's a number
+        if isinstance(current_slots_used, int):
             total_slots_used_from_script += current_slots_used
 
         device_card_counts = lc_info.get('Card Type Counts', {})
@@ -255,6 +255,8 @@ def main():
 
     print("\nTotal Line Card Type Counts Across All Devices:")
 
+    # These counts directly reflect what was found in the 'show platform' output
+    # If a specific type (e.g., without -M) was not found, its count will be 0.
     count_36FH_M = all_aggregated_lc_type_counts.get('88-LC0-36FH-M', 0)
     print(f"Number of 88-LC0-36FH-M cards: {count_36FH_M}")
 
@@ -264,28 +266,10 @@ def main():
     count_48H = all_aggregated_lc_type_counts.get('8800-LC-48H', 0)
     print(f"Number of 8800-LC-48H cards: {count_48H}")
 
-    print("\n--- All aggregated Line Card Types found (for comprehensive overview) ---")
-    if not all_aggregated_lc_type_counts:
-        print("No line cards found or processed.")
-    else:
-        for card_type, count in sorted(all_aggregated_lc_type_counts.items()):
-            print(f"  '{card_type}': {count}")
-    print("------------------------------------------------------------")
-
-    # --- This will show the sum of 'Slots used' as calculated by the script ---
+    # This line confirms the consistency between summed 'Slots used' and aggregated card types
     print(f"\nTotal sum of 'Slots used' from all devices (excluding N/A): {total_slots_used_from_script}")
-    # --- END NEW ADDITION ---
 
     print(f"\nTotal execution time: {end_time - start_time:.2f} seconds")
-
-    # --- NEW SECTION: Column of "Slots used" numbers (for easy copy-paste) ---
-    print("\n--- Column of 'Slots used' numbers for manual verification ---")
-    for idx in range(len(devices_input)):
-        data = processed_device_data.get(idx, {})
-        lc_info = data.get('line_card_info', {})
-        print(f"{lc_info.get('Slots used', 'N/A')}")
-    print("------------------------------------------------------------")
-    # --- END NEW SECTION ---
 
 
 if __name__ == "__main__":

@@ -1,5 +1,3 @@
-#Added code to get slot population per device per DC
-
 import time
 import paramiko
 import re
@@ -58,6 +56,8 @@ def format_slots_to_ranges(slots):
     if not slots:
         return ""
 
+    slots = sorted(list(set(slots)))  # Ensure unique and sorted
+
     ranges = []
     current_start = slots[0]
     current_end = slots[0]
@@ -65,13 +65,6 @@ def format_slots_to_ranges(slots):
     for i in range(1, len(slots)):
         if slots[i] == current_end + 1:
             current_end = slots[i]
-            # If we've reached the end of the list and it's a consecutive slot,
-            # ensure the range is added.
-            if i == len(slots) - 1:
-                if current_start == current_end:
-                    ranges.append(str(current_start))
-                else:
-                    ranges.append(f"{current_start}-{current_end}")
         else:
             if current_start == current_end:
                 ranges.append(str(current_start))
@@ -79,32 +72,30 @@ def format_slots_to_ranges(slots):
                 ranges.append(f"{current_start}-{current_end}")
             current_start = slots[i]
             current_end = slots[i]
-            # If this is the last element and not part of a range
-            if i == len(slots) - 1:
-                ranges.append(str(current_start))
 
-    # Add the last range if it hasn't been added yet (for single elements or ranges at the end)
-    if not ranges or (slots and slots[-1] not in [int(s) for r in ranges for s in (r.split('-') if '-' in r else [r])]):
-        if current_start == current_end:
-            ranges.append(str(current_start))
-        else:
-            ranges.append(f"{current_start}-{current_end}")
+    # Add the last range
+    if current_start == current_end:
+        ranges.append(str(current_start))
+    else:
+        ranges.append(f"{current_start}-{current_end}")
 
-    return ",".join(sorted(list(set(ranges)), key=lambda x: int(x.split('-')[0])))  # Sort to ensure correct order
+    return ",".join(ranges)
 
 
 def get_line_card_info(device_name, show_platform_output):
     """
-    Parses the 'show platform' output to find line card information.
+    Parses the 'show platform' output to find line card information and counts card types.
 
     Args:
         device_name (str): The name of the network device.
         show_platform_output (str): The raw output from the 'show platform' command.
 
     Returns:
-        dict: A dictionary containing 'Name of Device', 'Slots populated', and 'Slots used'.
+        dict: A dictionary containing 'Name of Device', 'Slots populated', 'Slots used',
+              and 'Card Type Counts' (a dict of card_type: count).
     """
     line_card_slots = []
+    card_type_counts = {}
 
     for line in show_platform_output.splitlines():
         # Skip header and separator lines
@@ -114,10 +105,14 @@ def get_line_card_info(device_name, show_platform_output):
             continue
 
         # Match lines that look like a node entry, specifically for CPU0 nodes
-        match = re.match(r"^(0/(\d+)/CPU0)\s+(.*?)\s+.*", line)
+        # This regex is improved to capture the Type field more accurately from the sample
+        match = re.match(r"^(0/(\d+)/CPU0)\s+(\S+.*?(?:-LC\S*))\s+.*", line)
         if match:
             slot_num_str = match.group(2)  # e.g., "0" from "0/0/CPU0"
-            card_type = match.group(3)  # e.g., "88-LC0-36FH"
+            raw_card_type = match.group(3).strip()  # e.g., "88-LC0-36FH" or "8800-LC-48H"
+
+            # Clean up the card type if it contains (Active) or (Standby)
+            card_type = re.sub(r'\s*\(Active\)|\s*\(Standby\)', '', raw_card_type)
 
             # Apply filtering logic for line cards:
             # Must contain "LC" (Line Card)
@@ -135,6 +130,7 @@ def get_line_card_info(device_name, show_platform_output):
                 try:
                     slot_num = int(slot_num_str)
                     line_card_slots.append(slot_num)
+                    card_type_counts[card_type] = card_type_counts.get(card_type, 0) + 1
                 except ValueError:
                     # Should not happen if regex matches digits, but good for robustness
                     pass
@@ -147,7 +143,8 @@ def get_line_card_info(device_name, show_platform_output):
     return {
         "Name of Device": device_name,
         "Slots populated": slots_populated_str,
-        "Slots used": slots_used_count
+        "Slots used": slots_used_count,
+        "Card Type Counts": card_type_counts
     }
 
 
@@ -209,7 +206,8 @@ def main():
                 "line_card_info": {
                     "Name of Device": device_hostname,
                     "Slots populated": "N/A",
-                    "Slots used": "N/A"
+                    "Slots used": "N/A",
+                    "Card Type Counts": {}  # Initialize for line card type counts
                 }
             }
 
@@ -252,11 +250,37 @@ def main():
     print(f"{'Name of Device':<25} | {'Slots populated':<20} | {'Slots used':<12}")
     print(f"{'-' * 25} | {'-' * 20} | {'-' * 12}")
 
+    # Initialize total card type counts across all devices
+    total_lc_type_counts = {
+        "88-LC0-36FH-M": 0,
+        "88-LC0-36FH": 0,
+        "8800-LC-48H": 0,
+        # Add other types here if needed for total counts
+    }
+
     for idx in range(len(devices_input)):  # Iterate by index to maintain original order
         data = processed_device_data.get(idx, {})
         lc_info = data.get('line_card_info', {})
+
+        # Print device-specific line card info
         print(
             f"{lc_info.get('Name of Device', 'N/A'):<25} | {lc_info.get('Slots populated', 'N/A'):<20} | {lc_info.get('Slots used', 'N/A'):<12}")
+
+        # Aggregate card type counts for the totals
+        device_card_counts = lc_info.get('Card Type Counts', {})
+        for card_type, count in device_card_counts.items():
+            if card_type in total_lc_type_counts:
+                total_lc_type_counts[card_type] += count
+            # If you want to count other types not explicitly listed, you could add an 'else' here
+            # For example:
+            # else:
+            #     total_lc_type_counts[card_type] = total_lc_type_counts.get(card_type, 0) + count
+
+    # Print the total line card type counts
+    print("\nTotal Line Card Type Counts Across All Devices:")
+    print(f"Number of 88-LC0-36FH-M cards: {total_lc_type_counts['88-LC0-36FH-M']}")
+    print(f"Number of 88-LC0-36FH cards: {total_lc_type_counts['88-LC0-36FH']}")
+    print(f"Number of 8800-LC-48H cards: {total_lc_type_counts['8800-LC-48H']}")
 
     print(f"\nTotal execution time: {end_time - start_time:.2f} seconds")
 

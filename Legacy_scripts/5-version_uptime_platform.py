@@ -59,6 +59,9 @@ def format_slots_to_ranges(slots):
     slots = sorted(list(set(slots)))  # Ensure unique and sorted
 
     ranges = []
+    if not slots:  # Check again after sorting and making unique
+        return ""
+
     current_start = slots[0]
     current_end = slots[0]
 
@@ -73,7 +76,7 @@ def format_slots_to_ranges(slots):
             current_start = slots[i]
             current_end = slots[i]
 
-    # Add the last range
+    # Add the last range after the loop finishes
     if current_start == current_end:
         ranges.append(str(current_start))
     else:
@@ -105,14 +108,14 @@ def get_line_card_info(device_name, show_platform_output):
             continue
 
         # Match lines that look like a node entry, specifically for CPU0 nodes
-        # This regex is improved to capture the Type field more accurately from the sample
-        match = re.match(r"^(0/(\d+)/CPU0)\s+(\S+.*?(?:-LC\S*))\s+.*", line)
+        # This regex captures the 'Type' column (second column) more generally.
+        match = re.match(r"^(0/(\d+)/CPU0)\s+(\S+.*?)\s+.*", line)
         if match:
             slot_num_str = match.group(2)  # e.g., "0" from "0/0/CPU0"
             raw_card_type = match.group(3).strip()  # e.g., "88-LC0-36FH" or "8800-LC-48H"
 
             # Clean up the card type if it contains (Active) or (Standby)
-            card_type = re.sub(r'\s*\(Active\)|\s*\(Standby\)', '', raw_card_type)
+            card_type = re.sub(r'\s*\(Active\)|\s*\(Standby\)', '', raw_card_type).strip()
 
             # Apply filtering logic for line cards:
             # Must contain "LC" (Line Card)
@@ -130,6 +133,8 @@ def get_line_card_info(device_name, show_platform_output):
                 try:
                     slot_num = int(slot_num_str)
                     line_card_slots.append(slot_num)
+                    # Uncomment the line below for debugging the exact card type string
+                    # print(f"DEBUG: Device {device_name}, Slot {slot_num}, Extracted Card Type: '{card_type}'")
                     card_type_counts[card_type] = card_type_counts.get(card_type, 0) + 1
                 except ValueError:
                     # Should not happen if regex matches digits, but good for robustness
@@ -250,13 +255,8 @@ def main():
     print(f"{'Name of Device':<25} | {'Slots populated':<20} | {'Slots used':<12}")
     print(f"{'-' * 25} | {'-' * 20} | {'-' * 12}")
 
-    # Initialize total card type counts across all devices
-    total_lc_type_counts = {
-        "88-LC0-36FH-M": 0,
-        "88-LC0-36FH": 0,
-        "8800-LC-48H": 0,
-        # Add other types here if needed for total counts
-    }
+    # Initialize total card type counts across all devices (flexible)
+    all_aggregated_lc_type_counts = {}
 
     for idx in range(len(devices_input)):  # Iterate by index to maintain original order
         data = processed_device_data.get(idx, {})
@@ -269,18 +269,18 @@ def main():
         # Aggregate card type counts for the totals
         device_card_counts = lc_info.get('Card Type Counts', {})
         for card_type, count in device_card_counts.items():
-            if card_type in total_lc_type_counts:
-                total_lc_type_counts[card_type] += count
-            # If you want to count other types not explicitly listed, you could add an 'else' here
-            # For example:
-            # else:
-            #     total_lc_type_counts[card_type] = total_lc_type_counts.get(card_type, 0) + count
+            all_aggregated_lc_type_counts[card_type] = all_aggregated_lc_type_counts.get(card_type, 0) + count
 
-    # Print the total line card type counts
+    # Print the total line card type counts for the specific types requested
     print("\nTotal Line Card Type Counts Across All Devices:")
-    print(f"Number of 88-LC0-36FH-M cards: {total_lc_type_counts['88-LC0-36FH-M']}")
-    print(f"Number of 88-LC0-36FH cards: {total_lc_type_counts['88-LC0-36FH']}")
-    print(f"Number of 8800-LC-48H cards: {total_lc_type_counts['8800-LC-48H']}")
+    print(f"Number of 88-LC0-36FH-M cards: {all_aggregated_lc_type_counts.get('88-LC0-36FH-M', 0)}")
+    print(f"Number of 88-LC0-36FH cards: {all_aggregated_lc_type_counts.get('88-LC0-36FH', 0)}")
+    print(f"Number of 8800-LC-48H cards: {all_aggregated_lc_type_counts.get('8800-LC-48H', 0)}")
+
+    # Optionally, print all found types for comprehensive overview
+    # print("\nAll aggregated Line Card Types found:")
+    # for card_type, count in sorted(all_aggregated_lc_type_counts.items()):
+    #     print(f"  {card_type}: {count}")
 
     print(f"\nTotal execution time: {end_time - start_time:.2f} seconds")
 

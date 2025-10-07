@@ -272,11 +272,20 @@ def main():
             print(f"  '{card_type}': {count}")
     print("------------------------------------------------------------")
 
-    # --- NEW ADDITION: This will show the sum of 'Slots used' as calculated by the script ---
+    # --- This will show the sum of 'Slots used' as calculated by the script ---
     print(f"\nTotal sum of 'Slots used' from all devices (excluding N/A): {total_slots_used_from_script}")
     # --- END NEW ADDITION ---
 
     print(f"\nTotal execution time: {end_time - start_time:.2f} seconds")
+
+    # --- NEW SECTION: Column of "Slots used" numbers (for easy copy-paste) ---
+    print("\n--- Column of 'Slots used' numbers for manual verification ---")
+    for idx in range(len(devices_input)):
+        data = processed_device_data.get(idx, {})
+        lc_info = data.get('line_card_info', {})
+        print(f"{lc_info.get('Slots used', 'N/A')}")
+    print("------------------------------------------------------------")
+    # --- END NEW SECTION ---
 
 
 if __name__ == "__main__":

@@ -1575,8 +1575,9 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
         # Old regex
         # if not re.match(r"^(?:(?:Gi|Te|Hu|Fo|Eth|Fa|Se|POS|Ce|nve|Vxlan|FH)\S+)", intf, re.IGNORECASE):
         # New, more robust regex for physical interfaces:
+        # In the compare_interface_statuses function:
         physical_intf_pattern = re.compile(
-            r"^(?:(?:GigabitEthernet|TenGigE|FortyGigE|HundredGigE|FourHundredGigE|Ethernet|FastEthernet|Serial|POS|Cellular|MgmtEth|PTP|FH)\S+)",
+            r"^(?:(?:GigabitEthernet|Gi|TenGigE|Te|FortyGigE|Fo|HundredGigE|Hu|FourHundredGigE|Eth|Ethernet|Fa|FastEthernet|Se|Serial|POS|Ce|Cellular|MgmtEth|PTP|FH|nve|Vxlan)\S+)",
             re.IGNORECASE
         )
         if not physical_intf_pattern.match(intf):

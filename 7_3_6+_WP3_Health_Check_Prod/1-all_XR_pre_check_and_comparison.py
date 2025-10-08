@@ -1981,12 +1981,21 @@ def main():
                                                                              "show interface summary")
                 baseline_intf_brief_raw = extract_command_output_from_file(permanent_baseline_file_path,
                                                                            "show interface brief")
+                print(f"\n--- Baseline Raw 'show interface brief' Output for 'Fo0/1/0/6' ---\n")
+                # Find the relevant lines for Fo0/1/0/6 in baseline_intf_brief_raw
+                for line in baseline_intf_brief_raw.splitlines():
+                    if "Fo0/1/0/6" in line:
+                        print(line.strip())
+                print(f"------------------------------------------------------------------\n")
                 baseline_fpd_raw = extract_command_output_from_file(permanent_baseline_file_path, "show hw-module fpd")
 
                 baseline_optics_data = parse_inventory_optics_from_string(baseline_inventory_raw)
                 baseline_lcfc_data = parse_inventory_lcfc_from_string(baseline_inventory_raw)
                 baseline_interface_statuses = parse_interface_status_from_strings(baseline_intf_summary_raw,
                                                                                   baseline_intf_brief_raw)
+                print(f"\n--- Parsed Baseline Status for Fo0/1/0/6 ---\n")
+                print(baseline_interface_statuses.get('Fo0/1/0/6', 'Not Found'))
+                print(f"--------------------------------------------\n")
                 baseline_fpd_statuses = parse_fpd_status_from_string(baseline_fpd_raw)
 
                 # Current data is already parsed from the current run's pre-checks
@@ -1994,6 +2003,9 @@ def main():
                 current_lcfc_data = parse_inventory_lcfc_from_string(current_inventory_raw)
                 current_interface_statuses = parse_interface_status_from_strings(current_intf_summary_raw,
                                                                                  current_intf_brief_raw)
+                print(f"\n--- Parsed Current Status for Fo0/1/0/6 ---\n")
+                print(current_interface_statuses.get('Fo0/1/0/6', 'Not Found'))
+                print(f"-------------------------------------------\n")
                 current_fpd_statuses = parse_fpd_status_from_string(current_fpd_raw)
 
                 # Perform Comparisons (a, b, c, d)

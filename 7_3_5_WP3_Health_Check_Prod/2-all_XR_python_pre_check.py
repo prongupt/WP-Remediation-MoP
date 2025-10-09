@@ -1,15 +1,11 @@
-# 2-all_XR_pre_check_python.py This script run the dummy scripts on the router as part of the pre-checks.
-# It runs dummy yes first, waits for 20 minutes and then runs dummy no
-# Part 1 of 2
-
 import paramiko
 import time
 import os
 import getpass
 import re
 import logging
-import sys  # Import sys for stdout redirection
-import datetime  # Import datetime for timestamp in log filenames
+import sys # Import sys for stdout redirection
+import datetime # Import datetime for timestamp in log filenames
 
 # --- Constants and Configuration ---
 # SCRIPT_LOG_FILE is removed as its function is now split and dynamically named
@@ -18,12 +14,12 @@ import datetime  # Import datetime for timestamp in log filenames
 # Default values for timeouts
 SSH_TIMEOUT_SECONDS = 15
 COMMAND_TIMEOUT_SECONDS = 30
-SCRIPT_EXECUTION_TIMEOUT_SECONDS = 600  # 10 minutes for scripts
+SCRIPT_EXECUTION_TIMEOUT_SECONDS = 600 # 10 minutes for scripts
 
 # Define common prompt patterns for IOS-XR bash
 PROMPT_PATTERNS = [
-    r'#\s*$',  # Matches '#' followed by optional whitespace at end of line (e.g., router# or root@host:~# )
-    r'\$\s*$'  # Matches '$' for non-root users (less likely after 'attach location')
+    r'#\s*$', # Matches '#' followed by optional whitespace at end of line (e.g., router# or root@host:~# )
+    r'\$\s*$' # Matches '$' for non-root users (less likely after 'attach location')
 ]
 
 
@@ -48,50 +44,138 @@ class HostnameRetrievalError(Exception):
     pass
 
 
-# --- Custom Tee class for logging stdout to file and console ---
-class Tee(object):
-    """
-    A class that redirects stdout to multiple file-like objects.
-    Used to simultaneously print to console and log to a file.
-    """
+# --- SimpleProgressBar Class Definition ---
+class SimpleProgressBar:
+    _active_pbar = None  # Class-level variable to hold the active pbar instance
 
-    def __init__(self, *files):
-        self.files = files
+    def __init__(self, total, original_console_stream, description="", color_code='\033[94m'):
+        self.total = total
+        self.current = 0
+        self.description = description
+        self.color_code = color_code
+        self.original_console_stream = original_console_stream
+        self.start_time = time.time()
+        self.bar_length = 50
+        self._last_pbar_line_length = 0  # To track length for clearing
+        self.update_display()
 
-    def write(self, obj):
-        for f in self.files:
-            f.write(obj)
-            f.flush()  # Ensure it's written immediately
+    def update(self, step=1):
+        self.current += step
+        if self.current > self.total:  # Cap current at total
+            self.current = self.total
+        self.update_display()
+
+    def update_display(self):
+        percent = ("{0:.1f}").format(100 * (self.current / float(self.total)))
+        filled_length = int(self.bar_length * self.current // self.total)
+        bar = '█' * filled_length + '-' * (self.bar_length - filled_length)
+
+        elapsed_time = time.time() - self.start_time
+
+        # Estimate remaining time if enough progress has been made
+        estimated_remaining_time_str = "--:--"
+        if self.current > 0 and self.current < self.total:
+            avg_time_per_step = elapsed_time / self.current
+            remaining_steps = self.total - self.current
+            estimated_remaining_time = avg_time_per_step * remaining_steps
+            estimated_remaining_time_str = self._format_time(estimated_remaining_time)
+        elif self.current == self.total:
+            estimated_remaining_time_str = "00:00"  # No remaining time if done
+
+        time_info = f"[{self._format_time(elapsed_time)}<{estimated_remaining_time_str}]"
+
+        # Construct the message and write it
+        pbar_message = f"{self.color_code}{self.description} |{bar}| {percent}% {time_info}\033[0m"
+        self.original_console_stream.write('\r' + pbar_message)
+        self.original_console_stream.flush()
+        self._last_pbar_line_length = len(pbar_message)  # Store length of the actual pbar message
+
+    def hide(self):
+        """Erases the progress bar from the current line."""
+        self.original_console_stream.write('\r' + ' ' * self._last_pbar_line_length + '\r')
+        self.original_console_stream.flush()
+
+    def show(self):
+        """Redraws the progress bar on the current line."""
+        self.update_display()
+
+    def _format_time(self, seconds):
+        minutes, seconds = divmod(int(seconds), 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
+
+    def __enter__(self):
+        SimpleProgressBar._active_pbar = self
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Ensure the progress bar is at 100% and on a new line when finished
+        self.current = self.total  # Ensure it shows 100%
+        self.update_display()
+        self.original_console_stream.write('\n')  # Ensure newline at the very end
+        self.original_console_stream.flush()
+        SimpleProgressBar._active_pbar = None
+
+
+# Custom logging handler to interact with the progress bar
+class ProgressBarAwareHandler(logging.StreamHandler):
+    def emit(self, record):
+        pbar = SimpleProgressBar._active_pbar
+        if pbar:
+            pbar.hide()  # Hide the progress bar
+            self.stream.write(self.format(record) + '\n')  # Print log message on its own line
+            self.flush()
+            pbar.show()  # Show the progress bar again
+        else:
+            # If no active progress bar, emit normally to the stream
+            super().emit(record)
+
+
+# The modified Tee class (FIXED: Removed logic that adds extra newlines)
+class Tee:
+    def __init__(self, stdout_stream, file_object):
+        self.stdout = stdout_stream  # Using user's original variable name for console stream
+        self.file_object = file_object
+
+    def write(self, data):
+        pbar = SimpleProgressBar._active_pbar
+        if pbar:
+            pbar.hide()  # Hide the progress bar
+            self.stdout.write(data)  # Write print() output as received
+            self.stdout.flush()
+            pbar.show()  # Show the progress bar again
+        else:
+            self.stdout.write(data) # Write print() output as received
+            self.stdout.flush()
+        self.file_object.write(data)  # Always write to file
+        self.file_object.flush()
 
     def flush(self):
-        for f in self.files:
-            f.flush()
+        self.stdout.flush()
+        self.file_object.flush()
 
 
 # --- Initial Logging Configuration (minimal, to be reconfigured later) ---
-# Initially, log only to the console. This will be reconfigured once the hostname
-# is known to direct logs to specific files.
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)  # Log to original console initially
-    ]
-)
+# Removed basicConfig here, will be set up dynamically in main()
 
 
 def countdown_timer(seconds):
     initial_mins, initial_secs = divmod(seconds, 60)
-    logging.info(f'Countdown Timer: Starting for {initial_mins:02d}:{initial_secs:02d}.')  # Log once at start
+    logging.info(f'Countdown Timer: Starting for {initial_mins:02d}:{initial_secs:02d}.') # Log once at start
 
     while seconds:
         mins, secs = divmod(seconds, 60)
         timer = f'{mins:02d}:{secs:02d}'
+        # This print will go through the Tee class, which correctly handles flushing and file writing.
+        # Since no progress bar is active during the countdown, Tee will print directly.
         print(f'\rCountdown Timer: {timer}', end='', flush=True)
         time.sleep(1)
         seconds -= 1
-    logging.info('Countdown Timer: 00:00 - Time is up!')  # Log once at end
-    print(f'\rCountdown Timer: 00:00 - Time is up!   ')
+    # Clear the countdown line and print final message
+    print(f'\rCountdown Timer: 00:00 - Time is up! ')
+    logging.info('Countdown Timer: 00:00 - Time is up!') # Log once at end
 
 
 def read_and_print_realtime(shell_obj, timeout_sec=600, print_realtime: bool = True):
@@ -105,18 +189,31 @@ def read_and_print_realtime(shell_obj, timeout_sec=600, print_realtime: bool = T
     start_time = time.time()
     prompt_found = False
     prompt_check_buffer = ""
+    last_output_was_dots = False # Flag to track if the last output was a horizontal dot sequence
 
     while time.time() - start_time < timeout_sec:
         if shell_obj.recv_ready():
-            data = shell_obj.recv(1024).decode('utf-8', errors='ignore')  # Read in smaller chunks
+            data = shell_obj.recv(1024).decode('utf-8', errors='ignore') # Read in smaller chunks
             if data:
                 if print_realtime:
-                    print(f"{data}", end='')
+                    # Check if the data consists solely of dots followed by a newline
+                    # This pattern matches one or more dots followed by a newline.
+                    if re.fullmatch(r'\.+\n', data):
+                        # Replace the newline with a space to make dots appear horizontally
+                        processed_data = data.replace('\n', ' ')
+                        # Print the processed data without adding any extra newline
+                        print(f"{processed_data}", end='', flush=True)
+                        last_output_was_dots = True
+                    else:
+                        # For all other output, print as usual (via Tee, which now won't add extra newlines)
+                        print(f"{data}", end='')
+                        last_output_was_dots = False # Reset flag if other output is printed
+
                 full_output_buffer += data
                 prompt_check_buffer += data
 
                 # Keep only the last few lines for prompt checking to avoid large buffer
-                if len(prompt_check_buffer) > 500:  # Keep last 500 chars for prompt check
+                if len(prompt_check_buffer) > 500: # Keep last 500 chars for prompt check
                     prompt_check_buffer = prompt_check_buffer[-500:]
 
                 # Check for prompt in the last line of the prompt_check_buffer
@@ -128,17 +225,19 @@ def read_and_print_realtime(shell_obj, timeout_sec=600, print_realtime: bool = T
                             prompt_found = True
                             # If a prompt is found, and we were printing real-time,
                             # ensure the cursor is on a new line for subsequent logs.
-                            if print_realtime and not data.endswith('\n'):
-                                print()  # Add a newline if the last data didn't have one
+                            if print_realtime and last_output_was_dots:
+                                print() # Add a newline to separate horizontal dots from next output
+                            elif print_realtime and not data.endswith('\n'):
+                                print() # Add a newline if the last data didn't have one
                             return full_output_buffer, prompt_found
-            else:  # No data received, but recv_ready() was true, might mean connection closed
-                break  # Exit loop if no data is received on a ready channel
+            else: # No data received, but recv_ready() was true, might mean connection closed
+                break # Exit loop if no data is received on a ready channel
         else:
-            time.sleep(0.1)  # Short sleep to avoid busy-waiting
+            time.sleep(0.1) # Short sleep to avoid busy-waiting
 
     # If timeout occurs, and we were printing real-time, ensure a newline
     if print_realtime and full_output_buffer and not full_output_buffer.endswith('\n'):
-        print()
+        print() # This print will also go through Tee
     return full_output_buffer, prompt_found
 
 
@@ -156,7 +255,7 @@ def execute_command_in_shell(shell, command, command_description, timeout=COMMAN
         logging.warning(f"Prompt not detected after '{command_description}'. Attempting to send newline and re-check.")
         shell.send("\n")
         output_retry, prompt_found_retry = read_and_print_realtime(shell, timeout_sec=5,
-                                                                   print_realtime=print_realtime_output)
+                                                                    print_realtime=print_realtime_output)
         prompt_found = prompt_found_retry
         if not prompt_found:
             raise RouterCommandError(
@@ -164,12 +263,12 @@ def execute_command_in_shell(shell, command, command_description, timeout=COMMAN
     return True
 
 
-def run_script_list_phase(shell, scripts_to_run, script_arg_option):
+def run_script_list_phase(shell, scripts_to_run, script_arg_option, pbar=None): # Added pbar argument
     """
     Executes a list of Python scripts sequentially within an already established shell session.
     Returns a list of tuples: (script_name, full_script_output_string).
     """
-    all_scripts_raw_output = []  # To store (script_name, output_string) for later parsing
+    all_scripts_raw_output = [] # To store (script_name, output_string) for later parsing
 
     for script_name in scripts_to_run:
         # Extract group number from script name
@@ -180,7 +279,7 @@ def run_script_list_phase(shell, scripts_to_run, script_arg_option):
         script_arg_option_for_log = script_arg_option.strip("'")
 
         # Adjust padding to ensure it fits on one line
-        padding_len = 15  # Reduced from 50 to make it fit better in logs
+        padding_len = 15 # Reduced from 50 to make it fit better in logs
         logging.info(
             f"{'=' * padding_len}--- Running Group {group_number} with option {script_arg_option_for_log} ---{'=' * padding_len}")
 
@@ -192,7 +291,7 @@ def run_script_list_phase(shell, scripts_to_run, script_arg_option):
             f"Waiting for '{script_name}' to finish (up to 10 minutes) and printing output in real-time...")
         script_output, prompt_found = read_and_print_realtime(shell, timeout_sec=SCRIPT_EXECUTION_TIMEOUT_SECONDS)
 
-        all_scripts_raw_output.append((script_name, script_output))  # Capture the output
+        all_scripts_raw_output.append((script_name, script_output)) # Capture the output
 
         if not prompt_found:
             logging.warning(
@@ -205,7 +304,10 @@ def run_script_list_phase(shell, scripts_to_run, script_arg_option):
             logging.info(f"Prompt detected, '{script_name}' execution assumed complete.")
         logging.info(f"{'=' * padding_len}--- Finished execution for: {script_name} ---{'=' * padding_len}\n")
 
-    return all_scripts_raw_output  # Return the collected outputs
+        if pbar: # Update progress bar after each script
+            pbar.update(1)
+
+    return all_scripts_raw_output # Return the collected outputs
 
 
 def extract_link_components(part_string):
@@ -283,14 +385,14 @@ def parse_and_print_errors(script_name, script_output):
 
             # Only add to errors_found if any of the statuses indicate an issue
             if current_error["Codewords_status"] == "Bad" or \
-                    current_error["BER_status"] == "Bad" or \
-                    current_error["FLR_status"] == "Bad" or \
-                    current_error["Link_flap"] > 0:
+            current_error["BER_status"] == "Bad" or \
+            current_error["FLR_status"] == "Bad" or \
+            current_error["Link_flap"] > 0:
                 errors_found.append(current_error)
 
-            i = j  # Move index past the processed status lines
+            i = j # Move index past the processed status lines
         else:
-            i += 1  # Move to the next line if no faulty link found
+            i += 1 # Move to the next line if no faulty link found
 
     print(f"\n--- Error Report for {script_name} ---")
 
@@ -369,7 +471,7 @@ def parse_and_print_errors(script_name, script_output):
     print(f"{separator_line}")
 
 
-def execute_script_phase(shell, scripts_to_run, script_arg_option):
+def execute_script_phase(shell, scripts_to_run, script_arg_option, pbar=None): # Added pbar argument
     """
     Handles the SSH connection, initial commands, and execution of scripts for a single phase.
     Closes the connection after completion.
@@ -379,8 +481,8 @@ def execute_script_phase(shell, scripts_to_run, script_arg_option):
         logging.info(f"--- Initial Shell Output ---")
         # Read initial prompt silently, then print its content as a block
         initial_output, _ = read_and_print_realtime(shell, timeout_sec=2, print_realtime=False)
-        print(f"{initial_output}", end='')  # Explicitly print captured output
-        print()  # Ensure a newline after printing
+        print(f"{initial_output}", end='') # Explicitly print captured output
+        print() # Ensure a newline after printing
         logging.info(f"--- End Initial Shell Output ---\n")
 
         # Set terminal length and width to prevent pagination
@@ -402,7 +504,7 @@ def execute_script_phase(shell, scripts_to_run, script_arg_option):
             raise RouterCommandError(f"Failed to change directory on router.")
 
         # Run the list of scripts for this phase and capture their outputs
-        scripts_outputs = run_script_list_phase(shell, scripts_to_run, script_arg_option)
+        scripts_outputs = run_script_list_phase(shell, scripts_to_run, script_arg_option, pbar) # Pass pbar
 
         # Process outputs for errors if this is the 'dummy no' phase
         if script_arg_option == "'--dummy' no":
@@ -485,22 +587,21 @@ if __name__ == "__main__":
     # Initialize variables for file handling outside the try block
     session_log_file_handler = None
     raw_output_file = None
-    original_stdout = sys.stdout  # Store original stdout
+    original_stdout = sys.stdout # Store original stdout
 
     # Ensure a clean slate for logging handlers before custom setup
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
-    # Add a basic console handler for initial messages (before hostname is known)
-    logging.root.addHandler(logging.StreamHandler(original_stdout))
+    # No initial basic console handler needed now, as it will be replaced by ProgressBarAwareHandler
 
-    router_hostname = "unknown_host"  # Default fallback hostname
+    router_hostname = "unknown_host" # Default fallback hostname
 
     try:
         logging.info(f"--- IOS-XR Router Script Automation (Two-Phase Execution with Re-login) ---")
         ROUTER_IP = input(f"Enter Router IP_add / Host: ")
         SSH_USERNAME = input(f"Enter SSH Username: ")
         SSH_PASSWORD = getpass.getpass(
-            f"Enter SSH Password: ")  # Uses getpass for secure password input
+            f"Enter SSH Password: ") # Uses getpass for secure password input
 
         # --- CHANGE 2: Retrieve hostname before setting up specific logging ---
         try:
@@ -523,7 +624,7 @@ if __name__ == "__main__":
         except OSError as e:
             logging.critical(
                 f"Failed to create or access router log directory {hostname_dir}: {e}. Script cannot proceed without a log directory. Exiting.")
-            sys.exit(1)  # Exit if it cannot create/access directory
+            sys.exit(1) # Exit if it cannot create/access directory
 
         # Generate unique filenames using a timestamp
         timestamp_for_logs = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -533,7 +634,6 @@ if __name__ == "__main__":
         raw_output_log_path = os.path.join(hostname_dir, f"{router_hostname}_pre_check_python_output_{timestamp_for_logs}.txt")
 
         # Reconfigure root logger:
-        # Remove all existing handlers to start fresh for the main logging
         for handler in logging.root.handlers[:]:
             logging.root.removeHandler(handler)
 
@@ -544,26 +644,27 @@ if __name__ == "__main__":
             logging.root.addHandler(session_log_file_handler)
             logging.info(f"Internal script logs will be saved to: {session_log_path}")
         except IOError as e:
-            logging.error(
-                f"Could not open internal session log file {session_log_path}: {e}. Internal logs will only go to console.")
-            session_log_file_handler = None  # Ensure it's None if opening failed
-
-        # Add StreamHandler to send internal script messages to the original console
-        console_handler_for_internal_logs = logging.StreamHandler(original_stdout)
-        console_handler_for_internal_logs.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-        logging.root.addHandler(console_handler_for_internal_logs)
+            logging.error(f"Could not open internal session log file {session_log_path}: {e}. Internal logs will only go to console.")
+            session_log_file_handler = None # Ensure it's None if opening failed
 
         # Open the raw output file and redirect sys.stdout using Tee
-        # sys.stdout will now write to both the original console AND the raw output file
         try:
             raw_output_file = open(raw_output_log_path, 'w', encoding='utf-8')
-            sys.stdout = Tee(original_stdout, raw_output_file)
-            print(f"All console output (including router raw output) will be logged to: {raw_output_log_path}")
+            sys.stdout = Tee(original_stdout, raw_output_file) # Redirect sys.stdout here
+            logging.info(f"All console output (including router raw output) will be logged to: {raw_output_log_path}")
         except IOError as e:
-            logging.error(
-                f"Could not open raw output log file {raw_output_log_path}: {e}. Raw output will only go to console.")
+            logging.error(f"Could not open raw output log file {raw_output_log_path}: {e}. Raw output will only go to console.")
             raw_output_file = None
-            sys.stdout = original_stdout  # Ensure stdout is restored if Tee fails
+            sys.stdout = original_stdout # Restore if Tee fails
+
+        # Add ProgressBarAwareHandler for console logging, coordinating with the progress bar
+        pbar_console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        pbar_console_handler = ProgressBarAwareHandler(original_stdout)
+        pbar_console_handler.setFormatter(pbar_console_formatter)
+        logging.root.addHandler(pbar_console_handler)
+
+        # Set overall logging level after all handlers are added
+        logging.root.setLevel(logging.INFO)
 
         # List of your scripts to run sequentially within the same SSH session
         scripts_to_run = [
@@ -590,11 +691,14 @@ if __name__ == "__main__":
             logging.info(f"Successfully connected to {ROUTER_IP} for Phase 1.")
 
             shell_phase1 = client_phase1.invoke_shell()
-            time.sleep(1)  # Give the shell a moment to initialize
+            time.sleep(1) # Give the shell a moment to initialize
 
-            execute_script_phase(shell_phase1, scripts_to_run, "'--dummy' yes")
-            logging.info(
-                f"\n{'#' * 70}\n### Phase 1 Complete. Waiting 20 minutes before re-logging... ###\n{'#' * 70}\n")
+            # Progress bar for Phase 1
+            total_scripts_phase1 = len(scripts_to_run)
+            with SimpleProgressBar(total=total_scripts_phase1, original_console_stream=original_stdout,
+                                   description="Phase 1 (Dummy Yes) Progress", color_code='\033[94m') as pbar_phase1:
+                execute_script_phase(shell_phase1, scripts_to_run, "'--dummy' yes", pbar_phase1) # Pass pbar
+            logging.info(f"\n{'#' * 70}\n### Phase 1 Complete. Waiting 20 minutes before re-logging... ###\n{'#' * 70}\n")
 
         except paramiko.AuthenticationException as e:
             raise SSHConnectionError(
@@ -609,7 +713,7 @@ if __name__ == "__main__":
                 try:
                     shell_phase1.send("exit\n")
                     time.sleep(1)
-                    shell_phase1.recv(65535).decode('utf-8', errors='ignore')  # Clear buffer
+                    shell_phase1.recv(65535).decode('utf-8', errors='ignore') # Clear buffer
                 except Exception as e:
                     logging.warning(f"Error during shell exit for Phase 1: {e}")
             if client_phase1:
@@ -617,7 +721,7 @@ if __name__ == "__main__":
                 logging.info(f"SSH connection for Phase 1 closed.")
 
         # --- Wait for 20 minutes ---
-        countdown_timer(20 * 60)  # Changed to 1 minute for testing, revert to 20*60 for production
+        countdown_timer(20 * 60) # This will print via Tee, which is fine since no pbar is active
 
         # --- Phase 2: Run scripts with '--dummy' no ---
         client_phase2 = None
@@ -635,9 +739,13 @@ if __name__ == "__main__":
             logging.info(f"Successfully connected to {ROUTER_IP} for Phase 2.")
 
             shell_phase2 = client_phase2.invoke_shell()
-            time.sleep(1)  # Give the shell a moment to initialize
+            time.sleep(1) # Give the shell a moment to initialize
 
-            execute_script_phase(shell_phase2, scripts_to_run, "'--dummy' no")
+            # Progress bar for Phase 2
+            total_scripts_phase2 = len(scripts_to_run)
+            with SimpleProgressBar(total=total_scripts_phase2, original_console_stream=original_stdout,
+                                   description="Phase 2 (Dummy No) Progress", color_code='\033[92m') as pbar_phase2:
+                execute_script_phase(shell_phase2, scripts_to_run, "'--dummy' no", pbar_phase2) # Pass pbar
             logging.info(f"\n{'#' * 70}\n### Phase 2 Complete. ###\n{'#' * 70}\n")
 
         except paramiko.AuthenticationException as e:
@@ -653,7 +761,7 @@ if __name__ == "__main__":
                 try:
                     shell_phase2.send("exit\n")
                     time.sleep(1)
-                    shell_phase2.recv(65535).decode('utf-8', errors='ignore')  # Clear buffer
+                    shell_phase2.recv(65535).decode('utf-8', errors='ignore') # Clear buffer
                 except Exception as e:
                     logging.warning(f"Error during shell exit for Phase 2: {e}")
             if client_phase2:
@@ -674,7 +782,7 @@ if __name__ == "__main__":
             logging.info(f"\n--- Script Execution Finished Successfully ---")
 
         # Restore original stdout and close the log files
-        sys.stdout = original_stdout  # Restore original stdout first
+        sys.stdout = original_stdout # Restore original stdout first
 
         if session_log_file_handler:
             logging.root.removeHandler(session_log_file_handler)
@@ -685,8 +793,12 @@ if __name__ == "__main__":
             raw_output_file.close()
             print(f"Raw output log closed: {raw_output_log_path}")
 
-        # Remove the console handler that was added for internal logs
-        # Iterate through a copy of handlers to avoid issues during removal
+        # Remove the ProgressBarAwareHandler
+        for handler in logging.root.handlers[:]:
+            if isinstance(handler, ProgressBarAwareHandler):
+                logging.root.removeHandler(handler)
+                break
+        # Also remove any other StreamHandlers that might have used original_stdout
         for handler in logging.root.handlers[:]:
             if isinstance(handler, logging.StreamHandler) and handler.stream == original_stdout:
                 logging.root.removeHandler(handler)

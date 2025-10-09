@@ -1,3 +1,36 @@
+# This script connects to a Cisco IOS-XR device via SSH to perform a comprehensive health check and comparison.
+# It performs the following actions:
+# - Establishes an SSH connection and configures terminal settings.
+# - Gathers device information such as hostname, chassis model, and IOS-XR version.
+# - Executes a series of 'show' commands to collect operational data, including:
+#   - Platform status and serial numbers of cards (LCs, FCs, RPs, FTs).
+#   - Fabric reachability and link down status.
+#   - NPU link information, statistics (UCE/CRC errors), and driver status (ASIC states).
+#   - Fabric plane statistics (CE/UCE/PE packets).
+#   - ASIC errors on RP0 and Line Cards.
+#   - Interface status (summary and brief).
+#   - Active alarms (excluding optics/coherent) and install logs.
+#   - Fan tray status, including checks for impacted versions and power issues.
+#   - Overall environment status (temperature, voltage, power supply).
+# - Logs all executed commands and their outputs to a file.
+# - Parses the collected data to identify and report potential issues or anomalies for each check.
+# - Compares the current device state against a permanent baseline (the earliest saved CLI output file) for:
+#   - Optics inventory changes (missing, new, or moved optics).
+#   - Hardware changes (LC/FC/RP serial number changes, additions, or removals).
+#   - Physical interface status changes (interfaces going down or coming up).
+#   - FPD (Field-Programmable Device) status changes.
+# - Reports physical interfaces that were found to be operationally down during the current run.
+# - Provides a final summary table of all checks and their outcomes.
+
+
+__author__ = "Pronoy Dasgupta"
+__copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
+__credits__ = "Pronoy Dasgupta"
+__version__ = "1.0.0"
+__maintainer__ = "Pronoy Dasgupta"
+__email__ = "prongupt@cisco.com"
+__status__ = "production"
+
 import paramiko
 import time
 import getpass
@@ -11,23 +44,110 @@ import os
 import sys
 from typing import List, Tuple, Dict, Any, Optional
 
-# --- Logger Setup ---
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)  # Set logger level back to INFO
 
-# Clear existing handlers to prevent duplicate logging if script is run multiple times in same session
-if logger.handlers:
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
-        handler.close()
+# --- SimpleProgressBar Class Definition ---
+class SimpleProgressBar:
+    _active_pbar = None  # Class-level variable to hold the active pbar instance
+
+    def __init__(self, total, original_console_stream, description="", color_code='\033[94m'):
+        self.total = total
+        self.current = 0
+        self.description = description
+        self.color_code = color_code
+        self.original_console_stream = original_console_stream
+        self.start_time = time.time()
+        self.bar_length = 50
+        self._last_pbar_line_length = 0  # To track length for clearing
+        self.update_display()
+
+    def update(self, step=1):
+        self.current += step
+        if self.current > self.total:  # Cap current at total
+            self.current = self.total
+        self.update_display()
+
+    def update_display(self):
+        percent = ("{0:.1f}").format(100 * (self.current / float(self.total)))
+        filled_length = int(self.bar_length * self.current // self.total)
+        bar = '█' * filled_length + '-' * (self.bar_length - filled_length)
+
+        elapsed_time = time.time() - self.start_time
+
+        # Estimate remaining time if enough progress has been made
+        estimated_remaining_time_str = "--:--"
+        if self.current > 0 and self.current < self.total:
+            avg_time_per_step = elapsed_time / self.current
+            remaining_steps = self.total - self.current
+            estimated_remaining_time = avg_time_per_step * remaining_steps
+            estimated_remaining_time_str = self._format_time(estimated_remaining_time)
+        elif self.current == self.total:
+            estimated_remaining_time_str = "00:00"  # No remaining time if done
+
+        time_info = f"[{self._format_time(elapsed_time)}<{estimated_remaining_time_str}]"
+
+        # Construct the message and write it
+        pbar_message = f"{self.color_code}{self.description} |{bar}| {percent}% {time_info}\033[0m"
+        self.original_console_stream.write('\r' + pbar_message)
+        self.original_console_stream.flush()
+        self._last_pbar_line_length = len(pbar_message)  # Store length of the actual pbar message
+
+    def hide(self):
+        """Erases the progress bar from the current line."""
+        self.original_console_stream.write('\r' + ' ' * self._last_pbar_line_length + '\r')
+        self.original_console_stream.flush()
+
+    def show(self):
+        """Redraws the progress bar on the current line."""
+        self.update_display()
+
+    def _format_time(self, seconds):
+        minutes, seconds = divmod(int(seconds), 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
+
+    def __enter__(self):
+        SimpleProgressBar._active_pbar = self
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Ensure the progress bar is at 100% and on a new line when finished
+        self.current = self.total  # Ensure it shows 100%
+        self.update_display()
+        self.original_console_stream.write('\n')  # Ensure newline at the very end
+        self.original_console_stream.flush()
+        SimpleProgressBar._active_pbar = None
+
+
+# --- End SimpleProgressBar Class Definition ---
+
+# Custom logging handler to interact with the progress bar
+class ProgressBarAwareHandler(logging.StreamHandler):
+    def emit(self, record):
+        pbar = SimpleProgressBar._active_pbar
+        if pbar:
+            pbar.hide()  # Hide the progress bar
+            self.stream.write(self.format(record) + '\n')  # Print log message on its own line
+            self.flush()
+            pbar.show()  # Show the progress bar again
+        else:
+            # If no active progress bar, emit normally to the stream
+            super().emit(record)
+
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# Initial clearing of handlers is done in main() for precise control
 
 SSH_TIMEOUT_SECONDS = 15
 
 PROMPT_PATTERNS = [
     r'#\s*$',
     r'>\s*$',
-    r'\]\s*$',  # Added from comparison script
-    r'\)\s*$'  # Added from comparison script
+    r'\]\s*$',
+    r'\)\s*$'
 ]
 
 FAN_IMPACTED_VERSIONS = {
@@ -38,7 +158,6 @@ FAN_IMPACTED_VERSIONS = {
 }
 
 
-# --- Exceptions (from both scripts) ---
 class SSHConnectionError(Exception):
     pass
 
@@ -103,21 +222,30 @@ class FpdStatusError(Exception):
     pass
 
 
-class FileProcessingError(Exception):  # From comparison script, kept for consistency
+class FileProcessingError(Exception):
     pass
 
 
-# --- Utility ---
 class Tee:
-    """Custom stream to redirect stdout to both console and a file."""
-
-    def __init__(self, stdout, file_object):
-        self.stdout = stdout
+    def __init__(self, stdout_stream, file_object):
+        self.stdout = stdout_stream  # This will be true_original_stdout
         self.file_object = file_object
 
     def write(self, data):
-        self.stdout.write(data)
-        self.file_object.write(data)
+        pbar = SimpleProgressBar._active_pbar
+        if pbar:
+            pbar.hide()  # Hide the progress bar
+            self.stdout.write(data)  # Write print() output
+            # Ensure data ends with a newline on console if it doesn't already
+            if not data.endswith('\n'):
+                self.stdout.write('\n')
+            self.stdout.flush()
+            pbar.show()  # Show the progress bar again
+        else:
+            self.stdout.write(data)
+            self.stdout.flush()
+        self.file_object.write(data)  # Always write to file
+        self.file_object.flush()
 
     def flush(self):
         self.stdout.flush()
@@ -129,7 +257,7 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
     full_output_buffer = ""
     start_time = time.time()
     prompt_found = False
-    prompt_check_buffer = "" # Keep this for efficient prompt checking
+    prompt_check_buffer = ""
     while time.time() - start_time < timeout_sec:
         if shell_obj.recv_ready():
             try:
@@ -139,7 +267,6 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
                         print(f"{data}", end='')
                     full_output_buffer += data
                     prompt_check_buffer += data
-                    # Keep only the last 500 characters to check for prompt efficiently
                     if len(prompt_check_buffer) > 500:
                         prompt_check_buffer = prompt_check_buffer[-500:]
                     lines = prompt_check_buffer.strip().splitlines()
@@ -150,7 +277,7 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
                                 prompt_found = True
                                 if print_real_time and not data.endswith('\n'):
                                     print()
-                                return full_output_buffer, prompt_found # Return immediately once prompt is found
+                                return full_output_buffer, prompt_found
             except Exception as e:
                 logger.error(f"Error receiving data: {e}")
                 break
@@ -163,22 +290,20 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
 
 def execute_command_in_shell(shell: paramiko.Channel, command: str, command_description: str,
                              timeout: int = 60, print_real_time_output: bool = False, cli_output_file=None) -> str:
-    # Increased default timeout to 60 seconds for robustness
     logger.info(f"Sending '{command_description}' ('{command}')...")
     if cli_output_file:
         cli_output_file.write(f"\n--- Command: {command} ---\n")
         cli_output_file.flush()
 
-    # Optional: Small pre-command flush to clear any truly unexpected lingering data
     pre_command_flush_output = ""
     pre_flush_start_time = time.time()
-    while time.time() - pre_flush_start_time < 0.5:  # Small window (0.5s) to clear
+    while time.time() - pre_flush_start_time < 0.5:
         if shell.recv_ready():
             data = shell.recv(65535).decode('utf-8', errors='ignore')
             if data:
                 pre_command_flush_output += data
             else:
-                break  # No more data immediately available
+                break
         else:
             time.sleep(0.01)
     if pre_command_flush_output:
@@ -189,13 +314,12 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
             cli_output_file.flush()
 
     shell.send(command + "\n")
-    time.sleep(0.5)  # Small delay after sending to allow initial output to buffer
+    time.sleep(0.5)
     output, prompt_found = read_and_print_realtime(shell, timeout_sec=timeout, print_real_time=print_real_time_output)
     if cli_output_file:
         cli_output_file.write(output)
         cli_output_file.flush()
 
-    # If prompt was not found after the primary read, try sending newline and re-check
     if not prompt_found:
         logger.warning(f"Prompt not detected after '{command_description}'. Attempting to send newline and re-check.")
         shell.send("\n")
@@ -210,25 +334,18 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
             raise RouterCommandError(
                 f"Failed to reach prompt after '{command_description}' re-check. Output: {output}")
 
-    # --- CRITICAL NEW ADDITION: Explicit buffer flush after command execution ---
-    # This step ensures that any lingering output from the previous command,
-    # even if a prompt was detected, is fully consumed before the *next* command is sent.
     logger.debug(f"Performing post-command buffer flush after '{command_description}'.")
     post_command_flush_output = ""
     post_flush_start_time = time.time()
-    # Give it a reasonable amount of time to drain, e.g., 5 seconds for potentially very large outputs
     while time.time() - post_flush_start_time < 5:
         if shell.recv_ready():
-            # Read as much as possible
             data = shell.recv(65535).decode('utf-8', errors='ignore')
             if data:
                 post_command_flush_output += data
             else:
-                # recv returned empty string, meaning no more data is immediately available.
-                # We can break here. If more data comes later, the next command's pre-flush will catch it.
                 break
         else:
-            time.sleep(0.05)  # Small sleep to prevent busy-waiting
+            time.sleep(0.05)
 
     if post_command_flush_output:
         logger.debug(f"Flushed {len(post_command_flush_output)} characters from buffer AFTER '{command_description}'.")
@@ -236,7 +353,6 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
             cli_output_file.write(f"\n--- Post-command Buffer Flush after '{command_description}' ---\n")
             cli_output_file.write(post_command_flush_output)
             cli_output_file.flush()
-    # --- END CRITICAL NEW ADDITION ---
 
     return output
 
@@ -258,10 +374,7 @@ def get_hostname(shell: paramiko.Channel, cli_output_file=None) -> str:
 
 
 def get_chassis_model(shell: paramiko.Channel, cli_output_file=None) -> str:
-    """Retrieves the chassis model (PID) from 'show inventory chassis' output."""
-    logger.info("Attempting to retrieve chassis model using 'show inventory chassis'...")
-    command = "show inventory chassis"
-    output = execute_command_in_shell(shell, command, "get chassis model from inventory", timeout=30,
+    output = execute_command_in_shell(shell, "show inventory chassis", "get chassis model from inventory", timeout=30,
                                       print_real_time_output=False, cli_output_file=cli_output_file)
 
     match = re.search(r"PID:\s*(\S+)\s*,", output)
@@ -304,9 +417,7 @@ def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None, cha
 
     valid_reach_masks = ["4/4", "2/2"]
 
-    # Check if the chassis model indicates an 8800 series (e.g., "8808", "8818", or "NCS-88XX")
     if chassis_model.startswith("88") or "NCS-88" in chassis_model:
-        # Added "6/6" as a valid reach mask for 8800 series chassis
         valid_reach_masks.extend(["6/6", "8/8", "16/16"])
 
     for line in lines:
@@ -631,7 +742,6 @@ def check_asic_errors(shell: paramiko.Channel, cli_output_file=None):
 
 
 def run_show_inventory(shell: paramiko.Channel, cli_output_file=None) -> str:
-    """Runs 'show inventory' and returns its raw output."""
     logger.info(f"Running show inventory (output captured silently)...")
     output = execute_command_in_shell(shell, "show inventory", "show inventory", timeout=120,
                                       print_real_time_output=False, cli_output_file=cli_output_file)
@@ -640,18 +750,12 @@ def run_show_inventory(shell: paramiko.Channel, cli_output_file=None) -> str:
 
 
 def check_interface_status(shell: paramiko.Channel, cli_output_file=None) -> Tuple[str, str]:
-    """
-    Checks interface status and returns raw outputs of 'show interface summary' and 'show interface brief'.
-    Also prints summary table and logs warnings if 'ALL TYPES' parsing fails, but proceeds with brief output.
-    """
     logger.info(f"Checking Interface Status...")
     summary_output = execute_command_in_shell(shell, "show interface summary", "show interface summary", timeout=60,
                                               print_real_time_output=False, cli_output_file=cli_output_file)
     all_types_data = None
     lines = summary_output.splitlines()
 
-    # More robust parsing for "ALL TYPES" line
-    # This pattern looks for "ALL TYPES" followed by 4 numbers, allowing for variable whitespace
     all_types_pattern = re.compile(r"^\s*ALL TYPES\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$")
 
     for line in lines:
@@ -683,8 +787,6 @@ def check_interface_status(shell: paramiko.Channel, cli_output_file=None) -> Tup
         print(summary_table)
         logger.info(f"Interface summary for ALL TYPES successfully retrieved.")
     else:
-        # Log a warning but DO NOT raise an error here.
-        # The critical interface status comes from 'show interface brief'.
         logger.warning(
             f"Could not find or parse 'ALL TYPES' row in 'show interface summary'. Proceeding with other checks.")
 
@@ -696,7 +798,6 @@ def check_interface_status(shell: paramiko.Channel, cli_output_file=None) -> Tup
                              cli_output_file=cli_output_file)
     logger.info("show interface description | ex admin executed silently.")
 
-    # Only raise InterfaceStatusError if brief_output is empty or clearly invalid
     if not brief_output.strip():
         raise InterfaceStatusError(
             "No valid output received from 'show interface brief'. Cannot proceed with interface status checks.")
@@ -801,7 +902,6 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
         input_voltage_mv = None
         input_current_ma = None
 
-        # MODIFIED LOGIC: Check for both Input_Vol and Input Voltage
         voltage_line_match = re.search(r'(?:Input_Vol|Input Voltage)\s+(\d+)', output)
         if voltage_line_match:
             voltage_str = voltage_line_match.group(1).strip()
@@ -820,7 +920,6 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
         else:
             issues.append("Input Voltage reading not found.")
 
-        # MODIFIED LOGIC: Check for both Input_Cur and Input Current
         current_line_match = re.search(r'(?:Input_Cur|Input Current)\s+(\d+)', output)
         if current_line_match:
             current_str = current_line_match.group(1).strip()
@@ -835,15 +934,11 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
         else:
             issues.append("Input Current reading not found.")
 
-        # NEW LOGIC: Check for "Power Used" as "-" and overall status
-        # Regex to capture Allocated, Used, and Status from the power section for the specific fan tray
-        # Example line:    0/FT2        8808-FAN                687         -            ON
         power_line_match = re.search(
             r'^\s*' + re.escape(ft_location) + r'\s+\S+\s+(\S+)\s+(\S+)\s+(ON|OFF|UNPOWERED|POWERED_OFF|SHUTDOWN)',
             output, re.MULTILINE
         )
         if power_line_match:
-            # power_allocated = power_line_match.group(1) # Not directly used for flagging, but captured
             power_used = power_line_match.group(2)
             status = power_line_match.group(3)
 
@@ -855,7 +950,6 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
         else:
             issues.append("Could not parse Power Used/Status information for fan tray.")
 
-        # Rest of your existing logic for FAN_IMPACTED_VERSIONS remains the same
         fan_tray_inventory = all_card_inventory_info.get(ft_location, {})
         pid = fan_tray_inventory.get("PID", "N/A")
         vid = fan_tray_inventory.get("VID", "N/A")
@@ -914,9 +1008,8 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
     current_section_pattern = re.compile(r'Location\s+CURRENT')
     power_supply_section_pattern = re.compile(r'Power\s+Module\s+Type')
 
-    location_line_pattern = re.compile(r'^\s*(\d+/\S+)\s*$')  # e.g., 0/RP0/CPU0 or 0/0
+    location_line_pattern = re.compile(r'^\s*(\d+/\S+)\s*$')
 
-    # Patterns for sensor data - made slightly more flexible for 'NA' or '-'
     temp_sensor_data_pattern = re.compile(
         r'^\s*(\S+)\s+([\d\.-]+)\s+([\d\.-]+|NA|-)\s+([\d\.-]+|NA|-)\s+([\d\.-]+|NA|-)\s+([\d\.-]+|NA|-)\s+([\d\.-]+|NA|-)\s*([\d\.-]+|NA|-)?\s*$'
     )
@@ -1016,7 +1109,7 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
         elif current_section == "VOLTAGE":
             location_match = location_line_pattern.match(stripped_line)
             if location_match:
-                current_location = location_match.group(1)  # Fixed typo: used location_match.group(1)
+                current_location = location_match.group(1)
                 continue
 
             if re.match(r'^\s*Sensor\s+Value\s+Crit\s+Minor\s+Minor\s+Crit', stripped_line):
@@ -1153,7 +1246,7 @@ def check_ios_xr_version(shell: paramiko.Channel, cli_output_file=None) -> str:
     version_table.field_names = ["Information", "Value"]
     version_table.add_row(["IOS-XR Version", ios_xr_version])
     print(version_table)
-    return ios_xr_version
+    return version_output  # Return full output for potential future parsing
 
 
 def check_platform_and_serial_numbers(shell: paramiko.Channel,
@@ -1230,10 +1323,10 @@ def check_platform_and_serial_numbers(shell: paramiko.Channel,
         raise PlatformStatusError("Platform status check failed.")
     else:
         logger.info(f"All Line Cards, Fabric Cards, and Route Processors are in their expected states.")
+    return platform_output  # Return full output for potential future parsing
 
 
 def check_hw_module_fpd_status(shell: paramiko.Channel, cli_output_file=None) -> str:
-    """Runs 'show hw-module fpd' and returns its raw output."""
     logger.info(f"Checking HW Module FPD Status...")
     output = execute_command_in_shell(shell, "show hw-module fpd", "show hw-module fpd", timeout=120,
                                       print_real_time_output=False, cli_output_file=cli_output_file)
@@ -1243,38 +1336,34 @@ def check_hw_module_fpd_status(shell: paramiko.Channel, cli_output_file=None) ->
 
 def _run_section_check(section_name: str, check_func: callable, section_statuses: Dict[str, str],
                        overall_script_failed_ref: List[bool], *args, **kwargs):
-    """Helper function to run a check and update status. Returns the result of check_func."""
     try:
         logger.info(f"--- Running {section_name} ---")
         result = check_func(*args, **kwargs)
         logger.info(f"--- {section_name} Passed ---")
-        section_statuses[section_name] = "Good"
-        return result  # Return result of check_func
+        section_statuses[section_name] = "Good"  # Set to Good if no exception
+        return result if result is not None else ""
     except (RouterCommandError, PlatformStatusError, FabricReachabilityError,
             FabricLinkDownError, NpuLinkError, NpuStatsError, NpuDriverError,
             FabricPlaneStatsError, AsicErrorsError, InterfaceStatusError,
             AlarmError, LcAsicErrorsError, FanTrayError, EnvironmentError, FpdStatusError) as e:
         logger.critical(f"{section_name} failed: {e}")
         overall_script_failed_ref[0] = True
-        section_statuses[section_name] = "Bad"
-        return None  # Indicate failure
+        section_statuses[section_name] = "Bad"  # Set to Bad if expected exception
+        return ""
     except Exception as e:
         logger.critical(f"An unexpected error occurred during {section_name}: {e}", exc_info=True)
         overall_script_failed_ref[0] = True
-        section_statuses[section_name] = "Bad"
-        return None  # Indicate failure
+        section_statuses[section_name] = "Bad"  # Set to Bad if unexpected exception
+        return ""
     finally:
-        print()
+        # Removed print() here to avoid interfering with the progress bar's single-line updates
+        pass
 
-
-# --- Parsing Functions (adapted to take string content) ---
 
 def parse_inventory_optics_from_string(output: str) -> Dict[str, Dict[str, str]]:
-    """Parses 'show inventory' output for optics information from a string."""
     optics_info = {}
     lines = output.splitlines()
     current_location = None
-    # Updated regex to include 'FH' for Fiber Hybrid interfaces
     intf_pattern = re.compile(r'NAME: "((?:Gi|Te|Hu|Fo|Eth|Fa|Se|POS|Ce|nve|Vxlan|FH)\S+)",', re.IGNORECASE)
     pid_pattern = re.compile(r'PID: (\S+)\s*,\s*VID: (\S+),\s*SN: (\S+)')
 
@@ -1290,20 +1379,16 @@ def parse_inventory_optics_from_string(output: str) -> Dict[str, Dict[str, str]]
                 "VID": pid_match.group(2),
                 "SN": pid_match.group(3)
             }
-            current_location = None  # Reset for next optic
+            current_location = None
     if not optics_info:
         logger.debug("No optics inventory items parsed from 'show inventory' output.")
     return optics_info
 
 
 def parse_inventory_lcfc_from_string(output: str) -> Dict[str, Dict[str, str]]:
-    """Parses 'show inventory' output for Line Card, Fabric Card, RP information from a string."""
     lcfc_info = {}
     lines = output.splitlines()
     current_location = None
-    # More flexible card_pattern: covers 0/RP0/CPU0, 0/LC0/CPU0, 0/FC0, 0/16/CPU0, etc.
-    # It looks for "0/" followed by digits/letters/slashes, ending with CPU0 or just digits (for FCs)
-    # Updated to be more general for card types like "0/RSP0/CPU0" or "0/0" (for older chassis or line cards)
     card_pattern = re.compile(r'NAME: "(0/\d+(?:/\d+)?(?:/CPU0)?|0/(?:RP|LC|FC|RSP)\d*(?:/\d+)?(?:/CPU0)?)",')
     pid_pattern = re.compile(r'PID: (\S+)\s*,\s*VID: (\S+),\s*SN: (\S+)')
 
@@ -1311,7 +1396,6 @@ def parse_inventory_lcfc_from_string(output: str) -> Dict[str, Dict[str, str]]:
         name_match = card_pattern.search(line)
         if name_match:
             current_location = name_match.group(1)
-            # logger.debug(f"Matched card location: {current_location}") # Debugging line
             continue
         pid_match = pid_pattern.search(line)
         if pid_match and current_location:
@@ -1320,28 +1404,21 @@ def parse_inventory_lcfc_from_string(output: str) -> Dict[str, Dict[str, str]]:
                 "VID": pid_match.group(2),
                 "SN": pid_match.group(3)
             }
-            # logger.debug(f"Parsed LC/FC/RP: {current_location} - SN: {pid_match.group(3)}") # Debugging line
-            current_location = None  # Reset for next card
+            current_location = None
     if not lcfc_info:
         logger.warning("No LC/FC/RP inventory items parsed from 'show inventory' output.")
     return lcfc_info
 
 
 def parse_interface_status_from_strings(summary_output: str, brief_output: str) -> Dict[str, Dict[str, str]]:
-    """
-    Parses 'show interface summary' and 'show interface brief' outputs from strings.
-    Returns a dictionary mapping interface names to their status.
-    """
     interface_statuses: Dict[str, Dict[str, str]] = {}
 
     if brief_output:
-        # Regex to capture interface name, Intf State, and LineP State
         brief_line_pattern = re.compile(
             r"^\s*(\S+)\s+(up|down|admin-down|not connect|unknown|--)\s+(up|down|admin-down|not connect|unknown|--)\s+.*$",
             re.IGNORECASE
         )
 
-        # Filter out header lines, command echoes, and timestamps
         brief_lines = [
             line for line in brief_output.splitlines()
             if not re.match(
@@ -1368,13 +1445,8 @@ def parse_interface_status_from_strings(summary_output: str, brief_output: str) 
 
 
 def parse_fpd_status_from_string(fpd_output: str) -> Dict[Tuple[str, str], Dict[str, str]]:
-    """
-    Parses 'show hw-module fpd' output from a string.
-    Returns a dictionary mapping (Location, FPD_Device) to their status details.
-    """
     fpd_statuses: Dict[Tuple[str, str], Dict[str, str]] = {}
 
-    # Regex to capture Location, Card type, HWver, FPD device, SWver, Status, and other fields
     fpd_line_pattern = re.compile(
         r"^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S*?)\s*(\S+)\s+(\S+)\s+(\S*)\s+(\S*)\s+(\S+)\s*$"
     )
@@ -1386,18 +1458,15 @@ def parse_fpd_status_from_string(fpd_output: str) -> Dict[Tuple[str, str], Dict[
         if not stripped_line:
             continue
 
-        # Skip common non-data lines
         if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line) or \
                 re.match(r'^RP/\d+/\S+:\S+#', stripped_line) or \
                 re.escape("show hw-module fpd") in re.escape(stripped_line):
             continue
 
-        # Detect the start of the data table
         if "Location   Card type" in stripped_line and "HWver FPD device" in stripped_line:
             data_table_started = True
             continue
 
-        # Skip separator lines within the table
         if data_table_started and "--------------------------------" in stripped_line:
             continue
 
@@ -1424,59 +1493,48 @@ def parse_fpd_status_from_string(fpd_output: str) -> Dict[Tuple[str, str], Dict[
     return fpd_statuses
 
 
-# --- Comparison Functions ---
-
 def compare_optics_inventory(current_optics: Dict[str, Dict[str, str]],
                              previous_optics: Dict[str, Dict[str, str]]) -> Tuple[str, bool]:
-    """
-    Compares current and previous optics inventory to find changes.
-    a) Optics - what changed from the previous run (optics missing, new optics, optics previously inserted in some other port)
-    """
     logger.info("Comparing optics inventory...")
     differences_found = False
     comparison_table = PrettyTable()
     comparison_table.field_names = ["Interface", "Change Type", "Previous SN", "Current SN", "Details"]
     comparison_table.align = "l"
 
-    # Map previous serial numbers to their interfaces
     prev_sn_to_intf = {data['SN']: intf for intf, data in previous_optics.items() if
                        data.get('SN') and data['SN'] != 'N/A'}
-    accounted_previous_sns = set()  # To track SNs that have been matched or moved
+    accounted_previous_sns = set()
 
-    # Check for optics that have moved or are in an "incorrect interface"
     for current_intf, current_data in current_optics.items():
         current_sn = current_data.get('SN')
         if current_sn and current_sn != 'N/A' and current_sn in prev_sn_to_intf:
             previous_intf_for_sn = prev_sn_to_intf[current_sn]
             if previous_intf_for_sn != current_intf:
-                # SN found, but on a different interface
                 previous_sn_for_current_intf = previous_optics.get(current_intf, {}).get('SN', 'N/A')
                 comparison_table.add_row([
                     current_intf,
                     "Optic Moved/Incorrect Interface",
-                    previous_sn_for_current_intf,  # What was here before
+                    previous_sn_for_current_intf,
                     current_sn,
                     f"SN {current_sn} was previously on {previous_intf_for_sn}"
                 ])
                 differences_found = True
             accounted_previous_sns.add(current_sn)
 
-    # Check for optics that were present but are now missing
     for previous_intf, previous_data in previous_optics.items():
         previous_sn = previous_data.get('SN')
         if previous_sn and previous_sn != 'N/A' and previous_sn not in accounted_previous_sns:
             current_sn_at_prev_intf = current_optics.get(previous_intf, {}).get('SN', 'N/A')
-            if current_sn_at_prev_intf != previous_sn:  # Ensure it's truly missing, not just moved
+            if current_sn_at_prev_intf != previous_sn:
                 comparison_table.add_row([
                     previous_intf,
                     "Optic Missing",
                     previous_sn,
-                    current_sn_at_prev_intf,  # Will be N/A or a different SN if moved
+                    current_sn_at_prev_intf,
                     "Was detected previously, now not found or replaced"
                 ])
                 differences_found = True
 
-    # Check for newly added optics
     for current_intf, current_data in current_optics.items():
         current_sn = current_data.get('SN')
         if current_sn and current_sn != 'N/A' and current_sn not in prev_sn_to_intf:
@@ -1501,10 +1559,6 @@ def compare_optics_inventory(current_optics: Dict[str, Dict[str, str]],
 
 def compare_lcfc_inventory(current_lcfc: Dict[str, Dict[str, str]],
                            previous_lcfc: Dict[str, Dict[str, str]]) -> Tuple[str, bool]:
-    """
-    Compares current and previous Line Card/Fabric Card/Route Processor inventory.
-    b) Hardware - what hardware was changed, what was the previous serial number and what is the new one?
-    """
     logger.info("Comparing LC/FC/RP inventory...")
     differences_found = False
     comparison_table = PrettyTable()
@@ -1558,10 +1612,6 @@ def compare_lcfc_inventory(current_lcfc: Dict[str, Dict[str, str]],
 
 def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
                                previous_statuses: Dict[str, Dict[str, str]]) -> Tuple[str, bool]:
-    """
-    Compares current and previous physical interface statuses and prints differences.
-    c) Interfaces - what interfaces were up before and are down now (physical interfaces only, no logical interfaces)
-    """
     differences_found = False
     comparison_table = PrettyTable()
     comparison_table.field_names = ["Interface", "Change Type", "Previous Intf/LineP State", "Current Intf/LineP State"]
@@ -1570,12 +1620,6 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
     all_interfaces = sorted(list(set(current_statuses.keys()) | set(previous_statuses.keys())))
 
     for intf in all_interfaces:
-        # Filter for physical interfaces only
-        # Updated regex to include 'FH' for Fiber Hybrid interfaces
-        # Old regex
-        # if not re.match(r"^(?:(?:Gi|Te|Hu|Fo|Eth|Fa|Se|POS|Ce|nve|Vxlan|FH)\S+)", intf, re.IGNORECASE):
-        # New, more robust regex for physical interfaces:
-        # In the compare_interface_statuses function:
         physical_intf_pattern = re.compile(
             r"^(?:(?:GigabitEthernet|Gi|TenGigE|Te|FortyGigE|Fo|HundredGigE|Hu|FourHundredGigE|FH|Ethernet|Eth|FastEthernet|Fa|Serial|Se|POS|Cellular|Ce|MgmtEth|PTP|nve|Vxlan)\S+)",
             re.IGNORECASE
@@ -1608,11 +1652,9 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
         if intf in current_statuses and intf in previous_statuses:
             if current_adm_stat != previous_adm_stat or current_prot_stat != previous_prot_stat:
                 change_type = "Status Change"
-                # Check if it went from up/up to any form of down
                 if previous_adm_stat == "up" and previous_prot_stat == "up" and \
                         (current_adm_stat == "down" or current_prot_stat == "down" or current_adm_stat == "admin-down"):
                     change_type = "Interface Went Down"
-                # Check if it came up from any form of down to up/up
                 elif (previous_adm_stat in ["down", "admin-down"] or previous_prot_stat in ["down", "admin-down"]) and \
                         current_adm_stat == "up" and current_prot_stat == "up":
                     change_type = "Interface Came Up"
@@ -1632,10 +1674,6 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
 
 def compare_fpd_statuses(current_statuses: Dict[Tuple[str, str], Dict[str, str]],
                          previous_statuses: Dict[Tuple[str, str], Dict[str, str]]) -> Tuple[str, bool]:
-    """
-    Compares current and previous FPD statuses and prints differences.
-    d) FPD - did the FPD change for any hardware ?
-    """
     logger.info("Comparing FPD statuses...")
     differences_found = False
     comparison_table = PrettyTable()
@@ -1682,20 +1720,12 @@ def compare_fpd_statuses(current_statuses: Dict[Tuple[str, str], Dict[str, str]]
 
 
 def get_initially_down_physical_interfaces(interface_statuses: Dict[str, Dict[str, str]]) -> Tuple[str, bool]:
-    """
-    Identifies physical interfaces that were 'down' during the current run's initial check,
-    excluding interfaces that are administratively down.
-    e) Interface down - what interfaces were initially down during the first run?
-    """
     down_interfaces = []
     for intf_name, status_data in interface_statuses.items():
-        # Filter for physical interfaces only
-        # Updated regex to include 'FH' for Fiber Hybrid interfaces
         if re.match(r"^(?:(?:Gi|Te|Hu|Fo|Eth|Fa|Se|POS|Ce|nve|Vxlan|FH)\S+)", intf_name, re.IGNORECASE):
             brief_intf_state = status_data.get("brief_status")
             brief_linep_state = status_data.get("brief_protocol")
 
-            # ONLY report if BOTH Intf State and LineP State are 'down'
             if brief_intf_state == "down" and brief_linep_state == "down":
                 down_interfaces.append(
                     f"{intf_name} (Intf State: {brief_intf_state}, LineP State: {brief_linep_state})")
@@ -1713,10 +1743,6 @@ def get_initially_down_physical_interfaces(interface_statuses: Dict[str, Dict[st
 
 
 def find_earliest_file_as_permanent_baseline(hostname_prefix: str, output_directory: str) -> Optional[str]:
-    """
-    Finds the earliest _combined_cli_output_*.txt file in the given directory.
-    This file serves as the permanent baseline.
-    """
     pattern = re.compile(rf"^{re.escape(hostname_prefix)}_combined_cli_output_(\d{{8}}_\d{{6}})\.txt$")
 
     earliest_file, earliest_timestamp = None, None
@@ -1730,7 +1756,6 @@ def find_earliest_file_as_permanent_baseline(hostname_prefix: str, output_direct
         if match:
             files_to_check.append((match.group(1), full_path))
 
-    # Sort files by timestamp in ascending order to find the earliest
     files_to_check.sort(key=lambda x: datetime.datetime.strptime(x[0], '%Y%m%d_%H%M%S'))
 
     if files_to_check:
@@ -1743,11 +1768,16 @@ def find_earliest_file_as_permanent_baseline(hostname_prefix: str, output_direct
 
 
 def find_most_recent_file_excluding_current(hostname_prefix: str, output_directory: str, current_run_file_path: str) -> \
-Optional[str]:
-    """
-    Finds the most recent _combined_cli_output_*.txt file in the given directory,
-    excluding the currently generated file.
-    """
+        Optional[str]:
+    pattern = re.compile(rf"^{re.escape(hostname_prefix)}_combined_cli_output_(\d{{8}}_\d{{6}})\.txt$")
+
+    latest_file, latest_timestamp = None, None
+    if not os.path.isdir(output_directory):
+        return None
+
+
+def find_most_recent_file_excluding_current(hostname_prefix: str, output_directory: str, current_run_file_path: str) -> \
+        Optional[str]:
     pattern = re.compile(rf"^{re.escape(hostname_prefix)}_combined_cli_output_(\d{{8}}_\d{{6}})\.txt$")
 
     latest_file, latest_timestamp = None, None
@@ -1758,7 +1788,6 @@ Optional[str]:
     for filename in os.listdir(output_directory):
         full_path = os.path.join(output_directory, filename)
 
-        # EXCLUDE THE CURRENTLY GENERATED FILE
         if full_path == current_run_file_path:
             continue
 
@@ -1766,7 +1795,6 @@ Optional[str]:
         if match:
             files_to_check.append((match.group(1), full_path))
 
-    # Sort files by timestamp in descending order to easily find the latest
     files_to_check.sort(key=lambda x: datetime.datetime.strptime(x[0], '%Y%m%d_%H%M%S'), reverse=True)
 
     if files_to_check:
@@ -1779,10 +1807,6 @@ Optional[str]:
 
 
 def extract_command_output_from_file(file_path: str, command_string: str) -> str:
-    """
-    Extracts the output of a specific command from a CLI log file.
-    Assumes commands are delimited by '--- Command: <command> ---'
-    """
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
@@ -1792,10 +1816,8 @@ def extract_command_output_from_file(file_path: str, command_string: str) -> str
         raise FileProcessingError(f"Error reading file {file_path}: {e}")
 
     escaped_command = re.escape(command_string.strip())
-    # This pattern assumes the command itself is on a line after "--- Command: " and before the output.
-    # The output is then captured until the next "--- Command:" or end of file.
-    # Added optional command echo to the pattern
-    pattern = re.compile(rf"--- Command: {escaped_command} ---\n(?:{escaped_command}\s*\n)?(.*?)(?=\n--- Command:|\Z)",
+    # This pattern is robust to handle cases where the command might be repeated on the next line
+    pattern = re.compile(rf"--- Command: {escaped_command} ---\n(?:{re.escape(command_string)}\s*\n)?(.*?)(?=\n--- Command:|\Z)",
                          re.DOTALL)
     match = pattern.search(content)
     if match:
@@ -1806,12 +1828,22 @@ def extract_command_output_from_file(file_path: str, command_string: str) -> str
 
 
 def main():
-    original_stdout = sys.stdout
+    # 1. Capture the true original stdout for direct console interaction by progress bar
+    true_original_stdout = sys.stdout
 
-    console_handler = logging.StreamHandler(original_stdout)
-    console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(console_formatter)
-    logger.addHandler(console_handler)
+    # 2. Configure the root logger: clear existing handlers
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)  # Set desired logging level
+    for handler in logger.handlers[:]:  # Remove all existing handlers
+        logger.removeHandler(handler)
+        handler.close()
+
+    # Add a temporary console handler for initial messages before progress bar starts
+    # This handler writes directly to true_original_stdout
+    initial_console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    initial_console_handler = logging.StreamHandler(true_original_stdout)
+    initial_console_handler.setFormatter(initial_console_formatter)
+    logger.addHandler(initial_console_handler)
 
     logger.info(f"--- Cisco IOS-XR Device Status Report & Comparison ---")
 
@@ -1824,24 +1856,43 @@ def main():
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     shell = None
-    overall_script_failed = [False]  # Use a list to allow modification within nested functions
+    overall_script_failed = [False]
     all_cpu_locations_from_platform = []
     ft_locations_from_platform = []
     all_card_inventory_info = {}
     cli_output_file = None
     session_log_file_handle = None
-    section_statuses = {}
     hostname = "unknown_host"
     chassis_model = "unknown_chassis"
 
-    # Variables to store raw CLI outputs for comparison *from the current run*
     current_inventory_raw = ""
     current_intf_summary_raw = ""
     current_intf_brief_raw = ""
     current_fpd_raw = ""
 
-    # Variables to store parsed data for the current run's initial state (for requirement e)
     current_run_parsed_interface_statuses = {}
+
+    # Define all section names explicitly to ensure they are always in the summary
+    all_section_names = [
+        "IOS-XR Version Check",
+        "Platform Status & Serial Numbers",
+        "Fabric Reachability Check",
+        "Fabric Link Down Status Check",
+        "NPU Link Information Check",
+        "NPU Stats Link Check (UCE/CRC)",
+        "NPU Driver Status Check",
+        "Fabric Plane Statistics Check",
+        "ASIC Errors Check (RP0)",
+        "Inventory Collection",
+        "Interface Status Check",
+        "HW Module FPD Status Check",
+        "Active Alarms Check",
+        "Install Log Collection",
+        "LC ASIC Errors Check",
+        "Fan Tray Status Check",
+        "Overall Environment Status Check",
+    ]
+    section_statuses = {name: "Not Run" for name in all_section_names}  # Pre-populate all statuses
 
     try:
         logger.info(f"Attempting to connect to {router_ip}...")
@@ -1851,7 +1902,6 @@ def main():
 
         shell = client.invoke_shell()
         time.sleep(1)
-        # Consume any initial banner or prompt
         read_and_print_realtime(shell, timeout_sec=2)
 
         execute_command_in_shell(shell, "terminal length 0", "set terminal length to 0", timeout=5,
@@ -1868,18 +1918,29 @@ def main():
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         output_directory = os.path.join(os.getcwd(), hostname)
         os.makedirs(output_directory, exist_ok=True)
-        logger.info(f"Created output directory: {output_directory}")
 
         session_log_path = os.path.join(output_directory, f"{hostname}_combined_session_log_{timestamp}.txt")
         session_log_file_handle = open(session_log_path, 'a', encoding='utf-8')
 
+        # 4. Redirect sys.stdout to Tee. This handles all 'print()' statements, sending them to both console and file.
+        sys.stdout = Tee(true_original_stdout, session_log_file_handle)
+
+        # 5. Remove the initial console handler and add the permanent ones
+        logger.removeHandler(initial_console_handler)  # Remove the temporary handler
+
+        # File handler: writes all log messages to the session log file
         file_handler = logging.FileHandler(session_log_path, encoding='utf-8')
         file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
 
-        sys.stdout = Tee(original_stdout, session_log_file_handle)
+        # Console handler: uses ProgressBarAwareHandler to coordinate with the progress bar.
+        # It writes directly to true_original_stdout.
+        pbar_console_handler = ProgressBarAwareHandler(true_original_stdout)
+        pbar_console_handler.setFormatter(initial_console_formatter)  # Re-use the formatter
+        logger.addHandler(pbar_console_handler)
 
+        logger.info(f"Created output directory: {output_directory}")
         logger.info(f"Session log will be saved to: {session_log_path}")
         cli_output_path = os.path.join(output_directory, f"{hostname}_combined_cli_output_{timestamp}.txt")
         cli_output_file = open(cli_output_path, 'a')
@@ -1887,94 +1948,127 @@ def main():
 
         print(f"\n--- Device Information Report (Pre-checks) ---")
 
-        _run_section_check("IOS-XR Version Check", check_ios_xr_version, section_statuses, overall_script_failed, shell,
-                           cli_output_file)
-        _run_section_check("Platform Status & Serial Numbers", check_platform_and_serial_numbers, section_statuses,
-                           overall_script_failed, shell, all_card_inventory_info, all_cpu_locations_from_platform,
-                           ft_locations_from_platform, cli_output_file)
-        _run_section_check("Fabric Reachability Check", check_fabric_reachability, section_statuses,
-                           overall_script_failed, shell, cli_output_file, chassis_model=chassis_model)
-        _run_section_check("Fabric Link Down Status Check", check_fabric_link_down_status, section_statuses,
-                           overall_script_failed, shell, cli_output_file)
-        _run_section_check("NPU Link Information Check", check_npu_link_info, section_statuses, overall_script_failed,
-                           shell, cli_output_file)
-        _run_section_check("NPU Stats Link Check (UCE/CRC)", check_npu_stats_link, section_statuses,
-                           overall_script_failed, shell, cli_output_file)
-        _run_section_check("NPU Driver Status Check", check_npu_driver_status, section_statuses, overall_script_failed,
-                           shell, cli_output_file)
-        # CORRECTED CALL: Passing check_fabric_plane_stats function
-        _run_section_check("Fabric Plane Statistics Check", check_fabric_plane_stats, section_statuses,
-                           overall_script_failed, shell, cli_output_file)
-        _run_section_check("ASIC Errors Check (RP0)", check_asic_errors, section_statuses, overall_script_failed, shell,
-                           cli_output_file)
+        # Progress bar initialization
+        total_steps = 16  # Number of _run_section_check calls
+        with SimpleProgressBar(total=total_steps, original_console_stream=true_original_stdout,
+                               description="Overall Device Checks", color_code='\033[92m') as pbar:
+            _run_section_check("IOS-XR Version Check", check_ios_xr_version, section_statuses, overall_script_failed,
+                               shell,
+                               cli_output_file)
+            pbar.update(1)
 
-        # Capture raw outputs for comparison *from the current run's initial pre-checks*
-        current_inventory_raw = _run_section_check("Inventory Collection", run_show_inventory, section_statuses,
-                                                   overall_script_failed, shell,
-                                                   cli_output_file)
-        section_statuses[
-            "Inventory Collection"] = "Collection Only"  # This is just for collection, not a pass/fail check
+            _run_section_check("Platform Status & Serial Numbers", check_platform_and_serial_numbers, section_statuses,
+                               overall_script_failed, shell, all_card_inventory_info, all_cpu_locations_from_platform,
+                               ft_locations_from_platform, cli_output_file)
+            pbar.update(1)
 
-        intf_outputs = _run_section_check("Interface Status Check", check_interface_status, section_statuses,
-                                          overall_script_failed,
-                                          shell, cli_output_file)
-        if intf_outputs:
-            current_intf_summary_raw, current_intf_brief_raw = intf_outputs
-            # Parse for requirement (e)
-            current_run_parsed_interface_statuses = parse_interface_status_from_strings(current_intf_summary_raw,
-                                                                                        current_intf_brief_raw)
+            _run_section_check("Fabric Reachability Check", check_fabric_reachability, section_statuses,
+                               overall_script_failed, shell, cli_output_file, chassis_model=chassis_model)
+            pbar.update(1)
 
-        current_fpd_raw = _run_section_check("HW Module FPD Status Check", check_hw_module_fpd_status, section_statuses,
-                                             overall_script_failed, shell, cli_output_file)
+            _run_section_check("Fabric Link Down Status Check", check_fabric_link_down_status, section_statuses,
+                               overall_script_failed, shell, cli_output_file)
+            pbar.update(1)
 
-        section_name_alarms = "Active Alarms Check"
-        section_name_install_log = "Install Log Collection"
-        try:
+            _run_section_check("NPU Link Information Check", check_npu_link_info, section_statuses,
+                               overall_script_failed,
+                               shell, cli_output_file)
+            pbar.update(1)
+
+            _run_section_check("NPU Stats Link Check (UCE/CRC)", check_npu_stats_link, section_statuses,
+                               overall_script_failed, shell, cli_output_file)
+            pbar.update(1)
+
+            _run_section_check("NPU Driver Status Check", check_npu_driver_status, section_statuses,
+                               overall_script_failed,
+                               shell, cli_output_file)
+            pbar.update(1)
+
+            _run_section_check("Fabric Plane Statistics Check", check_fabric_plane_stats, section_statuses,
+                               overall_script_failed, shell, cli_output_file)
+            pbar.update(1)
+
+            _run_section_check("ASIC Errors Check (RP0)", check_asic_errors, section_statuses, overall_script_failed,
+                               shell,
+                               cli_output_file)
+            pbar.update(1)
+
+            current_inventory_raw = _run_section_check("Inventory Collection", run_show_inventory, section_statuses,
+                                                       overall_script_failed,
+                                                       shell, cli_output_file)
+            # If the check passed, mark it as "Collection Only"
+            if section_statuses["Inventory Collection"] == "Good":
+                section_statuses["Inventory Collection"] = "Collection Only"
+            pbar.update(1)
+
+            intf_outputs = _run_section_check("Interface Status Check", check_interface_status, section_statuses,
+                                              overall_script_failed,
+                                              shell, cli_output_file)
+            if intf_outputs:
+                current_intf_summary_raw, current_intf_brief_raw = intf_outputs
+                current_run_parsed_interface_statuses = parse_interface_status_from_strings(current_intf_summary_raw,
+                                                                                            current_intf_brief_raw)
+            pbar.update(1)
+
+            current_fpd_raw = _run_section_check("HW Module FPD Status Check", check_hw_module_fpd_status,
+                                                 section_statuses,
+                                                 overall_script_failed, shell, cli_output_file)
+            pbar.update(1)
+
+            section_name_alarms = "Active Alarms Check"
+            section_name_install_log = "Install Log Collection"
+            # Execute the check. _run_section_check will set status for "Active Alarms Check"
             _run_section_check(section_name_alarms, check_and_capture_alarms_and_logs, section_statuses,
                                overall_script_failed, shell, cli_output_file)
-            section_statuses[section_name_install_log] = "Collection Only"
-        except Exception:
-            section_statuses[section_name_alarms] = "Bad"
-            section_statuses[section_name_install_log] = "Collection Only"
-            overall_script_failed[0] = True
+            # Then explicitly set status for "Install Log Collection" based on the outcome or if it passed
+            if section_statuses[section_name_alarms] != "Bad": # If alarms check didn't explicitly fail
+                section_statuses[section_name_install_log] = "Collection Only"
+            else: # If alarms check failed, still mark install log as collected
+                section_statuses[section_name_install_log] = "Collection Only"
+            pbar.update(1)
 
-        section_name = "LC ASIC Errors Check"
-        lc_locations_for_asic_check = [loc for loc in all_cpu_locations_from_platform if "RP" not in loc]
-        if lc_locations_for_asic_check:
-            _run_section_check(section_name, check_lc_asic_errors, section_statuses, overall_script_failed, shell,
-                               lc_locations_for_asic_check, cli_output_file)
-        else:
-            logger.warning(f"Skipping {section_name} as no non-RP LC locations were identified from 'show platform'.")
-            section_statuses[section_name] = "Collection Only (Skipped - No LCs)"
 
-        section_name = "Fan Tray Status Check"
-        if ft_locations_from_platform:
-            _run_section_check(section_name, check_fan_tray_status, section_statuses, overall_script_failed, shell,
-                               ft_locations_from_platform, all_card_inventory_info, cli_output_file)
-        else:
-            logger.warning(f"Skipping {section_name} as no Fan Tray locations were identified from 'show platform'.")
-            section_statuses[section_name] = "Collection Only (Skipped - No FTs)"
+            section_name = "LC ASIC Errors Check"
+            lc_locations_for_asic_check = [loc for loc in all_cpu_locations_from_platform if "RP" not in loc]
+            if lc_locations_for_asic_check:
+                _run_section_check(section_name, check_lc_asic_errors, section_statuses, overall_script_failed, shell,
+                                   lc_locations_for_asic_check, cli_output_file)
+                # Status is already set by _run_section_check ("Good" or "Bad")
+            else:
+                logger.warning(
+                    f"Skipping {section_name} as no non-RP LC locations were identified from 'show platform'.")
+                section_statuses[section_name] = "Collection Only (Skipped - No LCs)"
+            pbar.update(1)
 
-        _run_section_check("Overall Environment Status Check", check_environment_status, section_statuses,
-                           overall_script_failed, shell, cli_output_file)
 
-        # --- Report initially down interfaces (Requirement e) ---
+            section_name = "Fan Tray Status Check"
+            if ft_locations_from_platform:
+                _run_section_check(section_name, check_fan_tray_status, section_statuses, overall_script_failed, shell,
+                                   ft_locations_from_platform, all_card_inventory_info, cli_output_file)
+                # Status is already set by _run_section_check ("Good" or "Bad")
+            else:
+                logger.warning(
+                    f"Skipping {section_name} as no Fan Tray locations were identified from 'show platform'.")
+                section_statuses[section_name] = "Collection Only (Skipped - No FTs)"
+            pbar.update(1)
+
+            _run_section_check("Overall Environment Status Check", check_environment_status, section_statuses,
+                               overall_script_failed, shell, cli_output_file)
+            pbar.update(1)  # This is the 16th and final update for the progress bar.
+
         initially_down_report, _ = get_initially_down_physical_interfaces(current_run_parsed_interface_statuses)
         print(initially_down_report)
 
-        # --- Comparison Logic ---
         print("\n" + "=" * 80)
         print(f"{'INITIATING COMPARISON WITH PERMANENT BASELINE':^80}")
         print("=" * 80 + "\n")
 
-        # Find the earliest file to use as the permanent baseline
         permanent_baseline_file_path = find_earliest_file_as_permanent_baseline(hostname, output_directory)
         all_comparison_diffs_found = False
 
         if permanent_baseline_file_path:
             logger.info(f"Using permanent baseline file for comparison: {permanent_baseline_file_path}")
 
-            # Extract and parse baseline data from the *permanent baseline* file
             try:
                 baseline_inventory_raw = extract_command_output_from_file(permanent_baseline_file_path,
                                                                           "show inventory")
@@ -1990,31 +2084,25 @@ def main():
                                                                                   baseline_intf_brief_raw)
                 baseline_fpd_statuses = parse_fpd_status_from_string(baseline_fpd_raw)
 
-                # Current data is already parsed from the current run's pre-checks
                 current_optics_data = parse_inventory_optics_from_string(current_inventory_raw)
                 current_lcfc_data = parse_inventory_lcfc_from_string(current_inventory_raw)
                 current_interface_statuses = parse_interface_status_from_strings(current_intf_summary_raw,
                                                                                  current_intf_brief_raw)
                 current_fpd_statuses = parse_fpd_status_from_string(current_fpd_raw)
 
-                # Perform Comparisons (a, b, c, d)
-                # a) Optics
                 optics_report, optics_diffs = compare_optics_inventory(current_optics_data, baseline_optics_data)
                 print(optics_report)
                 if optics_diffs: all_comparison_diffs_found = True
 
-                # b) Hardware (LC/FC/RP)
                 lcfc_report, lcfc_diffs = compare_lcfc_inventory(current_lcfc_data, baseline_lcfc_data)
                 print(lcfc_report)
                 if lcfc_diffs: all_comparison_diffs_found = True
 
-                # c) Interfaces (Physical only)
                 intf_report, intf_diffs = compare_interface_statuses(current_interface_statuses,
                                                                      baseline_interface_statuses)
                 print(intf_report)
                 if intf_diffs: all_comparison_diffs_found = True
 
-                # d) FPD
                 fpd_report, fpd_diffs = compare_fpd_statuses(current_fpd_statuses, baseline_fpd_statuses)
                 print(fpd_report)
                 if fpd_diffs: all_comparison_diffs_found = True
@@ -2028,7 +2116,7 @@ def main():
 
             if all_comparison_diffs_found:
                 print(f"\n--- COMPARISON COMPLETED WITH DIFFERENCES ---")
-                overall_script_failed[0] = True  # Mark overall script as failed if comparisons found differences
+                overall_script_failed[0] = True
             else:
                 print(f"\n--- COMPARISON COMPLETED - NO DIFFERENCES FOUND ---")
 
@@ -2074,7 +2162,8 @@ def main():
             session_log_file_handle.flush()
             session_log_file_handle.close()
 
-        sys.stdout = original_stdout
+        # Restore original stdout at the very end
+        sys.stdout = true_original_stdout
 
 
 if __name__ == "__main__":

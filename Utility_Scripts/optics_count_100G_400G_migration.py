@@ -3,7 +3,7 @@ import paramiko
 import time
 from prettytable import PrettyTable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import re  # For parsing show platform output
+import re
 
 # ANSI escape codes for text formatting
 COLOR_BOLD_GREEN = "\033[1;92m"  # Bold and Green
@@ -63,7 +63,7 @@ def parse_show_platform(output):
     lines = output.splitlines()
     for line in lines:
         # Example line: 0/2/CPU0        8800-LC-48H              IOS XR RUN               NSHUT
-        # We need to be careful with the regex to match the slot (e.g., 0/2/CPU0)
+        # Match lines that specifically contain "8800-LC-48H" and are in "IOS XR RUN" state
         match = re.match(r"^(0/\d+/CPU0)\s+8800-LC-48H\s+IOS XR RUN\s+.*", line)
         if match:
             slot = match.group(1)
@@ -111,7 +111,7 @@ def parse_show_inventory_location(output):
 def process_device_optics(device_config):
     """
     Connects to a single device, finds 8800-LC-48H line cards,
-    and counts optics on each.
+    and counts optics on each. Also captures raw 'show inventory' output.
     Returns a dictionary with device hostname and a list of line card details.
     """
     hostname = device_config["host"]
@@ -122,6 +122,7 @@ def process_device_optics(device_config):
         "hostname": hostname,
         "status": "Success",
         "error_message": None,
+        "raw_show_inventory_output": None,  # New field for raw output
         "line_cards": []
     }
 
@@ -134,10 +135,20 @@ def process_device_optics(device_config):
         client.connect(hostname=hostname, username=username, password=password, timeout=10, look_for_keys=False,
                        allow_agent=False)
 
+        # Capture raw 'show inventory' output
+        stdin_inv, stdout_inv, stderr_inv = client.exec_command("show inventory")
+        raw_inv_output = stdout_inv.read().decode('utf-8')
+        raw_inv_error = stderr_inv.read().decode('utf-8')
+
+        if raw_inv_error:
+            device_results["raw_show_inventory_output"] = f"Error capturing raw 'show inventory': {raw_inv_error}"
+        else:
+            device_results["raw_show_inventory_output"] = raw_inv_output
+
         # 1. Get 8800-LC-48H line card count and their slots
-        stdin, stdout, stderr = client.exec_command("show platform")
-        platform_output = stdout.read().decode('utf-8')
-        error_output = stderr.read().decode('utf-8')
+        stdin_platform, stdout_platform, stderr_platform = client.exec_command("show platform")
+        platform_output = stdout_platform.read().decode('utf-8')
+        error_output = stderr_platform.read().decode('utf-8')
 
         if error_output:
             device_results["status"] = "Error"
@@ -149,6 +160,7 @@ def process_device_optics(device_config):
         if not lc_slots:
             device_results["status"] = "No 8800-LC-48H found"
             device_results["error_message"] = "No 8800-LC-48H line cards found in 'show platform' output."
+            # We still want to return the raw_show_inventory_output even if no LCs are found
             return device_results
 
         for slot in lc_slots:
@@ -159,9 +171,9 @@ def process_device_optics(device_config):
                 "lc_error": None
             }
             command = f"show inventory location {slot}"
-            stdin, stdout, stderr = client.exec_command(command)
-            inventory_output = stdout.read().decode('utf-8')
-            error_output = stderr.read().decode('utf-8')
+            stdin_lc, stdout_lc, stderr_lc = client.exec_command(command)
+            inventory_output = stdout_lc.read().decode('utf-8')
+            error_output = stderr_lc.read().decode('utf-8')
 
             if error_output:
                 lc_data["lc_error"] = f"Error executing '{command}': {error_output}"
@@ -214,6 +226,7 @@ def main():
                     "hostname": device_config["host"],
                     "status": "Thread Error",
                     "error_message": f"Generated an exception: {exc}",
+                    "raw_show_inventory_output": None,
                     "line_cards": []
                 })
 
@@ -224,7 +237,7 @@ def main():
     # Sort results by hostname for consistent output
     results.sort(key=lambda x: x['hostname'])
 
-    # Print results for each device
+    # --- Print detailed results for each device ---
     for device_result in results:
         hostname = device_result["hostname"]
         print(f"\n{'=' * 10} Device: {hostname} {'=' * 10}")
@@ -232,6 +245,14 @@ def main():
 
         if device_result["error_message"]:
             print(f"{COLOR_BOLD_RED}Error: {device_result['error_message']}{COLOR_RESET}")
+
+        # Print raw show inventory output
+        print("\n--- Raw 'show inventory' Output ---")
+        if device_result["raw_show_inventory_output"]:
+            print(device_result["raw_show_inventory_output"])
+        else:
+            print(f"{COLOR_BOLD_YELLOW}Raw 'show inventory' output not available or an error occurred.{COLOR_RESET}")
+        print("-----------------------------------\n")
 
         if device_result["line_cards"]:
             print("8800-LC-48H Line Card Optics Details:")
@@ -255,6 +276,34 @@ def main():
             print("No 8800-LC-48H line cards found on this device.")
 
         print(f"{'=' * 30}\n")  # Separator for devices
+
+    # --- Print Summary Table of Total Optics Installed per Device, per Slot ---
+    print(f"\n{'=' * 10} Summary: Total Optics per Device and Slot {'=' * 10}")
+    summary_table = PrettyTable()
+    summary_table.field_names = ["Device", "Slot", "Total Optics Installed"]
+    summary_table.align["Device"] = "l"
+    summary_table.align["Slot"] = "l"
+    summary_table.align["Total Optics Installed"] = "r"
+
+    for device_result in results:
+        hostname = device_result["hostname"]
+        if device_result["status"] == "Success" and device_result["line_cards"]:
+            for lc_data in device_result["line_cards"]:
+                if not lc_data["lc_error"]:  # Only add to summary if no error getting LC optics
+                    summary_table.add_row([hostname, lc_data["slot"], lc_data["total_optics"]])
+                else:
+                    summary_table.add_row([hostname, lc_data["slot"], f"{COLOR_BOLD_RED}Error{COLOR_RESET}"])
+        elif device_result["status"] != "Success":
+            summary_table.add_row(
+                [hostname, f"{COLOR_BOLD_RED}N/A (Device Error){COLOR_RESET}", f"{COLOR_BOLD_RED}N/A{COLOR_RESET}"])
+        else:  # Success status but no 8800-LC-48H found
+            summary_table.add_row([hostname, "No 8800-LC-48H", 0])
+
+    if summary_table._rows:  # Check if any rows were added
+        print(summary_table)
+    else:
+        print(f"{COLOR_BOLD_YELLOW}No relevant optics data found for summary table.{COLOR_RESET}")
+    print(f"{'=' * 50}\n")
 
 
 if __name__ == "__main__":

@@ -4,6 +4,8 @@ import time
 from prettytable import PrettyTable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
+import datetime  # Import datetime for timestamps
+import os  # Import os for path manipulation
 
 # ANSI escape codes for text formatting
 COLOR_BOLD_GREEN = "\033[1;92m"  # Bold and Green
@@ -111,7 +113,7 @@ def parse_show_inventory_location(output):
 def process_device_optics(device_config):
     """
     Connects to a single device, finds 8800-LC-48H line cards,
-    and counts optics on each. Also captures raw 'show inventory' output.
+    and counts optics on each. Also captures raw 'show inventory' output and saves it to a file.
     Returns a dictionary with device hostname and a list of line card details.
     """
     hostname = device_config["host"]
@@ -122,7 +124,7 @@ def process_device_optics(device_config):
         "hostname": hostname,
         "status": "Success",
         "error_message": None,
-        "raw_show_inventory_output": None,  # New field for raw output
+        "raw_show_inventory_file": None,  # Stores filename or error message for raw output
         "line_cards": []
     }
 
@@ -135,17 +137,35 @@ def process_device_optics(device_config):
         client.connect(hostname=hostname, username=username, password=password, timeout=10, look_for_keys=False,
                        allow_agent=False)
 
-        # Capture raw 'show inventory' output
+        # --- Capture raw 'show inventory' output and save to file ---
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        # Sanitize hostname for filename (replace characters not allowed in filenames)
+        safe_hostname = re.sub(r'[^\w.-]', '_', hostname)
+        filename = f"raw_inventory_{safe_hostname}_{timestamp}.txt"
+
+        # For IOS-XR, 'terminal length 0' and 'terminal width 511' are generally not needed
+        # when using exec_command, as it typically returns the full output.
+        # If output truncation is observed, consider using invoke_shell for interactive commands.
+
         stdin_inv, stdout_inv, stderr_inv = client.exec_command("show inventory")
         raw_inv_output = stdout_inv.read().decode('utf-8')
         raw_inv_error = stderr_inv.read().decode('utf-8')
 
         if raw_inv_error:
-            device_results["raw_show_inventory_output"] = f"Error capturing raw 'show inventory': {raw_inv_error}"
+            device_results["raw_show_inventory_file"] = f"Error capturing raw 'show inventory': {raw_inv_error}"
         else:
-            device_results["raw_show_inventory_output"] = raw_inv_output
+            try:
+                # Ensure the directory exists if you want to save it in a specific folder
+                # e.g., os.makedirs('inventory_logs', exist_ok=True)
+                # with open(os.path.join('inventory_logs', filename), 'w') as f:
+                with open(filename, 'w') as f:
+                    f.write(raw_inv_output)
+                device_results["raw_show_inventory_file"] = filename
+            except IOError as io_err:
+                device_results[
+                    "raw_show_inventory_file"] = f"Error saving raw 'show inventory' to file {filename}: {io_err}"
 
-        # 1. Get 8800-LC-48H line card count and their slots
+        # --- Get 8800-LC-48H line card count and their slots ---
         stdin_platform, stdout_platform, stderr_platform = client.exec_command("show platform")
         platform_output = stdout_platform.read().decode('utf-8')
         error_output = stderr_platform.read().decode('utf-8')
@@ -160,7 +180,7 @@ def process_device_optics(device_config):
         if not lc_slots:
             device_results["status"] = "No 8800-LC-48H found"
             device_results["error_message"] = "No 8800-LC-48H line cards found in 'show platform' output."
-            # We still want to return the raw_show_inventory_output even if no LCs are found
+            # We still want to return the raw_show_inventory_file status
             return device_results
 
         for slot in lc_slots:
@@ -226,7 +246,7 @@ def main():
                     "hostname": device_config["host"],
                     "status": "Thread Error",
                     "error_message": f"Generated an exception: {exc}",
-                    "raw_show_inventory_output": None,
+                    "raw_show_inventory_file": None,  # Indicate file not saved due to thread error
                     "line_cards": []
                 })
 
@@ -246,13 +266,19 @@ def main():
         if device_result["error_message"]:
             print(f"{COLOR_BOLD_RED}Error: {device_result['error_message']}{COLOR_RESET}")
 
-        # Print raw show inventory output
-        print("\n--- Raw 'show inventory' Output ---")
-        if device_result["raw_show_inventory_output"]:
-            print(device_result["raw_show_inventory_output"])
+        # Report on raw show inventory output file
+        if device_result["raw_show_inventory_file"]:
+            if "Error" in device_result["raw_show_inventory_file"]:
+                print(
+                    f"{COLOR_BOLD_RED}Raw 'show inventory' output: {device_result['raw_show_inventory_file']}{COLOR_RESET}")
+            else:
+                print(
+                    f"{COLOR_BOLD_GREEN}Raw 'show inventory' output saved to: {device_result['raw_show_inventory_file']}{COLOR_RESET}")
         else:
-            print(f"{COLOR_BOLD_YELLOW}Raw 'show inventory' output not available or an error occurred.{COLOR_RESET}")
-        print("-----------------------------------\n")
+            print(
+                f"{COLOR_BOLD_YELLOW}Raw 'show inventory' output not captured (possibly due to connection error).{COLOR_RESET}")
+
+        print("\n-----------------------------------\n")
 
         if device_result["line_cards"]:
             print("8800-LC-48H Line Card Optics Details:")
@@ -284,9 +310,18 @@ def main():
     summary_table.align["Device"] = "l"
     summary_table.align["Slot"] = "l"
     summary_table.align["Total Optics Installed"] = "r"
+    summary_table.hrules = PrettyTable.FRAME  # Only frame rules, no internal rules by default
 
+    last_hostname = None
     for device_result in results:
         hostname = device_result["hostname"]
+
+        # Add a separator row if the device changes (and it's not the very first device)
+        if last_hostname is not None and last_hostname != hostname:
+            summary_table.add_row([''] * len(summary_table.field_names))  # Add an empty row for spacing
+            summary_table.add_hline()  # This adds a horizontal line across the table
+            summary_table.add_row([''] * len(summary_table.field_names))  # Another empty row for spacing
+
         if device_result["status"] == "Success" and device_result["line_cards"]:
             for lc_data in device_result["line_cards"]:
                 if not lc_data["lc_error"]:  # Only add to summary if no error getting LC optics
@@ -298,6 +333,8 @@ def main():
                 [hostname, f"{COLOR_BOLD_RED}N/A (Device Error){COLOR_RESET}", f"{COLOR_BOLD_RED}N/A{COLOR_RESET}"])
         else:  # Success status but no 8800-LC-48H found
             summary_table.add_row([hostname, "No 8800-LC-48H", 0])
+
+        last_hostname = hostname  # Update last_hostname for the next iteration
 
     if summary_table._rows:  # Check if any rows were added
         print(summary_table)

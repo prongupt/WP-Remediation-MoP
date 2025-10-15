@@ -1,7 +1,7 @@
 import getpass
 import paramiko
 import time
-from prettytable import PrettyTable, FRAME  # MODIFIED: FRAME is imported, but add_hline removed
+from prettytable import PrettyTable, FRAME  # Corrected: Import FRAME directly
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import datetime
@@ -193,4 +193,155 @@ def process_device_optics(device_config):
             command = f"show inventory location {slot}"
             stdin_lc, stdout_lc, stderr_lc = client.exec_command(command)
             inventory_output = stdout_lc.read().decode('utf-8')
-            error_output = stderr_lc.read().decode('utf-
+            error_output = stderr_lc.read().decode('utf-8')
+
+            if error_output:
+                lc_data["lc_error"] = f"Error executing '{command}': {error_output}"
+            else:
+                optics_category_counts = parse_show_inventory_location(inventory_output)
+                lc_data["optics_counts"] = optics_category_counts
+                lc_data["total_optics"] = sum(optics_category_counts.values())
+
+            device_results["line_cards"].append(lc_data)
+
+    except paramiko.AuthenticationException:
+        device_results["status"] = "Authentication Failed"
+        device_results["error_message"] = "Authentication failed. Check username/password."
+    except paramiko.SSHException as e:
+        device_results["status"] = "SSH Error"
+        device_results["error_message"] = f"SSH error: {e}"
+    except paramiko.BadHostKeyException as e:
+        device_results["status"] = "Bad Host Key"
+        device_results["error_message"] = f"Bad host key: {e}. You might need to clear it from known_hosts."
+    except Exception as e:
+        device_results["status"] = "Unexpected Error"
+        device_results["error_message"] = f"An unexpected error occurred: {e}"
+    finally:
+        if client:
+            client.close()
+
+    return device_results
+
+
+def main():
+    all_devices_config = get_device_info_list()
+
+    if not all_devices_config:
+        return  # Exit if no devices were entered
+
+    print(f"\n{COLOR_BOLD_YELLOW}Starting concurrent processing for {len(all_devices_config)} devices...{COLOR_RESET}")
+    start_time = time.time()
+
+    results = []
+    with ThreadPoolExecutor(max_workers=5) as executor:  # Adjust max_workers as needed
+        future_to_device = {executor.submit(process_device_optics, dev_conf): dev_conf for dev_conf in
+                            all_devices_config}
+        for future in as_completed(future_to_device):
+            device_config = future_to_device[future]
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as exc:
+                results.append({
+                    "hostname": device_config["host"],
+                    "status": "Thread Error",
+                    "error_message": f"Generated an exception: {exc}",
+                    "raw_show_inventory_file": None,  # Indicate file not saved due to thread error
+                    "line_cards": []
+                })
+
+    end_time = time.time()
+    print(
+        f"\n{COLOR_BOLD_YELLOW}Finished processing all devices in {end_time - start_time:.2f} seconds.{COLOR_RESET}\n")
+
+    # Sort results by hostname for consistent output
+    results.sort(key=lambda x: x['hostname'])
+
+    # --- Print detailed results for each device ---
+    for device_result in results:
+        hostname = device_result["hostname"]
+        print(f"\n{'=' * 10} Device: {hostname} {'=' * 10}")
+        print(f"Status: {device_result['status']}")
+
+        if device_result["error_message"]:
+            print(f"{COLOR_BOLD_RED}Error: {device_result['error_message']}{COLOR_RESET}")
+
+        # Report on raw show inventory output file
+        if device_result["raw_show_inventory_file"]:
+            if "Error" in device_result["raw_show_inventory_file"]:
+                print(
+                    f"{COLOR_BOLD_RED}Raw 'show inventory' output: {device_result['raw_show_inventory_file']}{COLOR_RESET}")
+            else:
+                print(
+                    f"{COLOR_BOLD_GREEN}Raw 'show inventory' output saved to: {device_result['raw_show_inventory_file']}{COLOR_RESET}")
+        else:
+            print(
+                f"{COLOR_BOLD_YELLOW}Raw 'show inventory' output not captured (possibly due to connection error).{COLOR_RESET}")
+
+        print("\n-----------------------------------\n")
+
+        if device_result["line_cards"]:
+            print("8800-LC-48H Line Card Optics Details:")
+            for lc_data in device_result["line_cards"]:
+                print(f"\n  --- Line card {lc_data['slot']} ---")
+                if lc_data["lc_error"]:
+                    print(f"    {COLOR_BOLD_RED}Error: {lc_data['lc_error']}{COLOR_RESET}")
+                elif lc_data["optics_counts"]:
+                    print(f"    {COLOR_BOLD_GREEN}Total optics installed: {lc_data['total_optics']}{COLOR_RESET}")
+                    table = PrettyTable()
+                    table.field_names = ["Optic PID", "Count"]
+                    table.align["Optic PID"] = "l"
+                    table.align["Count"] = "r"
+
+                    for pid, count in lc_data["optics_counts"].items():
+                        table.add_row([pid, count])
+                    print(table)
+                else:
+                    print("    No optics found on this line card.")
+        elif device_result["status"] == "Success":  # Only if no specific error, but no LCs found
+            print("No 8800-LC-48H line cards found on this device.")
+
+        print(f"{'=' * 30}\n")  # Separator for devices
+
+    # --- Print Summary Table of Total Optics Installed per Device, per Slot ---
+    print(f"\n{'=' * 10} Summary: Total Optics per Device and Slot {'=' * 10}")
+    summary_table = PrettyTable()
+    summary_table.field_names = ["Device", "Slot", "Total Optics Installed"]
+    summary_table.align["Device"] = "l"
+    summary_table.align["Slot"] = "l"
+    summary_table.align["Total Optics Installed"] = "r"
+    summary_table.hrules = FRAME  # Corrected: Use FRAME directly
+
+    last_hostname = None
+    for device_result in results:
+        hostname = device_result["hostname"]
+
+        # Add a separator row if the device changes (and it's not the very first device)
+        if last_hostname is not None and last_hostname != hostname:
+            summary_table.add_row([''] * len(summary_table.field_names))  # Add an empty row for spacing
+            summary_table.add_hline()  # This adds a horizontal line across the table (requires prettytable 2.0.0+)
+            summary_table.add_row([''] * len(summary_table.field_names))  # Another empty row for spacing
+
+        if device_result["status"] == "Success" and device_result["line_cards"]:
+            for lc_data in device_result["line_cards"]:
+                if not lc_data["lc_error"]:  # Only add to summary if no error getting LC optics
+                    summary_table.add_row([hostname, lc_data["slot"], lc_data["total_optics"]])
+                else:
+                    summary_table.add_row([hostname, lc_data["slot"], f"{COLOR_BOLD_RED}Error{COLOR_RESET}"])
+        elif device_result["status"] != "Success":
+            summary_table.add_row(
+                [hostname, f"{COLOR_BOLD_RED}N/A (Device Error){COLOR_RESET}", f"{COLOR_BOLD_RED}N/A{COLOR_RESET}"])
+        else:  # Success status but no 8800-LC-48H found
+            summary_table.add_row([hostname, "No 8800-LC-48H", 0])
+
+        last_hostname = hostname  # Update last_hostname for the next iteration
+
+    if summary_table._rows:  # Check if any rows were added
+        print(summary_table)
+    else:
+        print(f"{COLOR_BOLD_YELLOW}No relevant optics data found for summary table.{COLOR_RESET}")
+    print(f"{'=' * 50}\n")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,7 +1,7 @@
 import getpass
 import paramiko
 import time
-from prettytable import PrettyTable, FRAME  # Corrected: Import FRAME directly
+from prettytable import PrettyTable, FRAME  # FRAME is imported, but add_hline removed
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import datetime
@@ -31,7 +31,7 @@ def get_device_info_list():
             # If the previous line was also empty, break the loop
             if not hostnames or hostnames[-1] == "":  # Check if list is empty or last element was empty string
                 break
-            # Add an empty string to signify an empty line, for the double-enter check
+            # Add an empty string to signify an empty line, for the double-enter logic
             hostnames.append("")
         else:
             hostnames.append(line.strip())
@@ -316,10 +316,10 @@ def main():
     for device_result in results:
         hostname = device_result["hostname"]
 
-        # Add a separator row if the device changes (and it's not the very first device)
+        # Add empty rows for spacing if the device changes (and it's not the very first device)
         if last_hostname is not None and last_hostname != hostname:
             summary_table.add_row([''] * len(summary_table.field_names))  # Add an empty row for spacing
-            summary_table.add_hline()  # This adds a horizontal line across the table (requires prettytable 2.0.0+)
+            # Removed: summary_table.add_hline() # This method requires prettytable 2.0.0+
             summary_table.add_row([''] * len(summary_table.field_names))  # Another empty row for spacing
 
         if device_result["status"] == "Success" and device_result["line_cards"]:

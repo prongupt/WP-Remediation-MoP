@@ -1,3 +1,54 @@
+# This script is a multi-threaded SSH command runner designed to automate the execution
+# of commands on multiple network devices and collect their outputs efficiently.
+# It provides flexible options for specifying target devices and commands,
+# making it a versatile tool for network engineers and administrators.
+#
+# Key Features:
+#
+# 1.  **Flexible Device Input:**
+#     *   Supports entering device hostnames/IPs directly as a comma-separated list.
+#     *   Allows loading device hostnames/IPs from a specified text file (one per line).
+#     *   Enables pasting a list of device hostnames/IPs directly into the console.
+# 2.  **Batch Command Execution:**
+#     *   Users can input one or more commands, separated by semicolons or commas,
+#         which will be executed sequentially on each target device.
+# 3.  **Concurrent Processing:**
+#     *   Utilizes Python's `ThreadPoolExecutor` to establish SSH connections and
+#         execute commands on multiple devices concurrently, significantly reducing
+#         the overall execution time for large device lists.
+# 4.  **SSH Connectivity (Paramiko):**
+#     *   Connects to devices securely using the Paramiko library, prompting for a
+#         single username and password to be used across all devices.
+# 5.  **Structured Output:**
+#     *   Provides a clear "Execution Plan" summary before running.
+#     *   Presents the results for each device individually, detailing the command
+#         executed and its corresponding output.
+#     *   Reports any SSH connection errors or command execution errors encountered.
+# 6.  **Performance Metrics:**
+#     *   Displays the total time taken for the entire execution process.
+#
+# This tool is ideal for tasks such as gathering configuration backups, checking
+# operational status, performing quick audits, or executing diagnostic commands
+# across a fleet of network devices in a streamlined and time-saving manner.
+#
+# Usage:
+# Run the script, choose your preferred method for providing hostnames/IPs,
+# enter your SSH credentials, and then input the commands you wish to execute.
+#
+# Requirements:
+# - Python 3.x
+# - paramiko library (`pip install paramiko`)
+
+
+__author__ = "Pronoy Dasgupta"
+__copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
+__credits__ = "Pronoy Dasgupta"
+__version__ = "1.0.0"
+__maintainer__ = "Pronoy Dasgupta"
+__email__ = "prongupt@cisco.com"
+__status__ = "production"
+
+
 import time
 import paramiko
 import re

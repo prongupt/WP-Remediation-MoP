@@ -1,3 +1,58 @@
+# This script is designed to audit Cisco IOS-XR devices, specifically focusing on the
+# presence and configuration of 8800-LC-48H line cards and the optics installed within them.
+# It automates the process of connecting to multiple devices, executing commands,
+# parsing the output, and generating comprehensive reports.
+#
+# Key Functionalities:
+#
+# 1.  **Batch Device Processing:** Allows users to input a list of hostnames or IP addresses
+#     for simultaneous processing, streamlining audits across numerous network devices.
+# 2.  **Concurrent Execution:** Leverages multi-threading to connect to and query devices
+#     in parallel, significantly reducing the total execution time for large device lists.
+# 3.  **Secure SSH Connectivity:** Utilizes Paramiko for secure SSH connections, prompting
+#     for a single username and password to be used across all specified devices.
+# 4.  **8800-LC-48H Line Card Identification:** Parses 'show platform' output to accurately
+#     identify and list all 8800-LC-48H line cards that are in an 'IOS XR RUN' state.
+# 5.  **Optics Inventory by Slot:** For each identified 8800-LC-48H line card, the script
+#     executes 'show inventory location <slot>' to retrieve detailed information about
+#     installed optics.
+# 6.  **Optics Categorization and Counting:** Parses the 'show inventory location' output
+#     to categorize and count optics by their Product ID (PID), providing a clear
+#     breakdown of installed transceivers.
+# 7.  **Raw Inventory Data Capture:** Automatically saves the full 'show inventory' output
+#     for each device to a separate timestamped text file, useful for deeper analysis
+#     or record-keeping.
+# 8.  **Detailed and Summarized Reporting:** Presents results in a clear, formatted manner:
+#     *   Individual device status and any encountered errors.
+#     *   Per-line-card details, including total optics and a breakdown by PID.
+#     *   A summary table using `PrettyTable` showing total optics per device and per
+#         8800-LC-48H slot across all processed devices.
+# 9.  **Robust Error Handling:** Includes mechanisms to catch and report SSH connection
+#     errors, authentication failures, command execution issues, and unexpected exceptions.
+#
+# This tool is invaluable for network engineers and administrators needing to quickly
+# ascertain the hardware configuration, particularly the optics deployment, on a fleet
+# of Cisco IOS-XR devices, aiding in inventory management, capacity planning, and troubleshooting.
+#
+# Usage:
+# Run the script, enter your SSH username and password when prompted, then paste your list of
+# device hostnames or IP addresses (one per line), pressing Enter twice when finished.
+#
+# Requirements:
+# - Python 3.x
+# - paramiko library (`pip install paramiko`)
+# - prettytable library (`pip install prettytable`)
+
+
+__author__ = "Pronoy Dasgupta"
+__copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
+__credits__ = "Pronoy Dasgupta"
+__version__ = "1.0.0"
+__maintainer__ = "Pronoy Dasgupta"
+__email__ = "prongupt@cisco.com"
+__status__ = "production"
+
+
 import getpass
 import paramiko
 import time

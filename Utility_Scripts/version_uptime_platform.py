@@ -1,3 +1,44 @@
+# This script automates the collection of essential operational information from multiple Cisco IOS-XR devices.
+# It connects to a list of user-provided hostnames or IP addresses via SSH, executing predefined
+# 'show' commands to gather critical data. The script then parses this output to provide:
+#
+# 1.  **IOS-XR Version (Label):** The specific software version running on each device.
+# 2.  **Device Uptime:** How long each device has been operational.
+# 3.  **Line Card Details:**
+#     *   A list of slots populated with line cards, formatted into concise ranges (e.g., "0-9,16-17").
+#     *   The total number of line card slots used on each device.
+#     *   A breakdown of the types and counts of line cards installed per device.
+#
+# Key Features:
+# -   **Batch Processing:** Allows users to input a list of devices for simultaneous data collection.
+# -   **Concurrent Execution:** Utilizes multi-threading to connect to and query devices in parallel, improving efficiency.
+# -   **SSH Connectivity:** Securely connects to devices using Paramiko, prompting for SSH credentials.
+# -   **Intelligent Parsing:** Extracts specific data points (version label, uptime) and intelligently identifies
+#     and categorizes line cards from 'show platform' output, filtering out non-line card components.
+# -   **Aggregated Reporting:** Provides a summary table for version and uptime, detailed line card
+#     information per device, and a grand total count of each line card type across all queried devices.
+#
+# This tool is designed to quickly provide an overview of the hardware and software status of
+# multiple IOS-XR network devices, making it useful for inventory, health checks, and planning.
+#
+# Usage:
+# Run the script, enter your SSH username and password when prompted, then paste your list of
+# device hostnames or IP addresses (one per line), pressing Enter twice when finished.
+#
+# Requirements:
+# - Python 3.x
+# - paramiko library (`pip install paramiko`)
+
+
+__author__ = "Pronoy Dasgupta"
+__copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
+__credits__ = "Pronoy Dasgupta"
+__version__ = "1.0.0"
+__maintainer__ = "Pronoy Dasgupta"
+__email__ = "prongupt@cisco.com"
+__status__ = "production"
+
+
 import time
 import paramiko
 import re

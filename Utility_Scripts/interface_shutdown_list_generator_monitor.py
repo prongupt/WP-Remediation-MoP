@@ -1,3 +1,65 @@
+# This script is a versatile network automation tool designed to interact with Cisco IOS, IOS-XE, IOS-XR,
+# NX-OS, and Juniper Junos devices (via Netmiko) to manage and monitor interface states.
+# It provides a menu-driven interface for three primary functions related to network interface management:
+#
+# Key Features:
+#
+# 1.  **Dynamic Shutdown Command Generation (Option 'a'):**
+#     *   Connects to a specified network device and retrieves the `show interface brief` output.
+#     *   Parses the output to identify interfaces that are currently operational (not administratively down).
+#     *   Applies configurable exclusion rules (by exact name or prefix, e.g., 'Nu0', 'Mg0', 'BE', 'Lo', 'ti')
+#         to prevent critical or virtual interfaces from being included.
+#     *   Intelligently consolidates individual interface shutdown commands into `interface range` commands
+#         where possible, simplifying configuration application.
+#     *   Presents a list of `shutdown` commands, along with a critical warning, for interfaces
+#         that meet the criteria for being shut down.
+#
+# 2.  **"Down Only" Interface Identification (Option 'b'):**
+#     *   Connects to the device and fetches the current `show interface brief` output.
+#     *   Identifies interfaces that are in an operational `down/down` state but are *not*
+#         administratively shut down.
+#     *   Applies the same exclusion rules as the shutdown list generation to filter out
+#         irrelevant interfaces.
+#     *   Lists these interfaces, which can be useful for troubleshooting or identifying
+#         unintended operational issues.
+#
+# 3.  **Continuous Interface Status Monitoring (Option 'c'):**
+#     *   Establishes an initial baseline of all interface states (interface state and line protocol state).
+#     *   Continuously polls the device at a configurable interval (default 30 seconds) to
+#         detect and report any changes in interface status (up/down, admin-down, etc.).
+#     *   Highlights new interfaces, removed interfaces, and interfaces that have changed state.
+#     *   Provides real-time visibility into interface fluctuations, aiding in proactive monitoring
+#         and rapid incident response.
+#
+# Other Features:
+# -   **Flexible Device Connectivity:** Supports various device types using Netmiko.
+# -   **Credential Management:** Prompts for username and password, with support for environment variables
+#     (`NETMIKO_DEVICE_HOST`, `NETMIKO_USERNAME`, `NETMIKO_PASSWORD`, `NETMIKO_DEVICE_TYPE`).
+# -   **User-Friendly Interface:** Interactive menu for selecting desired operations.
+# -   **Colored Output:** Utilizes ANSI escape codes for enhanced readability and highlighting of important
+#     information, warnings, and errors.
+# -   **Robust Parsing:** Employs regular expressions for accurate extraction of interface names and states
+#     from command outputs.
+#
+# This script is an essential tool for network engineers and administrators seeking to efficiently
+# manage, audit, and monitor the operational status of interfaces across their network infrastructure.
+#
+# Usage:
+# Run the script, provide device connection details, and select an option from the main menu.
+#
+# Requirements:
+# - Python 3.x
+# - netmiko library (`pip install netmiko`)
+
+__author__ = "Pronoy Dasgupta"
+__copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
+__credits__ = "Pronoy Dasgupta"
+__version__ = "1.0.0"
+__maintainer__ = "Pronoy Dasgupta"
+__email__ = "prongupt@cisco.com"
+__status__ = "production"
+
+
 import os
 from netmiko import ConnectHandler
 import re
@@ -8,6 +70,19 @@ from datetime import datetime # New import for timestamps
 EXCLUDE_BY_NAME = ["Nu0", "Mg0/RP0/CPU0/0"]
 EXCLUDE_BY_PREFIX = ["BE", "Lo", "ti"]
 
+# ANSI escape codes for text formatting
+COLOR_BOLD_GREEN = "\033[1;92m"  # Bold and Green
+COLOR_BOLD_RED = "\033[1;91m"  # Bold and Red for errors/warnings
+COLOR_BOLD_YELLOW = "\033[1;93m"  # Bold and Yellow for warnings
+COLOR_RESET = "\033[0m"  # Reset to default terminal color and style
+
+def natural_sort_key(s):
+    """
+    Key function for natural sorting of strings containing numbers.
+    Splits the string into numeric and non-numeric parts and converts numeric parts to integers.
+    """
+    return [int(text) if text.isdigit() else text.lower()
+            for text in re.split(r'(\d+)', s)]
 
 def get_device_credentials():
     """
@@ -352,8 +427,8 @@ def consolidate_and_generate_range_commands(interface_list):
     for iface in single_interfaces:
         consolidated_commands.append(f"interface {iface} shutdown")
 
-    # Sort the final commands for  consistent output (optional)
-    consolidated_commands.sort()
+    # Sort the final commands using natural sort for consistent output
+    consolidated_commands.sort(key=natural_sort_key)
 
     return consolidated_commands
 
@@ -404,7 +479,8 @@ if __name__ == "__main__":
                     print("\n--- Interfaces in 'down/down' Operational State (Not Admin-Down) ---")
                     print("These interfaces are currently operationally down but not administratively shut down,")
                     print("and are not in the exclusion lists (BE, Lo, ti, Nu0, Mg0/RP0/CPU0/0).")
-                    for iface in sorted(down_only_interfaces_list):
+                    # Apply natural sort here
+                    for iface in sorted(down_only_interfaces_list, key=natural_sort_key):
                         print(iface)
                 else:
                     print("\nNo interfaces found in 'down/down' operational state (excluding admin-down and specified exclusions).")
@@ -440,7 +516,8 @@ if __name__ == "__main__":
                         all_interfaces = set(previous_states.keys()).union(set(current_states.keys()))
 
                         changes_detected = False
-                        for iface in sorted(list(all_interfaces)): # Sort for consistent output
+                        # Sort interfaces for consistent output in monitoring as well
+                        for iface in sorted(list(all_interfaces), key=natural_sort_key):
                             prev_state = previous_states.get(iface)
                             curr_state = current_states.get(iface)
 

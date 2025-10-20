@@ -36,7 +36,7 @@ import time
 import getpass
 import re
 import logging
-from prettytable import PrettyTable
+from prettytable import PrettyTable, HEADER, FRAME # Import HEADER and FRAME constants
 import platform
 import subprocess
 import datetime
@@ -87,7 +87,8 @@ class SimpleProgressBar:
 
         # Construct the message and write it
         pbar_message = f"{self.color_code}{self.description} |{bar}| {percent}% {time_info}\033[0m"
-        self.original_console_stream.write('\r' + pbar_message)
+        self.original_console_stream.write('\r' + ' ' * self._last_pbar_line_length + '\r')  # Clear previous line
+        self.original_console_stream.write(pbar_message)
         self.original_console_stream.flush()
         self._last_pbar_line_length = len(pbar_message)  # Store length of the actual pbar message
 
@@ -1502,7 +1503,7 @@ def compare_optics_inventory(current_optics: Dict[str, Dict[str, str]],
     comparison_table.align = "l"
 
     prev_sn_to_intf = {data['SN']: intf for intf, data in previous_optics.items() if
-                       data.get('SN') and data['SN'] != 'N/A'}
+                       data.get('SN') and data.get('SN') != 'N/A'}
     accounted_previous_sns = set()
 
     for current_intf, current_data in current_optics.items():
@@ -1556,58 +1557,154 @@ def compare_optics_inventory(current_optics: Dict[str, Dict[str, str]],
         report_output += "No optics inventory differences detected.\n"
     return report_output, differences_found
 
+# --- (Other classes and functions like SimpleProgressBar, ProgressBarAwareHandler, Tee, etc. would be here) ---
+# For brevity, I'm only including the requested function and its dependencies.
+
+# You would need to ensure all other functions and classes it depends on (like logger, get_hostname, get_chassis_model,
+# parse_inventory_for_serial_numbers, execute_command_in_shell, etc.) are also present in your full script.
+
 
 def compare_lcfc_inventory(current_lcfc: Dict[str, Dict[str, str]],
-                           previous_lcfc: Dict[str, Dict[str, str]]) -> Tuple[str, bool]:
+                           previous_lcfc: Dict[str, Dict[str, str]],
+                           hostname: str,
+                           chassis_model: str) -> Tuple[str, bool]:
     logger.info("Comparing LC/FC/RP inventory...")
     differences_found = False
+
+    report_output_parts = []
+
+    # 1. Add the standard report title (e.g., "LINE CARD / FABRIC CARD / ROUTE PROCESSOR INVENTORY COMPARISON REPORT")
+    # Construct this block without redundant newlines
+    report_output_parts.append(f"{'-' * 80}")
+    report_output_parts.append(f"{'LINE CARD / FABRIC CARD / ROUTE PROCESSOR INVENTORY COMPARISON REPORT':^80}")
+    report_output_parts.append(f"{'-' * 80}")
+    # No extra blank line here to ensure compact title block
+
+    # 2. Custom header table for Device, Tile, Date, Status
+    current_date_str = datetime.datetime.now().strftime('%m/%d/%Y')
+    summary_header_table = PrettyTable()
+    # Use generic field names for structure, actual content goes in add_row
+    summary_header_table.field_names = ["Device", "Tile number", "Date", "Status"]
+    # Add the actual data as a single row
+    summary_header_table.add_row([
+        f"Device: {hostname}",
+        f"Tile number: BN120",
+        f"Date: {current_date_str}",
+        "Status: Complete"
+    ])
+    summary_header_table.header = False  # Do not print the generic field_names as a header
+    summary_header_table.align = "l"
+    summary_header_table.junction_char = "+"
+    summary_header_table.horizontal_char = "-"
+    summary_header_table.vertical_char = "|"
+    summary_header_table.border = True
+    summary_header_table.hrules = 0  # Only draw top/bottom border for this single row
+
+    # Set min_width for the hostname field to be at least 25 or more if hostname is longer
+    summary_header_table.min_width["Device"] = max(len(f"Device: {hostname}"), 25)
+    summary_header_table.min_width["Tile number"] = 15
+    summary_header_table.min_width["Date"] = 15
+    summary_header_table.min_width["Status"] = 15
+
+    # Append the custom header table to the report parts
+    report_output_parts.append(str(summary_header_table))
+    # Removed: report_output_parts.append("") # This was adding an extra blank line between tables
+
+    # Main comparison table
     comparison_table = PrettyTable()
-    comparison_table.field_names = ["Location", "Change Type", "Previous SN", "Current SN", "Details"]
+    comparison_table.field_names = ["LC / FC / RP / FT Location", "OLD SERIAL", "OLD AT", "NEW SN", "NEW AT", "PID"]
     comparison_table.align = "l"
+    comparison_table.junction_char = "+"
+    comparison_table.horizontal_char = "-"
+    comparison_table.vertical_char = "|"
+    comparison_table.border = True
+    comparison_table.hrules = HEADER + FRAME  # Draw horizontal rule after header AND frame (top/bottom)
+    comparison_table.vrules = True  # Draw vertical rules between columns
+
+    # Set minimum width for AT fields
+    comparison_table.min_width["OLD AT"] = 10
+    comparison_table.min_width["NEW AT"] = 10
 
     all_locations = sorted(list(set(current_lcfc.keys()) | set(previous_lcfc.keys())))
 
     for location in all_locations:
         current_sn = current_lcfc.get(location, {}).get('SN', 'N/A')
         previous_sn = previous_lcfc.get(location, {}).get('SN', 'N/A')
+        current_pid = current_lcfc.get(location, {}).get('PID', 'N/A')
+        previous_pid = previous_lcfc.get(location, {}).get('PID', 'N/A')
 
-        if location in previous_lcfc and location in current_lcfc:
-            if current_sn != previous_sn:
+        # Determine the PID to display. If current exists, use it. If not, use previous.
+        display_pid = current_pid if current_pid != 'N/A' else previous_pid
+
+        # Only add a row if there's an actual difference in SN or if a card was added/removed
+        if (location in previous_lcfc and location in current_lcfc and current_sn != previous_sn) or \
+                (location in current_lcfc and location not in previous_lcfc) or \
+                (location in previous_lcfc and location not in current_lcfc):
+
+            # Handle "SN Changed"
+            if location in previous_lcfc and location in current_lcfc and current_sn != previous_sn:
                 comparison_table.add_row([
                     location,
-                    "SN Changed",
                     previous_sn,
+                    "",  # OLD AT (empty)
                     current_sn,
-                    "Serial number changed (card replaced or SN updated)"
+                    "",  # NEW AT (empty)
+                    display_pid
                 ])
                 differences_found = True
-        elif location in current_lcfc and location not in previous_lcfc:
-            comparison_table.add_row([
-                location,
-                "Card Added",
-                "N/A",
-                current_sn,
-                "New card detected at this location"
-            ])
-            differences_found = True
-        elif location in previous_lcfc and location not in current_lcfc:
-            comparison_table.add_row([
-                location,
-                "Card Removed",
-                previous_sn,
-                "N/A",
-                "Card removed from chassis at this location"
-            ])
-            differences_found = True
+            # Handle "Card Added"
+            elif location in current_lcfc and location not in previous_lcfc:
+                comparison_table.add_row([
+                    location,
+                    "N/A",  # OLD SERIAL
+                    "",  # OLD AT (empty)
+                    current_sn,
+                    "",  # NEW AT (empty)
+                    display_pid
+                ])
+                differences_found = True
+            # Handle "Card Removed"
+            elif location in previous_lcfc and location not in current_lcfc:
+                comparison_table.add_row([
+                    location,
+                    previous_sn,
+                    "",  # OLD AT (empty)
+                    "N/A",  # NEW SN
+                    "",  # NEW AT (empty)
+                    display_pid
+                ])
+                differences_found = True
 
-    report_output = f"\n{'-' * 80}\n"
-    report_output += f"{'LINE CARD / FABRIC CARD / ROUTE PROCESSOR INVENTORY COMPARISON REPORT':^80}\n"
-    report_output += f"{'-' * 80}\n"
-    if differences_found:
-        report_output += str(comparison_table) + "\n\nPlease review the LC/FC/RP inventory changes above.\n"
+    if not differences_found:
+        # Create a separate table for the "No differences" message to span correctly
+        no_diff_table = PrettyTable()
+        no_diff_table.field_names = ["Message"]
+        no_diff_table.add_row(["No LC/FC/RP inventory differences detected."])
+        no_diff_table.align = "c"
+        no_diff_table.junction_char = "+"
+        no_diff_table.horizontal_char = "-"
+        no_diff_table.vertical_char = "|"
+        no_diff_table.border = True
+        no_diff_table.hrules = True
+        no_diff_table.vrules = True
+
+        # Calculate width for the "No differences" message table to match the main table's width
+        # Sum of min_width for each column + (num_columns - 1) * junction_char_len + 2 * vertical_char_len
+        calculated_width = sum(comparison_table.min_width.get(f, len(f)) for f in comparison_table.field_names) + \
+                           (len(comparison_table.field_names) - 1) * len(comparison_table.junction_char) + \
+                           2 * len(comparison_table.vertical_char)
+        no_diff_table.max_width = calculated_width
+
+        report_output_parts.append(str(no_diff_table))
+        report_output_parts.append("\n")  # Add a newline for spacing
     else:
-        report_output += "No LC/FC/RP inventory differences detected.\n"
-    return report_output, differences_found
+        report_output_parts.append(str(comparison_table))  # The actual data table
+        report_output_parts.append("\n\nPlease review the LC/FC/RP inventory changes above.\n")
+
+    return "\n".join(report_output_parts), differences_found
+
+
+# --- (Rest of the script would follow here, including other compare_ functions, main(), and if __name__ == "__main__":) ---
 
 
 def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
@@ -1731,7 +1828,7 @@ def get_initially_down_physical_interfaces(interface_statuses: Dict[str, Dict[st
                     f"{intf_name} (Intf State: {brief_intf_state}, LineP State: {brief_linep_state})")
 
     report_output = f"\n{'-' * 80}\n"
-    report_output += f"{'INITIALLY DOWN PHYSICAL INTERFACES (CURRENT RUN)':^80}\n"
+    report_output += f"{'INITIATING DOWN PHYSICAL INTERFACES (CURRENT RUN)':^80}\n"
     report_output += f"{'-' * 80}\n"
     if down_interfaces:
         report_output += "The following physical interfaces were found to be 'down' (operationally) during the current run's initial check:\n"
@@ -1775,15 +1872,6 @@ def find_most_recent_file_excluding_current(hostname_prefix: str, output_directo
     if not os.path.isdir(output_directory):
         return None
 
-
-def find_most_recent_file_excluding_current(hostname_prefix: str, output_directory: str, current_run_file_path: str) -> \
-        Optional[str]:
-    pattern = re.compile(rf"^{re.escape(hostname_prefix)}_combined_cli_output_(\d{{8}}_\d{{6}})\.txt$")
-
-    latest_file, latest_timestamp = None, None
-    if not os.path.isdir(output_directory):
-        return None
-
     files_to_check = []
     for filename in os.listdir(output_directory):
         full_path = os.path.join(output_directory, filename)
@@ -1817,8 +1905,9 @@ def extract_command_output_from_file(file_path: str, command_string: str) -> str
 
     escaped_command = re.escape(command_string.strip())
     # This pattern is robust to handle cases where the command might be repeated on the next line
-    pattern = re.compile(rf"--- Command: {escaped_command} ---\n(?:{re.escape(command_string)}\s*\n)?(.*?)(?=\n--- Command:|\Z)",
-                         re.DOTALL)
+    pattern = re.compile(
+        rf"--- Command: {escaped_command} ---\n(?:{re.escape(command_string)}\s*\n)?(.*?)(?=\n--- Command:|\Z)",
+        re.DOTALL)
     match = pattern.search(content)
     if match:
         output_lines = match.group(1).strip().splitlines()
@@ -1849,7 +1938,7 @@ def main():
 
     router_ip = input(f"Enter Router IP address or Hostname: ")
     username = input(f"Enter SSH Username: ")
-    password = getpass.getpass(f"Enter SSH Password: ")
+    password = getpass.getpass(f"Enter SSH Password for {username}@{router_ip}: ")
 
     client = paramiko.SSHClient()
     client.load_system_host_keys()
@@ -2021,12 +2110,11 @@ def main():
             _run_section_check(section_name_alarms, check_and_capture_alarms_and_logs, section_statuses,
                                overall_script_failed, shell, cli_output_file)
             # Then explicitly set status for "Install Log Collection" based on the outcome or if it passed
-            if section_statuses[section_name_alarms] != "Bad": # If alarms check didn't explicitly fail
+            if section_statuses[section_name_alarms] != "Bad":  # If alarms check didn't explicitly fail
                 section_statuses[section_name_install_log] = "Collection Only"
-            else: # If alarms check failed, still mark install log as collected
+            else:  # If alarms check failed, still mark install log as collected
                 section_statuses[section_name_install_log] = "Collection Only"
             pbar.update(1)
-
 
             section_name = "LC ASIC Errors Check"
             lc_locations_for_asic_check = [loc for loc in all_cpu_locations_from_platform if "RP" not in loc]
@@ -2039,7 +2127,6 @@ def main():
                     f"Skipping {section_name} as no non-RP LC locations were identified from 'show platform'.")
                 section_statuses[section_name] = "Collection Only (Skipped - No LCs)"
             pbar.update(1)
-
 
             section_name = "Fan Tray Status Check"
             if ft_locations_from_platform:
@@ -2094,7 +2181,8 @@ def main():
                 print(optics_report)
                 if optics_diffs: all_comparison_diffs_found = True
 
-                lcfc_report, lcfc_diffs = compare_lcfc_inventory(current_lcfc_data, baseline_lcfc_data)
+                lcfc_report, lcfc_diffs = compare_lcfc_inventory(current_lcfc_data, baseline_lcfc_data, hostname,
+                                                                 chassis_model)
                 print(lcfc_report)
                 if lcfc_diffs: all_comparison_diffs_found = True
 

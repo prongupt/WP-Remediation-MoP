@@ -194,7 +194,8 @@ def process_device_optics(device_config, raw_inventory_file_handle, raw_inventor
         stdin_platform, stdout_platform, stderr_platform = client.exec_command("show platform",
                                                                                timeout=30)  # Add timeout
         platform_output = stdout_platform.read().decode('utf-8')
-        error_output = stderr_stderr_platform.read().decode('utf-8')
+        error_output = stderr_platform.read().decode(
+            'utf-8')  # CORRECTED: Changed stderr_stderr_platform to stderr_platform
 
         if error_output:
             device_results["status"] = "Error"

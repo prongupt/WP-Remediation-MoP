@@ -136,11 +136,11 @@ def process_device_optics(device_config, raw_inventory_file_handle, raw_inventor
         connected = False
         for attempt in range(MAX_RETRIES):
             try:
-                print(f"[{hostname}] Attempt {attempt + 1}/{MAX_RETRIES} to connect...")
+                # print(f"[{hostname}] Attempt {attempt + 1}/{MAX_RETRIES} to connect...") # Removed chatter
                 client.connect(hostname=hostname, username=username, password=password, timeout=10, look_for_keys=False,
                                allow_agent=False)
                 connected = True
-                print(f"[{hostname}] Connected successfully.")
+                # print(f"[{hostname}] Connected successfully.") # Removed chatter
                 break
             except paramiko.AuthenticationException:
                 device_results["status"] = "Authentication Failed"
@@ -155,7 +155,7 @@ def process_device_optics(device_config, raw_inventory_file_handle, raw_inventor
                 print(f"[{hostname}] {COLOR_BOLD_YELLOW}Connection Error: {e}{COLOR_RESET}")
 
             if attempt < MAX_RETRIES - 1:
-                print(f"[{hostname}] Retrying in {RETRY_DELAY_SECONDS} seconds...")
+                # print(f"[{hostname}] Retrying in {RETRY_DELAY_SECONDS} seconds...") # Removed chatter
                 time.sleep(RETRY_DELAY_SECONDS)
 
         if not connected:
@@ -181,7 +181,7 @@ def process_device_optics(device_config, raw_inventory_file_handle, raw_inventor
                     raw_inventory_file_handle.write(raw_inv_output)
                     device_results["raw_inventory_save_status"] = "Saved"
                 raw_inventory_file_handle.write(f"\n{'=' * 50}\n\n")  # Separator
-            print(f"[{hostname}] Raw inventory saved to consolidated file.")
+            # print(f"[{hostname}] Raw inventory saved to consolidated file.") # Removed chatter
         except Exception as e:
             with raw_inventory_lock:
                 raw_inventory_file_handle.write(f"\n{'=' * 10} RAW INVENTORY FOR DEVICE: {hostname} {'=' * 10}\n\n")
@@ -194,8 +194,7 @@ def process_device_optics(device_config, raw_inventory_file_handle, raw_inventor
         stdin_platform, stdout_platform, stderr_platform = client.exec_command("show platform",
                                                                                timeout=30)  # Add timeout
         platform_output = stdout_platform.read().decode('utf-8')
-        error_output = stderr_platform.read().decode(
-            'utf-8')  # CORRECTED: Changed stderr_stderr_platform to stderr_platform
+        error_output = stderr_platform.read().decode('utf-8')  # CORRECTED: This was the typo
 
         if error_output:
             device_results["status"] = "Error"
@@ -208,7 +207,7 @@ def process_device_optics(device_config, raw_inventory_file_handle, raw_inventor
         if not lc_slots:
             device_results["status"] = "No 8800-LC-48H found"
             device_results["error_message"] = "No 8800-LC-48H line cards found in 'show platform' output."
-            print(f"[{hostname}] No 8800-LC-48H line cards found.")
+            # print(f"[{hostname}] No 8800-LC-48H line cards found.") # Removed chatter
             return device_results
 
         for slot in lc_slots:
@@ -231,7 +230,7 @@ def process_device_optics(device_config, raw_inventory_file_handle, raw_inventor
                     optics_category_counts = parse_show_inventory_location(inventory_output)
                     lc_data["optics_counts"] = optics_category_counts
                     lc_data["total_optics"] = sum(optics_category_counts.values())
-                    print(f"[{hostname}] Processed optics for {slot}.")
+                    # print(f"[{hostname}] Processed optics for {slot}.") # Removed chatter
             except Exception as e:
                 lc_data["lc_error"] = f"Exception executing '{command}': {e}"
                 print(f"[{hostname}] {COLOR_BOLD_RED}Exception on {slot}: {e}{COLOR_RESET}")
@@ -249,7 +248,7 @@ def process_device_optics(device_config, raw_inventory_file_handle, raw_inventor
     finally:
         if client:
             client.close()
-            print(f"[{hostname}] SSH client closed.")
+            # print(f"[{hostname}] SSH client closed.") # Removed chatter
 
     return device_results
 
@@ -315,23 +314,24 @@ def main():
                             if not lc_data["lc_error"]:
                                 summary_csv_writer.writerow([hostname, lc_data["slot"], lc_data["total_optics"]])
                                 # Extract region for the region-grouped CSV
-                                match = re.match(r'^([A-Z]+)', hostname)
+                                # CORRECTED: Regex now matches both upper and lower case letters
+                                match = re.match(r'^([a-zA-Z]+)', hostname)
                                 region_code = match.group(1) if match else "UNKNOWN"
                                 region_csv_writer.writerow(
                                     [region_code, hostname, lc_data["slot"], lc_data["total_optics"]])
                             else:
                                 summary_csv_writer.writerow([hostname, lc_data["slot"], "Error"])
-                                match = re.match(r'^([A-Z]+)', hostname)
+                                match = re.match(r'^([a-zA-Z]+)', hostname)  # CORRECTED
                                 region_code = match.group(1) if match else "UNKNOWN"
                                 region_csv_writer.writerow([region_code, hostname, lc_data["slot"], "Error"])
                     elif result["status"] != "Success":
                         summary_csv_writer.writerow([hostname, "N/A (Device Error)", "N/A"])
-                        match = re.match(r'^([A-Z]+)', hostname)
+                        match = re.match(r'^([a-zA-Z]+)', hostname)  # CORRECTED
                         region_code = match.group(1) if match else "UNKNOWN"
                         region_csv_writer.writerow([region_code, hostname, "N/A (Device Error)", "N/A"])
                     else:  # Success status but no 8800-LC-48H found
                         summary_csv_writer.writerow([hostname, "No 8800-LC-48H", 0])
-                        match = re.match(r'^([A-Z]+)', hostname)
+                        match = re.match(r'^([a-zA-Z]+)', hostname)  # CORRECTED
                         region_code = match.group(1) if match else "UNKNOWN"
                         region_csv_writer.writerow([region_code, hostname, "No 8800-LC-48H", 0])
 
@@ -349,7 +349,7 @@ def main():
                     print(f"[{error_hostname}] {COLOR_BOLD_RED}Thread Exception: {exc}{COLOR_RESET}")
                     # Also write to CSV for thread errors
                     summary_csv_writer.writerow([error_hostname, "N/A (Thread Error)", "N/A"])
-                    match = re.match(r'^([A-Z]+)', error_hostname)
+                    match = re.match(r'^([a-zA-Z]+)', error_hostname)  # CORRECTED
                     region_code = match.group(1) if match else "UNKNOWN"
                     region_csv_writer.writerow([region_code, error_hostname, "N/A (Thread Error)", "N/A"])
 

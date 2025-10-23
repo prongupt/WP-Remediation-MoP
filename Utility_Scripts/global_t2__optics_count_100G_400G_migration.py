@@ -194,7 +194,7 @@ def process_device_optics(device_config, raw_inventory_file_handle, raw_inventor
         stdin_platform, stdout_platform, stderr_platform = client.exec_command("show platform",
                                                                                timeout=30)  # Add timeout
         platform_output = stdout_platform.read().decode('utf-8')
-        error_output = stderr_platform.read().decode('utf-8')  # CORRECTED: This was the typo
+        error_output = stderr_platform.read().decode('utf-8')
 
         if error_output:
             device_results["status"] = "Error"
@@ -309,31 +309,24 @@ def main():
 
                     # --- Write summary data directly to CSVs ---
                     hostname = result["hostname"]
+                    match = re.match(r'^([a-zA-Z]+)', hostname)
+                    region_code = match.group(1) if match else "UNKNOWN"
+
                     if result["status"] == "Success" and result["line_cards"]:
                         for lc_data in result["line_cards"]:
                             if not lc_data["lc_error"]:
                                 summary_csv_writer.writerow([hostname, lc_data["slot"], lc_data["total_optics"]])
-                                # Extract region for the region-grouped CSV
-                                # CORRECTED: Regex now matches both upper and lower case letters
-                                match = re.match(r'^([a-zA-Z]+)', hostname)
-                                region_code = match.group(1) if match else "UNKNOWN"
                                 region_csv_writer.writerow(
                                     [region_code, hostname, lc_data["slot"], lc_data["total_optics"]])
                             else:
                                 summary_csv_writer.writerow([hostname, lc_data["slot"], "Error"])
-                                match = re.match(r'^([a-zA-Z]+)', hostname)  # CORRECTED
-                                region_code = match.group(1) if match else "UNKNOWN"
                                 region_csv_writer.writerow([region_code, hostname, lc_data["slot"], "Error"])
-                    elif result["status"] != "Success":
-                        summary_csv_writer.writerow([hostname, "N/A (Device Error)", "N/A"])
-                        match = re.match(r'^([a-zA-Z]+)', hostname)  # CORRECTED
-                        region_code = match.group(1) if match else "UNKNOWN"
-                        region_csv_writer.writerow([region_code, hostname, "N/A (Device Error)", "N/A"])
-                    else:  # Success status but no 8800-LC-48H found
+                    elif result["status"] == "No 8800-LC-48H found": # Explicitly handle no line cards for CSV
                         summary_csv_writer.writerow([hostname, "No 8800-LC-48H", 0])
-                        match = re.match(r'^([a-zA-Z]+)', hostname)  # CORRECTED
-                        region_code = match.group(1) if match else "UNKNOWN"
                         region_csv_writer.writerow([region_code, hostname, "No 8800-LC-48H", 0])
+                    else:  # Any other non-Success status (Connection Failed, Auth Failed, Thread Error, Unexpected Error)
+                        summary_csv_writer.writerow([hostname, "N/A (Device Error)", "N/A"])
+                        region_csv_writer.writerow([region_code, hostname, "N/A (Device Error)", "N/A"])
 
                 except Exception as exc:
                     # This catches exceptions from the future.result() call, not from inside process_device_optics
@@ -348,9 +341,9 @@ def main():
                     })
                     print(f"[{error_hostname}] {COLOR_BOLD_RED}Thread Exception: {exc}{COLOR_RESET}")
                     # Also write to CSV for thread errors
-                    summary_csv_writer.writerow([error_hostname, "N/A (Thread Error)", "N/A"])
-                    match = re.match(r'^([a-zA-Z]+)', error_hostname)  # CORRECTED
+                    match = re.match(r'^([a-zA-Z]+)', error_hostname)
                     region_code = match.group(1) if match else "UNKNOWN"
+                    summary_csv_writer.writerow([error_hostname, "N/A (Thread Error)", "N/A"])
                     region_csv_writer.writerow([region_code, error_hostname, "N/A (Thread Error)", "N/A"])
 
     except IOError as e:
@@ -380,7 +373,10 @@ def main():
         print(f"\n{'=' * 10} Device: {hostname} {'=' * 10}")
         print(f"Status: {device_result['status']}")
 
-        if device_result["error_message"]:
+        # Explicitly handle the "No 8800-LC-48H found" message
+        if device_result["status"] == "No 8800-LC-48H found":
+            print(f"{COLOR_BOLD_YELLOW}Message: No 8800-LC-48H line cards found on this device.{COLOR_RESET}")
+        elif device_result["error_message"]:
             print(f"{COLOR_BOLD_RED}Error: {device_result['error_message']}{COLOR_RESET}")
 
         # Report on raw show inventory output being saved to the single file
@@ -411,8 +407,8 @@ def main():
                     print(table)
                 else:
                     print("    No optics found on this line card.")
-        elif device_result["status"] == "Success":
-            print("No 8800-LC-48H line cards found on this device.")
+        # The "No 8800-LC-48H line cards found" message is now handled above,
+        # so this `elif` is no longer needed here.
 
         print(f"{'=' * 30}\n")
 
@@ -440,12 +436,12 @@ def main():
                 else:
                     error_msg_console = f"{COLOR_BOLD_RED}Error{COLOR_RESET}"
                     summary_table.add_row([hostname, lc_data["slot"], error_msg_console])
-        elif device_result["status"] != "Success":
+        elif device_result["status"] == "No 8800-LC-48H found": # Explicitly handle no line cards for summary table
+            summary_table.add_row([hostname, "No 8800-LC-48H", 0])
+        else:  # Any other status (Connection Failed, Auth Failed, Thread Error, Unexpected Error)
             error_msg_console_device = f"{COLOR_BOLD_RED}N/A (Device Error){COLOR_RESET}"
             summary_table.add_row(
                 [hostname, error_msg_console_device, error_msg_console_device])
-        else:  # Success status but no 8800-LC-48H found
-            summary_table.add_row([hostname, "No 8800-LC-48H", 0])
 
         last_hostname = hostname
 

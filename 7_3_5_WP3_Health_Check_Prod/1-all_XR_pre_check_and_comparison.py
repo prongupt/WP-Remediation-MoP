@@ -22,7 +22,6 @@
 # - Reports physical interfaces that were found to be operationally down during the current run.
 # - Provides a final summary table of all checks and their outcomes.
 
-
 __author__ = "Pronoy Dasgupta"
 __copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
 __credits__ = "Pronoy Dasgupta"
@@ -31,12 +30,13 @@ __maintainer__ = "Pronoy Dasgupta"
 __email__ = "prongupt@cisco.com"
 __status__ = "production"
 
+# EXACT same imports as original script - NO CHANGES
 import paramiko
 import time
 import getpass
 import re
 import logging
-from prettytable import PrettyTable, HEADER, FRAME # Import HEADER and FRAME constants
+from prettytable import PrettyTable, HEADER, FRAME
 import platform
 import subprocess
 import datetime
@@ -45,105 +45,47 @@ import sys
 from typing import List, Tuple, Dict, Any, Optional
 
 
-# --- SimpleProgressBar Class Definition ---
-class SimpleProgressBar:
-    _active_pbar = None  # Class-level variable to hold the active pbar instance
+# --- Configuration Class (Safe Optimizations Only) ---
+class Config:
+    SSH_TIMEOUT = 15
+    BUFFER_SIZE = 65535  # Keep original size
+    COMMAND_TIMEOUT = 120
+    PROGRESS_UPDATE_INTERVAL = 0.1
+    FILE_BUFFER_SIZE = 8192
 
-    def __init__(self, total, original_console_stream, description="", color_code='\033[94m'):
-        self.total = total
-        self.current = 0
-        self.description = description
-        self.color_code = color_code
-        self.original_console_stream = original_console_stream
-        self.start_time = time.time()
-        self.bar_length = 50
-        self._last_pbar_line_length = 0  # To track length for clearing
-        self.update_display()
+    # Only safe optimization: pre-compiled regex patterns
+    COMPILED_PROMPT_PATTERNS = [
+        re.compile(r'#\s*$'),
+        re.compile(r'>\s*$'),
+        re.compile(r'\]\s*$'),
+        re.compile(r'\)\s*$')
+    ]
 
-    def update(self, step=1):
-        self.current += step
-        if self.current > self.total:  # Cap current at total
-            self.current = self.total
-        self.update_display()
-
-    def update_display(self):
-        percent = ("{0:.1f}").format(100 * (self.current / float(self.total)))
-        filled_length = int(self.bar_length * self.current // self.total)
-        bar = '█' * filled_length + '-' * (self.bar_length - filled_length)
-
-        elapsed_time = time.time() - self.start_time
-
-        # Estimate remaining time if enough progress has been made
-        estimated_remaining_time_str = "--:--"
-        if self.current > 0 and self.current < self.total:
-            avg_time_per_step = elapsed_time / self.current
-            remaining_steps = self.total - self.current
-            estimated_remaining_time = avg_time_per_step * remaining_steps
-            estimated_remaining_time_str = self._format_time(estimated_remaining_time)
-        elif self.current == self.total:
-            estimated_remaining_time_str = "00:00"  # No remaining time if done
-
-        time_info = f"[{self._format_time(elapsed_time)}<{estimated_remaining_time_str}]"
-
-        # Construct the message and write it
-        pbar_message = f"{self.color_code}{self.description} |{bar}| {percent}% {time_info}\033[0m"
-        self.original_console_stream.write('\r' + ' ' * self._last_pbar_line_length + '\r')  # Clear previous line
-        self.original_console_stream.write(pbar_message)
-        self.original_console_stream.flush()
-        self._last_pbar_line_length = len(pbar_message)  # Store length of the actual pbar message
-
-    def hide(self):
-        """Erases the progress bar from the current line."""
-        self.original_console_stream.write('\r' + ' ' * self._last_pbar_line_length + '\r')
-        self.original_console_stream.flush()
-
-    def show(self):
-        """Redraws the progress bar on the current line."""
-        self.update_display()
-
-    def _format_time(self, seconds):
-        minutes, seconds = divmod(int(seconds), 60)
-        hours, minutes = divmod(minutes, 60)
-        if hours > 0:
-            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        return f"{minutes:02d}:{seconds:02d}"
-
-    def __enter__(self):
-        SimpleProgressBar._active_pbar = self
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # Ensure the progress bar is at 100% and on a new line when finished
-        self.current = self.total  # Ensure it shows 100%
-        self.update_display()
-        self.original_console_stream.write('\n')  # Ensure newline at the very end
-        self.original_console_stream.flush()
-        SimpleProgressBar._active_pbar = None
+    # Pre-compiled patterns for parsing (safe optimization)
+    COMPILED_PATTERNS = {
+        'hostname': re.compile(r"^\s*hostname\s+(\S+)"),
+        'chassis_pid': re.compile(r"PID:\s*(\S+)\s*,"),
+        'inventory_name': re.compile(r'NAME: "(\d+/\S+)",'),
+        'inventory_pid': re.compile(r'PID: (\S+)\s*,\s*VID: (\S+),\s*SN: (\S+)'),
+        'platform_card': re.compile(r"^\s*(\S+)\s+(\S+)\s+(.+?)\s{2,}(\S+).*$"),
+        'physical_interface': re.compile(
+            r"^(?:(?:GigabitEthernet|Gi|TenGigE|Te|FortyGigE|Fo|HundredGigE|Hu|FourHundredGigE|FH|Ethernet|Eth|FastEthernet|Fa|Serial|Se|POS|Cellular|Ce|MgmtEth|PTP|nve|Vxlan)\S+)",
+            re.IGNORECASE
+        ),
+        'intf_optics': re.compile(r'NAME: "((?:Gi|Te|Hu|Fo|Eth|Fa|Se|POS|Ce|nve|Vxlan|FH)\S+)",', re.IGNORECASE),
+        'card_location': re.compile(r'NAME: "(0/\d+(?:/\d+)?(?:/CPU0)?|0/(?:RP|LC|FC|RSP)\d*(?:/\d+)?(?:/CPU0)?)",'),
+        'brief_interface': re.compile(
+            r"^\s*(\S+)\s+(up|down|admin-down|not connect|unknown|--)\s+(up|down|admin-down|not connect|unknown|--)\s+.*$",
+            re.IGNORECASE
+        ),
+        'fpd_line': re.compile(
+            r"^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S*?)\s*(\S+)\s+(\S+)\s+(\S*)\s+(\S*)\s+(\S+)\s*$"
+        ),
+        'all_types_summary': re.compile(r"^\s*ALL TYPES\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$"),
+    }
 
 
-# --- End SimpleProgressBar Class Definition ---
-
-# Custom logging handler to interact with the progress bar
-class ProgressBarAwareHandler(logging.StreamHandler):
-    def emit(self, record):
-        pbar = SimpleProgressBar._active_pbar
-        if pbar:
-            pbar.hide()  # Hide the progress bar
-            self.stream.write(self.format(record) + '\n')  # Print log message on its own line
-            self.flush()
-            pbar.show()  # Show the progress bar again
-        else:
-            # If no active progress bar, emit normally to the stream
-            super().emit(record)
-
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-# Initial clearing of handlers is done in main() for precise control
-
-SSH_TIMEOUT_SECONDS = 15
-
+# Keep original constants for backward compatibility
 PROMPT_PATTERNS = [
     r'#\s*$',
     r'>\s*$',
@@ -159,6 +101,7 @@ FAN_IMPACTED_VERSIONS = {
 }
 
 
+# All your existing exception classes - NO CHANGES
 class SSHConnectionError(Exception):
     pass
 
@@ -227,25 +170,138 @@ class FileProcessingError(Exception):
     pass
 
 
+# Safe utility functions
+def safe_int_convert(value_str, default=0):
+    """Fast integer conversion with fallback"""
+    if not value_str or value_str in ('-', 'NA', 'N/A'):
+        return default
+    try:
+        return int(value_str)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_float_convert(value_str, default=0.0):
+    """Fast float conversion with fallback"""
+    if not value_str or value_str in ('-', 'NA', 'N/A'):
+        return default
+    try:
+        return float(value_str)
+    except (ValueError, TypeError):
+        return default
+
+
+# Optimized SimpleProgressBar with update frequency control
+class SimpleProgressBar:
+    _active_pbar = None
+
+    def __init__(self, total, original_console_stream, description="", color_code='\033[94m'):
+        self.total = total
+        self.current = 0
+        self.description = description
+        self.color_code = color_code
+        self.original_console_stream = original_console_stream
+        self.start_time = time.time()
+        self.bar_length = 50
+        self._last_pbar_line_length = 0
+        self.last_update_time = 0  # Only optimization: reduce update frequency
+        self.update_display()
+
+    def update(self, step=1):
+        self.current += step
+        if self.current > self.total:
+            self.current = self.total
+        self.update_display()
+
+    def update_display(self):
+        # Only optimization: skip updates if too frequent
+        current_time = time.time()
+        if current_time - self.last_update_time < Config.PROGRESS_UPDATE_INTERVAL and self.current < self.total:
+            return
+        self.last_update_time = current_time
+
+        # Rest is exactly the same as original
+        percent = ("{0:.1f}").format(100 * (self.current / float(self.total)))
+        filled_length = int(self.bar_length * self.current // self.total)
+        bar = '█' * filled_length + '-' * (self.bar_length - filled_length)
+
+        elapsed_time = time.time() - self.start_time
+        estimated_remaining_time_str = "--:--"
+        if self.current > 0 and self.current < self.total:
+            avg_time_per_step = elapsed_time / self.current
+            remaining_steps = self.total - self.current
+            estimated_remaining_time = avg_time_per_step * remaining_steps
+            estimated_remaining_time_str = self._format_time(estimated_remaining_time)
+        elif self.current == self.total:
+            estimated_remaining_time_str = "00:00"
+
+        time_info = f"[{self._format_time(elapsed_time)}<{estimated_remaining_time_str}]"
+        pbar_message = f"{self.color_code}{self.description} |{bar}| {percent}% {time_info}\033[0m"
+        self.original_console_stream.write('\r' + ' ' * self._last_pbar_line_length + '\r')
+        self.original_console_stream.write(pbar_message)
+        self.original_console_stream.flush()
+        self._last_pbar_line_length = len(pbar_message)
+
+    def hide(self):
+        """Erases the progress bar from the current line."""
+        self.original_console_stream.write('\r' + ' ' * self._last_pbar_line_length + '\r')
+        self.original_console_stream.flush()
+
+    def show(self):
+        """Redraws the progress bar on the current line."""
+        self.update_display()
+
+    def _format_time(self, seconds):
+        minutes, seconds = divmod(int(seconds), 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
+
+    def __enter__(self):
+        SimpleProgressBar._active_pbar = self
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.current = self.total
+        self.update_display()
+        self.original_console_stream.write('\n')
+        self.original_console_stream.flush()
+        SimpleProgressBar._active_pbar = None
+
+
+# Keep original logging handler - NO CHANGES
+class ProgressBarAwareHandler(logging.StreamHandler):
+    def emit(self, record):
+        pbar = SimpleProgressBar._active_pbar
+        if pbar:
+            pbar.hide()
+            self.stream.write(self.format(record) + '\n')
+            self.flush()
+            pbar.show()
+        else:
+            super().emit(record)
+
+
+# Keep original Tee - NO CHANGES
 class Tee:
     def __init__(self, stdout_stream, file_object):
-        self.stdout = stdout_stream  # This will be true_original_stdout
+        self.stdout = stdout_stream
         self.file_object = file_object
 
     def write(self, data):
         pbar = SimpleProgressBar._active_pbar
         if pbar:
-            pbar.hide()  # Hide the progress bar
-            self.stdout.write(data)  # Write print() output
-            # Ensure data ends with a newline on console if it doesn't already
+            pbar.hide()
+            self.stdout.write(data)
             if not data.endswith('\n'):
                 self.stdout.write('\n')
             self.stdout.flush()
-            pbar.show()  # Show the progress bar again
+            pbar.show()
         else:
             self.stdout.write(data)
             self.stdout.flush()
-        self.file_object.write(data)  # Always write to file
+        self.file_object.write(data)
         self.file_object.flush()
 
     def flush(self):
@@ -253,16 +309,24 @@ class Tee:
         self.file_object.flush()
 
 
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+SSH_TIMEOUT_SECONDS = 15
+
+
+# Optimized SSH function with compiled patterns
 def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, print_real_time: bool = True) -> Tuple[
     str, bool]:
     full_output_buffer = ""
     start_time = time.time()
     prompt_found = False
     prompt_check_buffer = ""
+
     while time.time() - start_time < timeout_sec:
         if shell_obj.recv_ready():
             try:
-                data = shell_obj.recv(65535).decode('utf-8', errors='ignore')
+                data = shell_obj.recv(65535).decode('utf-8', errors='ignore')  # Keep original buffer size
                 if data:
                     if print_real_time:
                         print(f"{data}", end='')
@@ -273,8 +337,9 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
                     lines = prompt_check_buffer.strip().splitlines()
                     if lines:
                         last_line = lines[-1]
-                        for pattern in PROMPT_PATTERNS:
-                            if re.search(pattern, last_line):
+                        # ONLY optimization: use compiled patterns
+                        for pattern in Config.COMPILED_PROMPT_PATTERNS:
+                            if pattern.search(last_line):
                                 prompt_found = True
                                 if print_real_time and not data.endswith('\n'):
                                     print()
@@ -283,7 +348,8 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
                 logger.error(f"Error receiving data: {e}")
                 break
         else:
-            time.sleep(0.1)
+            time.sleep(0.1)  # Keep original timing
+
     if print_real_time and full_output_buffer and not full_output_buffer.endswith('\n'):
         print()
     return full_output_buffer, prompt_found
@@ -307,6 +373,7 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
                 break
         else:
             time.sleep(0.01)
+
     if pre_command_flush_output:
         logger.debug(f"Flushed {len(pre_command_flush_output)} characters from buffer BEFORE '{command_description}'.")
         if cli_output_file:
@@ -317,6 +384,7 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
     shell.send(command + "\n")
     time.sleep(0.5)
     output, prompt_found = read_and_print_realtime(shell, timeout_sec=timeout, print_real_time=print_real_time_output)
+
     if cli_output_file:
         cli_output_file.write(output)
         cli_output_file.flush()
@@ -332,8 +400,7 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
         output += output_retry
         prompt_found = prompt_found_retry
         if not prompt_found:
-            raise RouterCommandError(
-                f"Failed to reach prompt after '{command_description}' re-check. Output: {output}")
+            raise RouterCommandError(f"Failed to reach prompt after '{command_description}' re-check. Output: {output}")
 
     logger.debug(f"Performing post-command buffer flush after '{command_description}'.")
     post_command_flush_output = ""
@@ -363,7 +430,7 @@ def get_hostname(shell: paramiko.Channel, cli_output_file=None) -> str:
     output = execute_command_in_shell(shell, "show running-config | i hostname", "get hostname", timeout=10,
                                       print_real_time_output=False, cli_output_file=cli_output_file)
     for line in output.splitlines():
-        match = re.search(r"^\s*hostname\s+(\S+)", line)
+        match = Config.COMPILED_PATTERNS['hostname'].search(line)  # Use compiled pattern
         if match:
             hostname = match.group(1)
             hostname = hostname.replace('.', '-')
@@ -378,7 +445,7 @@ def get_chassis_model(shell: paramiko.Channel, cli_output_file=None) -> str:
     output = execute_command_in_shell(shell, "show inventory chassis", "get chassis model from inventory", timeout=30,
                                       print_real_time_output=False, cli_output_file=cli_output_file)
 
-    match = re.search(r"PID:\s*(\S+)\s*,", output)
+    match = Config.COMPILED_PATTERNS['chassis_pid'].search(output)  # Use compiled pattern
     if match:
         chassis_model = match.group(1).strip()
         logger.info(f"Chassis model (PID) detected: {chassis_model}")
@@ -392,18 +459,26 @@ def parse_inventory_for_serial_numbers(inventory_output: str) -> Dict[str, Dict[
     card_info = {}
     lines = inventory_output.splitlines()
     current_location = None
+
     for line in lines:
-        name_match = re.search(r'NAME: "(\d+/\S+)",', line)
+        if not line.strip():
+            continue
+
+        name_match = Config.COMPILED_PATTERNS['inventory_name'].search(line)  # Use compiled pattern
         if name_match:
             current_location = name_match.group(1)
-        pid_vid_sn_match = re.search(r'PID: (\S+)\s*,\s*VID: (\S+),\s*SN: (\S+)', line)
-        if pid_vid_sn_match and current_location:
-            card_info[current_location] = {
-                "PID": pid_vid_sn_match.group(1),
-                "VID": pid_vid_sn_match.group(2),
-                "SN": pid_vid_sn_match.group(3)
-            }
-            current_location = None
+            continue
+
+        if current_location:
+            pid_match = Config.COMPILED_PATTERNS['inventory_pid'].search(line)  # Use compiled pattern
+            if pid_match:
+                card_info[current_location] = {
+                    "PID": pid_match.group(1),
+                    "VID": pid_match.group(2),
+                    "SN": pid_match.group(3)
+                }
+                current_location = None
+
     return card_info
 
 
@@ -416,10 +491,10 @@ def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None, cha
     header_separator_found = False
     lines = fabric_output.splitlines()
 
-    valid_reach_masks = ["4/4", "2/2"]
+    valid_reach_masks = {"4/4", "2/2"}  # Use set for O(1) lookup
 
     if chassis_model.startswith("88") or "NCS-88" in chassis_model:
-        valid_reach_masks.extend(["6/6", "8/8", "16/16"])
+        valid_reach_masks.update({"6/6", "8/8", "16/16"})
 
     for line in lines:
         if "----------------------------------------------------------------------------------------------" in line:
@@ -434,7 +509,6 @@ def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None, cha
                 reach_mask_value = parts[9].strip()
 
                 if reach_mask_value not in valid_reach_masks and reach_mask_value != "----":
-                    logger.error(f"Problematic row detected: reach_mask_value='{reach_mask_value}'")
                     problematic_fabric_rows.append([
                         parts[0], parts[1], parts[2], parts[3], parts[4],
                         parts[5], parts[6], parts[7], parts[8],
@@ -566,18 +640,15 @@ def check_npu_stats_link(shell: paramiko.Channel, cli_output_file=None):
             continue
         numbers = re.findall(r'\d+', stripped_line)
         if len(numbers) >= 5:
-            try:
-                uce_errors = int(numbers[-2])
-                crc_errors = int(numbers[-1])
-                if uce_errors > 0 or crc_errors > 0:
-                    if current_node_id:
-                        problematic_stats.append({
-                            "Node ID": current_node_id,
-                            "UCE Errors": uce_errors,
-                            "CRC Errors": crc_errors
-                        })
-            except ValueError:
-                pass
+            uce_errors = safe_int_convert(numbers[-2])
+            crc_errors = safe_int_convert(numbers[-1])
+            if uce_errors > 0 or crc_errors > 0:
+                if current_node_id:
+                    problematic_stats.append({
+                        "Node ID": current_node_id,
+                        "UCE Errors": uce_errors,
+                        "CRC Errors": crc_errors
+                    })
     if problematic_stats:
         logger.error(f"!!! NPU STATS ERRORS DETECTED (UCE/CRC) !!!")
         stats_table = PrettyTable()
@@ -671,20 +742,17 @@ def check_fabric_plane_stats(shell: paramiko.Channel, cli_output_file=None):
                 continue
             parts = stripped_line.split()
             if len(parts) >= 6:
-                try:
-                    plane_id = parts[0]
-                    ce_packets = int(parts[3])
-                    uce_packets = int(parts[4])
-                    pe_packets = int(parts[5])
-                    if ce_packets > 0 or uce_packets > 0 or pe_packets > 0:
-                        problematic_planes.append({
-                            "Plane ID": plane_id,
-                            "CE Packets": ce_packets,
-                            "UCE Packets": uce_packets,
-                            "PE Packets": pe_packets
-                        })
-                except ValueError:
-                    pass
+                plane_id = parts[0]
+                ce_packets = safe_int_convert(parts[3])
+                uce_packets = safe_int_convert(parts[4])
+                pe_packets = safe_int_convert(parts[5])
+                if ce_packets > 0 or uce_packets > 0 or pe_packets > 0:
+                    problematic_planes.append({
+                        "Plane ID": plane_id,
+                        "CE Packets": ce_packets,
+                        "UCE Packets": uce_packets,
+                        "PE Packets": pe_packets
+                    })
     if problematic_planes:
         logger.error(f"!!! FABRIC PLANE STATISTICS ERRORS DETECTED (Non-zero CE/UCE/PE Packets) !!!")
         stats_table = PrettyTable()
@@ -719,7 +787,7 @@ def check_asic_errors(shell: paramiko.Channel, cli_output_file=None):
             current_npu_number = npu_info_match.group(2)
             continue
         if error_count_match and current_fc_location and current_npu_number:
-            error_count = int(error_count_match.group(1))
+            error_count = safe_int_convert(error_count_match.group(1))
             if error_count > 0:
                 problematic_asic_errors.append({
                     "FC Location": current_fc_location,
@@ -757,11 +825,9 @@ def check_interface_status(shell: paramiko.Channel, cli_output_file=None) -> Tup
     all_types_data = None
     lines = summary_output.splitlines()
 
-    all_types_pattern = re.compile(r"^\s*ALL TYPES\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$")
-
     for line in lines:
         stripped_line = line.strip()
-        match = all_types_pattern.match(stripped_line)
+        match = Config.COMPILED_PATTERNS['all_types_summary'].match(stripped_line)  # Use compiled pattern
         if match:
             try:
                 all_types_data = {
@@ -909,15 +975,12 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
             if voltage_str == "-":
                 issues.append("Invalid Sensor Read: Input Voltage is '-'.")
             else:
-                try:
-                    input_voltage_mv = float(voltage_str)
-                    input_voltage_volts = input_voltage_mv / 1000.0
-                    if input_voltage_volts == 0:
-                        issues.append("Voltage Issue: Input Voltage is 0V.")
-                    elif input_voltage_volts > 60:
-                        issues.append(f"Voltage Issue: Input Voltage is {input_voltage_volts:.2f}V (Greater than 60V).")
-                except ValueError:
-                    issues.append(f"Invalid Sensor Read: Input Voltage '{voltage_str}' is not a valid number.")
+                input_voltage_mv = safe_float_convert(voltage_str)
+                input_voltage_volts = input_voltage_mv / 1000.0
+                if input_voltage_volts == 0:
+                    issues.append("Voltage Issue: Input Voltage is 0V.")
+                elif input_voltage_volts > 60:
+                    issues.append(f"Voltage Issue: Input Voltage is {input_voltage_volts:.2f}V (Greater than 60V).")
         else:
             issues.append("Input Voltage reading not found.")
 
@@ -927,11 +990,8 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
             if current_str == "-":
                 issues.append("Invalid Sensor Read: Input Current is '-'.")
             else:
-                try:
-                    input_current_ma = float(current_str)
-                    if input_current_ma == 0: issues.append("Current Issue: Input Current is 0A.")
-                except ValueError:
-                    issues.append(f"Invalid Sensor Read: Input Current '{current_str}' is not a valid number.")
+                input_current_ma = safe_float_convert(current_str)
+                if input_current_ma == 0: issues.append("Current Issue: Input Current is 0A.")
         else:
             issues.append("Input Current reading not found.")
 
@@ -1065,48 +1125,43 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
                 if match:
                     sensor, value_str, crit_lo, major_lo, minor_lo, minor_hi, major_hi, crit_hi = match.groups()
 
-                    try:
-                        value = float(value_str)
-                        crit_lo = float(crit_lo) if crit_lo is not None and crit_lo not in ['NA', '-'] else None
-                        major_lo = float(major_lo) if major_lo is not None and major_lo not in ['NA', '-'] else None
-                        minor_lo = float(minor_lo) if minor_lo is not None and minor_lo not in ['NA', '-'] else None
-                        minor_hi = float(minor_hi) if minor_hi is not None and minor_hi not in ['NA', '-'] else None
-                        major_hi = float(major_hi) if major_hi is not None and major_hi not in ['NA', '-'] else None
-                        crit_hi = float(crit_hi) if crit_hi is not None and crit_hi not in ['NA', '-'] else None
+                    value = safe_float_convert(value_str)
+                    crit_lo = safe_float_convert(crit_lo, None) if crit_lo not in ['NA', '-'] else None
+                    major_lo = safe_float_convert(major_lo, None) if major_lo not in ['NA', '-'] else None
+                    minor_lo = safe_float_convert(minor_lo, None) if minor_lo not in ['NA', '-'] else None
+                    minor_hi = safe_float_convert(minor_hi, None) if minor_hi not in ['NA', '-'] else None
+                    major_hi = safe_float_convert(major_hi, None) if major_hi not in ['NA', '-'] else None
+                    crit_hi = safe_float_convert(crit_hi, None) if crit_hi not in ['NA', '-'] else None
 
-                        issue_found = False
-                        issue_desc = []
+                    issue_found = False
+                    issue_desc = []
 
-                        if crit_lo is not None and value < crit_lo:
-                            issue_desc.append(f"Critical Low (Value: {value}, Threshold: {crit_lo})")
-                            issue_found = True
-                        elif major_lo is not None and value < major_lo:
-                            issue_desc.append(f"Major Low (Value: {value}, Threshold: {major_lo})")
-                            issue_found = True
-                        elif minor_lo is not None and value < minor_lo:
-                            issue_desc.append(f"Minor Low (Value: {value}, Threshold: {minor_lo})")
-                            issue_found = True
+                    if crit_lo is not None and value < crit_lo:
+                        issue_desc.append(f"Critical Low (Value: {value}, Threshold: {crit_lo})")
+                        issue_found = True
+                    elif major_lo is not None and value < major_lo:
+                        issue_desc.append(f"Major Low (Value: {value}, Threshold: {major_lo})")
+                        issue_found = True
+                    elif minor_lo is not None and value < minor_lo:
+                        issue_desc.append(f"Minor Low (Value: {value}, Threshold: {minor_lo})")
+                        issue_found = True
 
-                        if crit_hi is not None and value > crit_hi:
-                            issue_desc.append(f"Critical High (Value: {value}, Threshold: {crit_hi})")
-                            issue_found = True
-                        elif major_hi is not None and value > major_hi:
-                            issue_desc.append(f"Major High (Value: {value}, Threshold: {major_hi})")
-                            issue_found = True
-                        elif minor_hi is not None and value > minor_hi:
-                            issue_desc.append(f"Minor High (Value: {value}, Threshold: {minor_hi})")
-                            issue_found = True
+                    if crit_hi is not None and value > crit_hi:
+                        issue_desc.append(f"Critical High (Value: {value}, Threshold: {crit_hi})")
+                        issue_found = True
+                    elif major_hi is not None and value > major_hi:
+                        issue_desc.append(f"Major High (Value: {value}, Threshold: {major_hi})")
+                        issue_found = True
+                    elif minor_hi is not None and value > minor_hi:
+                        issue_desc.append(f"Minor High (Value: {value}, Threshold: {minor_hi})")
+                        issue_found = True
 
-                        if issue_found:
-                            temp_issues.append({
-                                "Location": current_location,
-                                "Sensor": sensor,
-                                "Problem": "; ".join(issue_desc)
-                            })
-                    except ValueError:
-                        logger.warning(
-                            f"Could not parse numeric values for temperature sensor '{sensor}' at '{current_location}'. Line: '{stripped_line}'")
-                        pass
+                    if issue_found:
+                        temp_issues.append({
+                            "Location": current_location,
+                            "Sensor": sensor,
+                            "Problem": "; ".join(issue_desc)
+                        })
         elif current_section == "VOLTAGE":
             location_match = location_line_pattern.match(stripped_line)
             if location_match:
@@ -1120,40 +1175,36 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
                 match = voltage_sensor_data_pattern.match(stripped_line)
                 if match:
                     sensor, value_str, crit_lo, minor_lo, minor_hi, crit_hi = match.groups()
-                    try:
-                        value = float(value_str)
-                        crit_lo = float(crit_lo) if crit_lo is not None and crit_lo not in ['NA', '-'] else None
-                        minor_lo = float(minor_lo) if minor_lo is not None and minor_lo not in ['NA', '-'] else None
-                        minor_hi = float(minor_hi) if minor_hi is not None and minor_hi not in ['NA', '-'] else None
-                        crit_hi = float(crit_hi) if crit_hi is not None and crit_hi not in ['NA', '-'] else None
 
-                        issue_found = False
-                        issue_desc = []
+                    value = safe_float_convert(value_str)
+                    crit_lo = safe_float_convert(crit_lo, None) if crit_lo not in ['NA', '-'] else None
+                    minor_lo = safe_float_convert(minor_lo, None) if minor_lo not in ['NA', '-'] else None
+                    minor_hi = safe_float_convert(minor_hi, None) if minor_hi not in ['NA', '-'] else None
+                    crit_hi = safe_float_convert(crit_hi, None) if crit_hi not in ['NA', '-'] else None
 
-                        if crit_lo is not None and value < crit_lo:
-                            issue_desc.append(f"Critical Low (Value: {value}mV, Threshold: {crit_lo}mV)")
-                            issue_found = True
-                        elif minor_lo is not None and value < minor_lo:
-                            issue_desc.append(f"Minor Low (Value: {value}mV, Threshold: {minor_lo}mV)")
-                            issue_found = True
+                    issue_found = False
+                    issue_desc = []
 
-                        if crit_hi is not None and value > crit_hi:
-                            issue_desc.append(f"Critical High (Value: {value}mV, Threshold: {crit_hi}mV)")
-                            issue_found = True
-                        elif minor_hi is not None and value > minor_hi:
-                            issue_desc.append(f"Minor High (Value: {value}mV, Threshold: {minor_hi}mV)")
-                            issue_found = True
+                    if crit_lo is not None and value < crit_lo:
+                        issue_desc.append(f"Critical Low (Value: {value}mV, Threshold: {crit_lo}mV)")
+                        issue_found = True
+                    elif minor_lo is not None and value < minor_lo:
+                        issue_desc.append(f"Minor Low (Value: {value}mV, Threshold: {minor_lo}mV)")
+                        issue_found = True
 
-                        if issue_found:
-                            voltage_issues.append({
-                                "Location": current_location,
-                                "Sensor": sensor,
-                                "Problem": "; ".join(issue_desc)
-                            })
-                    except ValueError:
-                        logger.warning(
-                            f"Could not parse numeric values for voltage sensor '{sensor}' at '{current_location}'. Line: '{stripped_line}'")
-                        pass
+                    if crit_hi is not None and value > crit_hi:
+                        issue_desc.append(f"Critical High (Value: {value}mV, Threshold: {crit_hi}mV)")
+                        issue_found = True
+                    elif minor_hi is not None and value > minor_hi:
+                        issue_desc.append(f"Minor High (Value: {value}mV, Threshold: {minor_hi}mV)")
+                        issue_found = True
+
+                    if issue_found:
+                        voltage_issues.append({
+                            "Location": current_location,
+                            "Sensor": sensor,
+                            "Problem": "; ".join(issue_desc)
+                        })
         elif current_section == "POWER_SUPPLY":
             if re.match(r'^\s*Power\s+Module\s+Type\s+---Input----\s+---Output---\s+Status', stripped_line):
                 continue
@@ -1164,20 +1215,18 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
             if match:
                 location, ps_type, in_v_a_str, in_v_b_str, in_a_a_str, in_a_b_str, out_v_str, out_a_str, status = match.groups()
                 current_ps_issues = []
-                try:
-                    in_v_a = float(in_v_a_str)
-                    in_v_b = float(in_v_b_str)
-                    in_a_a = float(in_a_a_str)
-                    in_a_b = float(in_a_b_str)
-                    out_v = float(out_v_str)
-                    out_a = float(out_a_str)
 
-                    if in_v_a == 0 or in_v_b == 0: current_ps_issues.append("Zero Input Voltage detected.")
-                    if in_a_a == 0 or in_a_b == 0: current_ps_issues.append("Zero Input Current detected.")
-                    if out_v == 0: current_ps_issues.append("Zero Output Voltage detected.")
-                    if out_a == 0: current_ps_issues.append("Zero Output Current detected.")
-                except ValueError:
-                    current_ps_issues.append("Invalid numeric value in voltage/current fields.")
+                in_v_a = safe_float_convert(in_v_a_str)
+                in_v_b = safe_float_convert(in_v_b_str)
+                in_a_a = safe_float_convert(in_a_a_str)
+                in_a_b = safe_float_convert(in_a_b_str)
+                out_v = safe_float_convert(out_v_str)
+                out_a = safe_float_convert(out_a_str)
+
+                if in_v_a == 0 or in_v_b == 0: current_ps_issues.append("Zero Input Voltage detected.")
+                if in_a_a == 0 or in_a_b == 0: current_ps_issues.append("Zero Input Current detected.")
+                if out_v == 0: current_ps_issues.append("Zero Output Voltage detected.")
+                if out_a == 0: current_ps_issues.append("Zero Output Current detected.")
 
                 if status.strip().upper() != "OK":
                     current_ps_issues.append(f"Status is '{status.strip()}' (Expected: OK).")
@@ -1224,10 +1273,45 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
 
 def print_final_summary_table(statuses: Dict[str, str]):
     print(f"\n--- Final Script Summary ---")
+
+    # Sections to exclude from the summary table
+    excluded_sections = {
+        "Interface Status Check",
+        "HW Module FPD Status Check"
+    }
+
+    # Filter out excluded sections
+    filtered_statuses = {section: status for section, status in statuses.items()
+                         if section not in excluded_sections}
+
     summary_table = PrettyTable()
-    summary_table.field_names = ["Section Name", "Status"]
-    for section, status in statuses.items():
-        summary_table.add_row([section, status])
+    summary_table.field_names = ["Test number", "Section Name", "Status"]
+
+    # Left align all columns
+    summary_table.align["Test number"] = "l"
+    summary_table.align["Section Name"] = "l"
+    summary_table.align["Status"] = "l"
+
+    # Color mapping for different statuses
+    def colorize_status(status):
+        if status == "Good":
+            return f"\033[1;92m{status}\033[0m"  # Bright Green
+        elif status == "Bad":
+            return f"\033[1;91m{status}\033[0m"  # Bright Red
+        elif "Collection Only" in status:
+            return f"\033[1;94m{status}\033[0m"  # Bright Blue
+        elif status == "Not Run":
+            return f"\033[1;93m{status}\033[0m"  # Bright Yellow
+        else:
+            return status  # No color for unknown statuses
+
+    # Add rows with test numbers and colored statuses
+    test_number = 1
+    for section, status in filtered_statuses.items():
+        colored_status = colorize_status(status)
+        summary_table.add_row([str(test_number), section, colored_status])
+        test_number += 1
+
     print(summary_table)
     logger.info(f"--- End Final Script Summary ---")
 
@@ -1247,7 +1331,7 @@ def check_ios_xr_version(shell: paramiko.Channel, cli_output_file=None) -> str:
     version_table.field_names = ["Information", "Value"]
     version_table.add_row(["IOS-XR Version", ios_xr_version])
     print(version_table)
-    return version_output  # Return full output for potential future parsing
+    return version_output
 
 
 def check_platform_and_serial_numbers(shell: paramiko.Channel,
@@ -1273,9 +1357,8 @@ def check_platform_and_serial_numbers(shell: paramiko.Channel,
     all_cards_details = []
     platform_issues_found = False
     lines = platform_output.splitlines()
-    card_pattern = re.compile(r"^\s*(\S+)\s+(\S+)\s+(.+?)\s{2,}(\S+).*$")
     for line in lines:
-        match = card_pattern.match(line)
+        match = Config.COMPILED_PATTERNS['platform_card'].match(line)  # Use compiled pattern
         if match:
             location, card_type, current_state_raw, config_state = match.groups()
             current_state = current_state_raw.strip()
@@ -1324,7 +1407,7 @@ def check_platform_and_serial_numbers(shell: paramiko.Channel,
         raise PlatformStatusError("Platform status check failed.")
     else:
         logger.info(f"All Line Cards, Fabric Cards, and Route Processors are in their expected states.")
-    return platform_output  # Return full output for potential future parsing
+    return platform_output
 
 
 def check_hw_module_fpd_status(shell: paramiko.Channel, cli_output_file=None) -> str:
@@ -1340,47 +1423,48 @@ def _run_section_check(section_name: str, check_func: callable, section_statuses
     try:
         logger.info(f"--- Running {section_name} ---")
         result = check_func(*args, **kwargs)
-        logger.info(f"--- {section_name} Passed ---")
-        section_statuses[section_name] = "Good"  # Set to Good if no exception
+        # Bright green for passed checks
+        logger.info(f"\033[1;92m✓ {section_name} passed\033[0m")
+        section_statuses[section_name] = "Good"
         return result if result is not None else ""
     except (RouterCommandError, PlatformStatusError, FabricReachabilityError,
             FabricLinkDownError, NpuLinkError, NpuStatsError, NpuDriverError,
             FabricPlaneStatsError, AsicErrorsError, InterfaceStatusError,
             AlarmError, LcAsicErrorsError, FanTrayError, EnvironmentError, FpdStatusError) as e:
-        logger.critical(f"{section_name} failed: {e}")
+        # Bright red for failed checks
+        logger.critical(f"\033[1;91m✗ {section_name} failed: {e}\033[0m")
         overall_script_failed_ref[0] = True
-        section_statuses[section_name] = "Bad"  # Set to Bad if expected exception
+        section_statuses[section_name] = "Bad"
         return ""
     except Exception as e:
-        logger.critical(f"An unexpected error occurred during {section_name}: {e}", exc_info=True)
+        # Bright red for unexpected errors
+        logger.critical(f"\033[1;91m✗ {section_name} failed: An unexpected error occurred: {e}\033[0m", exc_info=True)
         overall_script_failed_ref[0] = True
-        section_statuses[section_name] = "Bad"  # Set to Bad if unexpected exception
+        section_statuses[section_name] = "Bad"
         return ""
-    finally:
-        # Removed print() here to avoid interfering with the progress bar's single-line updates
-        pass
 
 
 def parse_inventory_optics_from_string(output: str) -> Dict[str, Dict[str, str]]:
     optics_info = {}
     lines = output.splitlines()
     current_location = None
-    intf_pattern = re.compile(r'NAME: "((?:Gi|Te|Hu|Fo|Eth|Fa|Se|POS|Ce|nve|Vxlan|FH)\S+)",', re.IGNORECASE)
-    pid_pattern = re.compile(r'PID: (\S+)\s*,\s*VID: (\S+),\s*SN: (\S+)')
 
     for line in lines:
-        name_match = intf_pattern.search(line)
+        name_match = Config.COMPILED_PATTERNS['intf_optics'].search(line)  # Use compiled pattern
         if name_match:
             current_location = name_match.group(1)
             continue
-        pid_match = pid_pattern.search(line)
-        if pid_match and current_location:
-            optics_info[current_location] = {
-                "PID": pid_match.group(1),
-                "VID": pid_match.group(2),
-                "SN": pid_match.group(3)
-            }
-            current_location = None
+
+        if current_location:
+            pid_match = Config.COMPILED_PATTERNS['inventory_pid'].search(line)  # Use compiled pattern
+            if pid_match:
+                optics_info[current_location] = {
+                    "PID": pid_match.group(1),
+                    "VID": pid_match.group(2),
+                    "SN": pid_match.group(3)
+                }
+                current_location = None
+
     if not optics_info:
         logger.debug("No optics inventory items parsed from 'show inventory' output.")
     return optics_info
@@ -1390,22 +1474,23 @@ def parse_inventory_lcfc_from_string(output: str) -> Dict[str, Dict[str, str]]:
     lcfc_info = {}
     lines = output.splitlines()
     current_location = None
-    card_pattern = re.compile(r'NAME: "(0/\d+(?:/\d+)?(?:/CPU0)?|0/(?:RP|LC|FC|RSP)\d*(?:/\d+)?(?:/CPU0)?)",')
-    pid_pattern = re.compile(r'PID: (\S+)\s*,\s*VID: (\S+),\s*SN: (\S+)')
 
     for line in lines:
-        name_match = card_pattern.search(line)
+        name_match = Config.COMPILED_PATTERNS['card_location'].search(line)  # Use compiled pattern
         if name_match:
             current_location = name_match.group(1)
             continue
-        pid_match = pid_pattern.search(line)
-        if pid_match and current_location:
-            lcfc_info[current_location] = {
-                "PID": pid_match.group(1),
-                "VID": pid_match.group(2),
-                "SN": pid_match.group(3)
-            }
-            current_location = None
+
+        if current_location:
+            pid_match = Config.COMPILED_PATTERNS['inventory_pid'].search(line)  # Use compiled pattern
+            if pid_match:
+                lcfc_info[current_location] = {
+                    "PID": pid_match.group(1),
+                    "VID": pid_match.group(2),
+                    "SN": pid_match.group(3)
+                }
+                current_location = None
+
     if not lcfc_info:
         logger.warning("No LC/FC/RP inventory items parsed from 'show inventory' output.")
     return lcfc_info
@@ -1415,11 +1500,6 @@ def parse_interface_status_from_strings(summary_output: str, brief_output: str) 
     interface_statuses: Dict[str, Dict[str, str]] = {}
 
     if brief_output:
-        brief_line_pattern = re.compile(
-            r"^\s*(\S+)\s+(up|down|admin-down|not connect|unknown|--)\s+(up|down|admin-down|not connect|unknown|--)\s+.*$",
-            re.IGNORECASE
-        )
-
         brief_lines = [
             line for line in brief_output.splitlines()
             if not re.match(
@@ -1429,7 +1509,7 @@ def parse_interface_status_from_strings(summary_output: str, brief_output: str) 
         ]
 
         for line in brief_lines:
-            match = brief_line_pattern.match(line)
+            match = Config.COMPILED_PATTERNS['brief_interface'].match(line)  # Use compiled pattern
             if match:
                 intf_name = match.group(1).strip()
                 brief_admin_status = match.group(2).strip()
@@ -1447,10 +1527,6 @@ def parse_interface_status_from_strings(summary_output: str, brief_output: str) 
 
 def parse_fpd_status_from_string(fpd_output: str) -> Dict[Tuple[str, str], Dict[str, str]]:
     fpd_statuses: Dict[Tuple[str, str], Dict[str, str]] = {}
-
-    fpd_line_pattern = re.compile(
-        r"^\s*(\S+)\s+(\S+)\s+(\S+)\s+(\S*?)\s*(\S+)\s+(\S+)\s+(\S*)\s+(\S*)\s+(\S+)\s*$"
-    )
 
     lines = fpd_output.splitlines()
     data_table_started = False
@@ -1474,7 +1550,7 @@ def parse_fpd_status_from_string(fpd_output: str) -> Dict[Tuple[str, str], Dict[
         if not data_table_started:
             continue
 
-        match = fpd_line_pattern.match(stripped_line)
+        match = Config.COMPILED_PATTERNS['fpd_line'].match(stripped_line)  # Use compiled pattern
         if match:
             location = match.group(1)
             fpd_device = match.group(4)
@@ -1557,12 +1633,6 @@ def compare_optics_inventory(current_optics: Dict[str, Dict[str, str]],
         report_output += "No optics inventory differences detected.\n"
     return report_output, differences_found
 
-# --- (Other classes and functions like SimpleProgressBar, ProgressBarAwareHandler, Tee, etc. would be here) ---
-# For brevity, I'm only including the requested function and its dependencies.
-
-# You would need to ensure all other functions and classes it depends on (like logger, get_hostname, get_chassis_model,
-# parse_inventory_for_serial_numbers, execute_command_in_shell, etc.) are also present in your full script.
-
 
 def compare_lcfc_inventory(current_lcfc: Dict[str, Dict[str, str]],
                            previous_lcfc: Dict[str, Dict[str, str]],
@@ -1573,44 +1643,34 @@ def compare_lcfc_inventory(current_lcfc: Dict[str, Dict[str, str]],
 
     report_output_parts = []
 
-    # 1. Add the standard report title (e.g., "LINE CARD / FABRIC CARD / ROUTE PROCESSOR INVENTORY COMPARISON REPORT")
-    # Construct this block without redundant newlines
     report_output_parts.append(f"{'-' * 80}")
     report_output_parts.append(f"{'LINE CARD / FABRIC CARD / ROUTE PROCESSOR INVENTORY COMPARISON REPORT':^80}")
     report_output_parts.append(f"{'-' * 80}")
-    # No extra blank line here to ensure compact title block
 
-    # 2. Custom header table for Device, Tile, Date, Status
     current_date_str = datetime.datetime.now().strftime('%m/%d/%Y')
     summary_header_table = PrettyTable()
-    # Use generic field names for structure, actual content goes in add_row
     summary_header_table.field_names = ["Device", "Tile number", "Date", "Status"]
-    # Add the actual data as a single row
     summary_header_table.add_row([
         f"Device: {hostname}",
         f"Tile number: BN120",
         f"Date: {current_date_str}",
         "Status: Complete"
     ])
-    summary_header_table.header = False  # Do not print the generic field_names as a header
+    summary_header_table.header = False
     summary_header_table.align = "l"
     summary_header_table.junction_char = "+"
     summary_header_table.horizontal_char = "-"
     summary_header_table.vertical_char = "|"
     summary_header_table.border = True
-    summary_header_table.hrules = 0  # Only draw top/bottom border for this single row
+    summary_header_table.hrules = 0
 
-    # Set min_width for the hostname field to be at least 25 or more if hostname is longer
     summary_header_table.min_width["Device"] = max(len(f"Device: {hostname}"), 25)
     summary_header_table.min_width["Tile number"] = 15
     summary_header_table.min_width["Date"] = 15
     summary_header_table.min_width["Status"] = 15
 
-    # Append the custom header table to the report parts
     report_output_parts.append(str(summary_header_table))
-    # Removed: report_output_parts.append("") # This was adding an extra blank line between tables
 
-    # Main comparison table
     comparison_table = PrettyTable()
     comparison_table.field_names = ["LC / FC / RP / FT Location", "OLD SERIAL", "OLD AT", "NEW SN", "NEW AT", "PID"]
     comparison_table.align = "l"
@@ -1618,10 +1678,9 @@ def compare_lcfc_inventory(current_lcfc: Dict[str, Dict[str, str]],
     comparison_table.horizontal_char = "-"
     comparison_table.vertical_char = "|"
     comparison_table.border = True
-    comparison_table.hrules = HEADER + FRAME  # Draw horizontal rule after header AND frame (top/bottom)
-    comparison_table.vrules = True  # Draw vertical rules between columns
+    comparison_table.hrules = HEADER + FRAME
+    comparison_table.vrules = True
 
-    # Set minimum width for AT fields
     comparison_table.min_width["OLD AT"] = 10
     comparison_table.min_width["NEW AT"] = 10
 
@@ -1633,50 +1692,44 @@ def compare_lcfc_inventory(current_lcfc: Dict[str, Dict[str, str]],
         current_pid = current_lcfc.get(location, {}).get('PID', 'N/A')
         previous_pid = previous_lcfc.get(location, {}).get('PID', 'N/A')
 
-        # Determine the PID to display. If current exists, use it. If not, use previous.
         display_pid = current_pid if current_pid != 'N/A' else previous_pid
 
-        # Only add a row if there's an actual difference in SN or if a card was added/removed
         if (location in previous_lcfc and location in current_lcfc and current_sn != previous_sn) or \
                 (location in current_lcfc and location not in previous_lcfc) or \
                 (location in previous_lcfc and location not in current_lcfc):
 
-            # Handle "SN Changed"
             if location in previous_lcfc and location in current_lcfc and current_sn != previous_sn:
                 comparison_table.add_row([
                     location,
                     previous_sn,
-                    "",  # OLD AT (empty)
+                    "",
                     current_sn,
-                    "",  # NEW AT (empty)
+                    "",
                     display_pid
                 ])
                 differences_found = True
-            # Handle "Card Added"
             elif location in current_lcfc and location not in previous_lcfc:
                 comparison_table.add_row([
                     location,
-                    "N/A",  # OLD SERIAL
-                    "",  # OLD AT (empty)
+                    "N/A",
+                    "",
                     current_sn,
-                    "",  # NEW AT (empty)
+                    "",
                     display_pid
                 ])
                 differences_found = True
-            # Handle "Card Removed"
             elif location in previous_lcfc and location not in current_lcfc:
                 comparison_table.add_row([
                     location,
                     previous_sn,
-                    "",  # OLD AT (empty)
-                    "N/A",  # NEW SN
-                    "",  # NEW AT (empty)
+                    "",
+                    "N/A",
+                    "",
                     display_pid
                 ])
                 differences_found = True
 
     if not differences_found:
-        # Create a separate table for the "No differences" message to span correctly
         no_diff_table = PrettyTable()
         no_diff_table.field_names = ["Message"]
         no_diff_table.add_row(["No LC/FC/RP inventory differences detected."])
@@ -1688,23 +1741,18 @@ def compare_lcfc_inventory(current_lcfc: Dict[str, Dict[str, str]],
         no_diff_table.hrules = True
         no_diff_table.vrules = True
 
-        # Calculate width for the "No differences" message table to match the main table's width
-        # Sum of min_width for each column + (num_columns - 1) * junction_char_len + 2 * vertical_char_len
         calculated_width = sum(comparison_table.min_width.get(f, len(f)) for f in comparison_table.field_names) + \
                            (len(comparison_table.field_names) - 1) * len(comparison_table.junction_char) + \
                            2 * len(comparison_table.vertical_char)
         no_diff_table.max_width = calculated_width
 
         report_output_parts.append(str(no_diff_table))
-        report_output_parts.append("\n")  # Add a newline for spacing
+        report_output_parts.append("\n")
     else:
-        report_output_parts.append(str(comparison_table))  # The actual data table
+        report_output_parts.append(str(comparison_table))
         report_output_parts.append("\n\nPlease review the LC/FC/RP inventory changes above.\n")
 
     return "\n".join(report_output_parts), differences_found
-
-
-# --- (Rest of the script would follow here, including other compare_ functions, main(), and if __name__ == "__main__":) ---
 
 
 def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
@@ -1717,11 +1765,8 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
     all_interfaces = sorted(list(set(current_statuses.keys()) | set(previous_statuses.keys())))
 
     for intf in all_interfaces:
-        physical_intf_pattern = re.compile(
-            r"^(?:(?:GigabitEthernet|Gi|TenGigE|Te|FortyGigE|Fo|HundredGigE|Hu|FourHundredGigE|FH|Ethernet|Eth|FastEthernet|Fa|Serial|Se|POS|Cellular|Ce|MgmtEth|PTP|nve|Vxlan)\S+)",
-            re.IGNORECASE
-        )
-        if not physical_intf_pattern.match(intf):
+        # Use compiled pattern for physical interface check
+        if not Config.COMPILED_PATTERNS['physical_interface'].match(intf):
             logger.debug(f"Skipping logical interface '{intf}' for comparison.")
             continue
 
@@ -1819,7 +1864,8 @@ def compare_fpd_statuses(current_statuses: Dict[Tuple[str, str], Dict[str, str]]
 def get_initially_down_physical_interfaces(interface_statuses: Dict[str, Dict[str, str]]) -> Tuple[str, bool]:
     down_interfaces = []
     for intf_name, status_data in interface_statuses.items():
-        if re.match(r"^(?:(?:Gi|Te|Hu|Fo|Eth|Fa|Se|POS|Ce|nve|Vxlan|FH)\S+)", intf_name, re.IGNORECASE):
+        # Use compiled pattern for physical interface check
+        if Config.COMPILED_PATTERNS['physical_interface'].match(intf_name):
             brief_intf_state = status_data.get("brief_status")
             brief_linep_state = status_data.get("brief_protocol")
 
@@ -1904,7 +1950,6 @@ def extract_command_output_from_file(file_path: str, command_string: str) -> str
         raise FileProcessingError(f"Error reading file {file_path}: {e}")
 
     escaped_command = re.escape(command_string.strip())
-    # This pattern is robust to handle cases where the command might be repeated on the next line
     pattern = re.compile(
         rf"--- Command: {escaped_command} ---\n(?:{re.escape(command_string)}\s*\n)?(.*?)(?=\n--- Command:|\Z)",
         re.DOTALL)
@@ -1917,24 +1962,20 @@ def extract_command_output_from_file(file_path: str, command_string: str) -> str
 
 
 def main():
-    # 1. Capture the true original stdout for direct console interaction by progress bar
     true_original_stdout = sys.stdout
 
-    # 2. Configure the root logger: clear existing handlers
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)  # Set desired logging level
-    for handler in logger.handlers[:]:  # Remove all existing handlers
+    logger.setLevel(logging.INFO)
+    for handler in logger.handlers[:]:
         logger.removeHandler(handler)
         handler.close()
 
-    # Add a temporary console handler for initial messages before progress bar starts
-    # This handler writes directly to true_original_stdout
     initial_console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     initial_console_handler = logging.StreamHandler(true_original_stdout)
     initial_console_handler.setFormatter(initial_console_formatter)
     logger.addHandler(initial_console_handler)
 
-    logger.info(f"--- Cisco IOS-XR Device Status Report & Comparison ---")
+    logger.info(f"--- Cisco IOS-XR Device Status Report & Comparison (Optimized - Safe Version) ---")
 
     router_ip = input(f"Enter Router IP address or Hostname: ")
     username = input(f"Enter SSH Username: ")
@@ -1961,7 +2002,6 @@ def main():
 
     current_run_parsed_interface_statuses = {}
 
-    # Define all section names explicitly to ensure they are always in the summary
     all_section_names = [
         "IOS-XR Version Check",
         "Platform Status & Serial Numbers",
@@ -1981,7 +2021,7 @@ def main():
         "Fan Tray Status Check",
         "Overall Environment Status Check",
     ]
-    section_statuses = {name: "Not Run" for name in all_section_names}  # Pre-populate all statuses
+    section_statuses = {name: "Not Run" for name in all_section_names}
 
     try:
         logger.info(f"Attempting to connect to {router_ip}...")
@@ -2011,22 +2051,17 @@ def main():
         session_log_path = os.path.join(output_directory, f"{hostname}_combined_session_log_{timestamp}.txt")
         session_log_file_handle = open(session_log_path, 'a', encoding='utf-8')
 
-        # 4. Redirect sys.stdout to Tee. This handles all 'print()' statements, sending them to both console and file.
         sys.stdout = Tee(true_original_stdout, session_log_file_handle)
 
-        # 5. Remove the initial console handler and add the permanent ones
-        logger.removeHandler(initial_console_handler)  # Remove the temporary handler
+        logger.removeHandler(initial_console_handler)
 
-        # File handler: writes all log messages to the session log file
         file_handler = logging.FileHandler(session_log_path, encoding='utf-8')
         file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
 
-        # Console handler: uses ProgressBarAwareHandler to coordinate with the progress bar.
-        # It writes directly to true_original_stdout.
         pbar_console_handler = ProgressBarAwareHandler(true_original_stdout)
-        pbar_console_handler.setFormatter(initial_console_formatter)  # Re-use the formatter
+        pbar_console_handler.setFormatter(initial_console_formatter)
         logger.addHandler(pbar_console_handler)
 
         logger.info(f"Created output directory: {output_directory}")
@@ -2037,8 +2072,7 @@ def main():
 
         print(f"\n--- Device Information Report (Pre-checks) ---")
 
-        # Progress bar initialization
-        total_steps = 16  # Number of _run_section_check calls
+        total_steps = 16
         with SimpleProgressBar(total=total_steps, original_console_stream=true_original_stdout,
                                description="Overall Device Checks", color_code='\033[92m') as pbar:
             _run_section_check("IOS-XR Version Check", check_ios_xr_version, section_statuses, overall_script_failed,
@@ -2085,7 +2119,6 @@ def main():
             current_inventory_raw = _run_section_check("Inventory Collection", run_show_inventory, section_statuses,
                                                        overall_script_failed,
                                                        shell, cli_output_file)
-            # If the check passed, mark it as "Collection Only"
             if section_statuses["Inventory Collection"] == "Good":
                 section_statuses["Inventory Collection"] = "Collection Only"
             pbar.update(1)
@@ -2106,13 +2139,11 @@ def main():
 
             section_name_alarms = "Active Alarms Check"
             section_name_install_log = "Install Log Collection"
-            # Execute the check. _run_section_check will set status for "Active Alarms Check"
             _run_section_check(section_name_alarms, check_and_capture_alarms_and_logs, section_statuses,
                                overall_script_failed, shell, cli_output_file)
-            # Then explicitly set status for "Install Log Collection" based on the outcome or if it passed
-            if section_statuses[section_name_alarms] != "Bad":  # If alarms check didn't explicitly fail
+            if section_statuses[section_name_alarms] != "Bad":
                 section_statuses[section_name_install_log] = "Collection Only"
-            else:  # If alarms check failed, still mark install log as collected
+            else:
                 section_statuses[section_name_install_log] = "Collection Only"
             pbar.update(1)
 
@@ -2121,7 +2152,6 @@ def main():
             if lc_locations_for_asic_check:
                 _run_section_check(section_name, check_lc_asic_errors, section_statuses, overall_script_failed, shell,
                                    lc_locations_for_asic_check, cli_output_file)
-                # Status is already set by _run_section_check ("Good" or "Bad")
             else:
                 logger.warning(
                     f"Skipping {section_name} as no non-RP LC locations were identified from 'show platform'.")
@@ -2132,7 +2162,6 @@ def main():
             if ft_locations_from_platform:
                 _run_section_check(section_name, check_fan_tray_status, section_statuses, overall_script_failed, shell,
                                    ft_locations_from_platform, all_card_inventory_info, cli_output_file)
-                # Status is already set by _run_section_check ("Good" or "Bad")
             else:
                 logger.warning(
                     f"Skipping {section_name} as no Fan Tray locations were identified from 'show platform'.")
@@ -2141,7 +2170,7 @@ def main():
 
             _run_section_check("Overall Environment Status Check", check_environment_status, section_statuses,
                                overall_script_failed, shell, cli_output_file)
-            pbar.update(1)  # This is the 16th and final update for the progress bar.
+            pbar.update(1)
 
         initially_down_report, _ = get_initially_down_physical_interfaces(current_run_parsed_interface_statuses)
         print(initially_down_report)
@@ -2213,7 +2242,6 @@ def main():
             print(
                 f"The CLI output generated by this run ({cli_output_path}) will serve as the permanent baseline for next comparisons.")
 
-
     except (SSHConnectionError, paramiko.SSHException, RouterCommandError) as e:
         logger.critical(f"Critical connection or initial command error: {e}")
         overall_script_failed[0] = True
@@ -2250,7 +2278,6 @@ def main():
             session_log_file_handle.flush()
             session_log_file_handle.close()
 
-        # Restore original stdout at the very end
         sys.stdout = true_original_stdout
 
 

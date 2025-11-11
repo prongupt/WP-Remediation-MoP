@@ -6,7 +6,7 @@ import argparse
 
 
 usage_text = '''\
-usage: step_04_degradation_detect_file_upload.py
+usage: step_04_degradation_detect_file_upload_v2_0.py
   --hosts HOSTS [HOSTS ...]
   --username USERNAME
   --password PASSWORD

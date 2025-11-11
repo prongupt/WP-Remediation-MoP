@@ -1199,59 +1199,116 @@ def check_lc_asic_errors(shell: paramiko.Channel, lc_locations: List[str], cli_o
 def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
                           all_card_inventory_info: Dict[str, Dict[str, str]], cli_output_file=None):
     logger.info(f"Checking Fan Tray Status...")
+
+    # NEW: Check for FT-specific active alarms first (Field Notice Condition 1A & 2A)
+    ft_alarm_command = "show alarms brief system active | i FT"
+    ft_alarm_output = execute_command_in_shell(shell, ft_alarm_command, "Fan Tray active alarms", timeout=60,
+                                               print_real_time_output=False, cli_output_file=cli_output_file)
+
+    ft_alarms_detected = []
+    for line in ft_alarm_output.splitlines():
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue
+        if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line):
+            continue
+        if re.match(r'^RP/\d+/\S+:\S+#', stripped_line):
+            continue
+        if re.escape(ft_alarm_command.strip()) in re.escape(stripped_line):
+            continue
+        # Look for FT-related alarms with field notice keywords
+        if any(keyword in stripped_line.lower() for keyword in
+               ['voltage', 'current', 'sensor', 'absent', 'input_vol', 'input_cur']):
+            ft_alarms_detected.append(stripped_line)
+
+    if ft_alarms_detected:
+        logger.warning(f"Fan Tray specific alarms detected (Field Notice indicators):")
+        for alarm in ft_alarms_detected:
+            logger.warning(f"  {alarm}")
+
+    # General fan status command
     execute_command_in_shell(shell, "show environment fan", "show environment fan", timeout=60,
                              print_real_time_output=False, cli_output_file=cli_output_file)
     logger.info("show environment fan executed and output captured.")
+
     problematic_fan_trays = []
+
     for ft_location in ft_locations:
         logger.info(f"Checking fan tray: {ft_location}")
         command = f"show environment all location {ft_location}"
         output = execute_command_in_shell(shell, command, f"show environment for {ft_location}", timeout=60,
                                           print_real_time_output=False, cli_output_file=cli_output_file)
         issues = []
+        field_notice_symptoms = []  # Track field notice specific symptoms
         replacement_recommended = "No"
-        if "not present" in output.lower() or "no such instance" in output.lower() or "data not found" in output.lower():
+
+        # Field Notice Condition 4: Check if fan tray is missing/absent
+        missing_indicators = ["not present", "no such instance", "data not found", "absent"]
+        if any(indicator in output.lower() for indicator in missing_indicators):
             issues.append("Fan Tray is missing or not detected.")
+            field_notice_symptoms.append("Missing Fan Tray (Field Notice Condition 4)")
             replacement_recommended = "Yes (Missing)"
             problematic_fan_trays.append({
                 "Fan Tray Location": ft_location,
                 "Detected Issues": "\n".join(issues),
+                "Field Notice Symptoms": "\n".join(field_notice_symptoms),
                 "Replacement Recommended": replacement_recommended
             })
             continue
 
-        voltage_line_match = re.search(r'(?:Input_Vol|Input Voltage)\s+(\d+)', output)
+        # Field Notice Conditions 1B & 2: Check voltage issues
+        voltage_line_match = re.search(r'(?:Input_Vol|Input Voltage)\s+(\S+)', output)
         if voltage_line_match:
             voltage_str = voltage_line_match.group(1).strip()
             if voltage_str == "-":
                 issues.append("Invalid Sensor Read: Input Voltage is '-'.")
+                field_notice_symptoms.append("Invalid read error for input voltage (Field Notice Condition 1B)")
             else:
                 try:
                     input_voltage_mv = float(voltage_str)
                     input_voltage_volts = input_voltage_mv / 1000.0
+
+                    # Field Notice Condition 2B: Zero or invalid voltage
                     if input_voltage_volts == 0:
                         issues.append("Voltage Issue: Input Voltage is 0V.")
+                        field_notice_symptoms.append("0V Fan Tray voltage (Field Notice Condition 2B)")
+                    # Field Notice Condition 2B: High voltage (> 60V)
                     elif input_voltage_volts > 60:
                         issues.append(f"Voltage Issue: Input Voltage is {input_voltage_volts:.2f}V (Greater than 60V).")
+                        field_notice_symptoms.append(
+                            f"High voltage {input_voltage_volts:.2f}V (Field Notice Condition 2A/2B)")
+                    # NEW: Field Notice Condition 2A: Low voltage detection
+                    elif input_voltage_volts < 40:  # Typical low voltage threshold for 48V systems
+                        issues.append(f"Voltage Issue: Input Voltage is {input_voltage_volts:.2f}V (Lower than 40V).")
+                        field_notice_symptoms.append(
+                            f"Low voltage {input_voltage_volts:.2f}V (Field Notice Condition 2A)")
                 except ValueError:
                     issues.append(f"Invalid Sensor Read: Input Voltage '{voltage_str}' is not a valid number.")
+                    field_notice_symptoms.append("Invalid voltage sensor data (Field Notice Condition 1A)")
         else:
             issues.append("Input Voltage reading not found.")
 
-        current_line_match = re.search(r'(?:Input_Cur|Input Current)\s+(\d+)', output)
+        # Field Notice Conditions 1B & 3: Check current issues
+        current_line_match = re.search(r'(?:Input_Cur|Input Current)\s+(\S+)', output)
         if current_line_match:
             current_str = current_line_match.group(1).strip()
             if current_str == "-":
                 issues.append("Invalid Sensor Read: Input Current is '-'.")
+                field_notice_symptoms.append("Invalid read error for input current (Field Notice Condition 1B)")
             else:
                 try:
                     input_current_ma = float(current_str)
-                    if input_current_ma == 0: issues.append("Current Issue: Input Current is 0A.")
+                    # Field Notice Condition 3: Zero current
+                    if input_current_ma == 0:
+                        issues.append("Current Issue: Input Current is 0A.")
+                        field_notice_symptoms.append("0A Fan Tray current (Field Notice Condition 3)")
                 except ValueError:
                     issues.append(f"Invalid Sensor Read: Input Current '{current_str}' is not a valid number.")
+                    field_notice_symptoms.append("Invalid current sensor data (Field Notice Condition 1A)")
         else:
             issues.append("Input Current reading not found.")
 
+        # Field Notice Condition 1B: Check Power Used status
         power_line_match = re.search(
             r'^\s*' + re.escape(ft_location) + r'\s+\S+\s+(\S+)\s+(\S+)\s+(ON|OFF|UNPOWERED|POWERED_OFF|SHUTDOWN)',
             output, re.MULTILINE
@@ -1260,20 +1317,25 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
             power_used = power_line_match.group(2)
             status = power_line_match.group(3)
 
+            # Field Notice Condition 1B: Power Used = "-"
             if power_used == "-":
                 issues.append("Power Used is reported as '-' (Not Available/Operational).")
+                field_notice_symptoms.append("Power Used shows '-' (Field Notice Condition 1B)")
 
             if status != "ON":
                 issues.append(f"Fan Tray Status is '{status}' (Expected: ON).")
         else:
             issues.append("Could not parse Power Used/Status information for fan tray.")
 
+        # Field Notice Version Assessment
         fan_tray_inventory = all_card_inventory_info.get(ft_location, {})
         pid = fan_tray_inventory.get("PID", "N/A")
         vid = fan_tray_inventory.get("VID", "N/A")
+
         if pid in FAN_IMPACTED_VERSIONS:
             impacted_versions = FAN_IMPACTED_VERSIONS[pid].get("Impacted", [])
             if vid in impacted_versions:
+                # Fan tray has impacted version
                 if issues:
                     replacement_recommended = f"Yes (Impacted Version {vid} with symptoms)"
                 else:
@@ -1285,20 +1347,28 @@ def check_fan_tray_status(shell: paramiko.Channel, ft_locations: List[str],
         else:
             replacement_recommended = f"Unknown (PID: {pid} not in known impacted list)"
 
+        # Only add to problematic list if there are actual issues
         if issues:
             problematic_fan_trays.append({
                 "Fan Tray Location": ft_location,
                 "Detected Issues": "\n".join(issues),
-                "Replacement Recommended": replacement_recommended
+                "Field Notice Symptoms": "\n".join(field_notice_symptoms) if field_notice_symptoms else "None",
+                "Replacement Recommended": replacement_recommended,
+                "PID": pid,
+                "VID": vid
             })
+
     if problematic_fan_trays:
         logger.error(f"!!! FAN TRAY STATUS ERRORS DETECTED !!!")
         ft_table = PrettyTable()
-        ft_table.field_names = ["Fan Tray Location", "Detected Issues", "Replacement Recommended"]
+        ft_table.field_names = ["Fan Tray Location", "Field Notice Symptoms", "Other Issues", "PID/VID",
+                                "Replacement Recommended"]
         for ft_issue in problematic_fan_trays:
             ft_table.add_row([
                 ft_issue["Fan Tray Location"],
+                ft_issue["Field Notice Symptoms"],
                 ft_issue["Detected Issues"],
+                f"{ft_issue['PID']}/{ft_issue['VID']}",
                 ft_issue["Replacement Recommended"]
             ])
         print(ft_table)

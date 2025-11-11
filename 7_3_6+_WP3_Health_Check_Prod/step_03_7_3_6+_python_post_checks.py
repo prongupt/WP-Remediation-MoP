@@ -13,14 +13,14 @@ from typing import Optional, List, Tuple, Dict, Any
 
 # --- Constants and Configuration ---
 SSH_TIMEOUT_SECONDS = 15
-DATAPLANE_MONITOR_TIMEOUT_SECONDS = 1200 # 20 minutes
-SHOW_TECH_MONITOR_TIMEOUT_SECONDS = 3600 # 60 minutes
+DATAPLANE_MONITOR_TIMEOUT_SECONDS = 1200  # 20 minutes
+SHOW_TECH_MONITOR_TIMEOUT_SECONDS = 3600  # 60 minutes
 COUNTDOWN_DURATION_MINUTES = 15
 
 # Define common prompt patterns for IOS-XR bash and CLI
 PROMPT_PATTERNS = [
-r'#\s*$', # Matches '#' followed by optional whitespace at end of line
-r'\$\s*$' # Matches '$' for non-root users
+    r'#\s*$',  # Matches '#' followed by optional whitespace at end of line
+    r'\$\s*$'  # Matches '$' for non-root users
 ]
 
 # Global variables to store show tech timing information
@@ -34,30 +34,37 @@ session_log_file_raw_output = None
 # Global variable for the determined router log directory
 router_log_dir = None
 
+
 # --- Custom Exceptions ---
 class SSHConnectionError(Exception):
     """Custom exception for SSH connection failures."""
     pass
 
+
 class RouterCommandError(Exception):
     """Custom exception for command execution failures on the router."""
     pass
+
 
 class ScriptExecutionError(Exception):
     """Custom exception for failures during script execution phases."""
     pass
 
+
 class DataplaneError(Exception):
     """Custom exception for issues detected during dataplane monitoring."""
     pass
+
 
 class ShowTechError(Exception):
     """Custom exception for failures during show tech collection."""
     pass
 
+
 class AsicErrorShowError(Exception):
     """Custom exception for failures during asic_errors_show command."""
     pass
+
 
 # --- Initial Logging Configuration ---
 logging.basicConfig(
@@ -67,6 +74,7 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
 
 # --- Helper Functions ---
 def colorful_countdown_timer(seconds: int):
@@ -79,7 +87,9 @@ def colorful_countdown_timer(seconds: int):
         seconds -= 1
     print(f'\rWaiting... 00:00 - Time is up! ')
 
-def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 600, print_realtime: bool = True) -> Tuple[str, bool]:
+
+def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 600, print_realtime: bool = True) -> Tuple[
+    str, bool]:
     """
     Reads shell output and prints in real-time until a prompt is found or timeout occurs.
     Returns the full accumulated output and a boolean indicating if a prompt was found.
@@ -133,6 +143,7 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 600,
         print()
     return full_output_buffer, prompt_found
 
+
 def execute_command_in_shell(shell: paramiko.Channel, command: str, command_description: str,
                              timeout: int = 30, print_realtime_output: bool = True) -> bool:
     """
@@ -160,7 +171,9 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
                 f"Failed to reach prompt after '{command_description}' re-check. Output: {output + output_retry}")
     return True
 
-def run_script_list_phase(shell: paramiko.Channel, scripts_to_run: List[str], script_arg_option: str) -> List[Tuple[str, str]]:
+
+def run_script_list_phase(shell: paramiko.Channel, scripts_to_run: List[str], script_arg_option: str) -> List[
+    Tuple[str, str]]:
     """
     Executes a list of Python scripts sequentially within an already established shell session.
     """
@@ -193,9 +206,11 @@ def run_script_list_phase(shell: paramiko.Channel, scripts_to_run: List[str], sc
 
     return all_scripts_raw_output
 
+
 def parse_version_string(version_str: str) -> Tuple[int, ...]:
     """Parses a version string (e.g., "7.3.5") into a tuple of integers (e.g., (7, 3, 5))."""
     return tuple(map(int, version_str.split('.')))
+
 
 def get_ios_xr_version(shell: paramiko.Channel) -> str:
     """
@@ -216,6 +231,7 @@ def get_ios_xr_version(shell: paramiko.Channel) -> str:
         return version
     else:
         raise RouterCommandError("Could not parse IOS-XR version from 'show version' output.")
+
 
 def get_hostname(shell: paramiko.Channel) -> str:
     """
@@ -243,8 +259,10 @@ def get_hostname(shell: paramiko.Channel) -> str:
             logging.info(f"Hostname detected from prompt: {hostname}")
             return hostname
 
-    logging.warning("Could not parse hostname from 'show running-config | i hostname' output or from prompt. Using 'unknown_host'.")
+    logging.warning(
+        "Could not parse hostname from 'show running-config | i hostname' output or from prompt. Using 'unknown_host'.")
     return "unknown_host"
+
 
 def parse_dataplane_output_for_errors(output_text: str) -> bool:
     """
@@ -307,6 +325,7 @@ def parse_dataplane_output_for_errors(output_text: str) -> bool:
         logging.info("Dataplane output check: No LOSS, CORRUPT, or ERROR detected.")
         return True
 
+
 def get_router_timestamp(shell: paramiko.Channel) -> datetime.datetime:
     """
     Gets the current timestamp from the router using 'show clock'.
@@ -332,6 +351,7 @@ def get_router_timestamp(shell: paramiko.Channel) -> datetime.datetime:
     else:
         raise RouterCommandError(f"Could not parse 'show clock' output for timestamp: {output}")
 
+
 def poll_dataplane_monitoring_736(shell: paramiko.Channel, max_poll_duration_sec: int) -> bool:
     """
     For IOS-XR 7.3.6 and higher. Polls 'show logging | i "%PLATFORM-DPH_MONITOR-6"' every 3 minutes
@@ -342,14 +362,17 @@ def poll_dataplane_monitoring_736(shell: paramiko.Channel, max_poll_duration_sec
     time.sleep(2)
 
     logging.info("Waiting for initial 'monitor dataplane' output to complete and prompt to return...")
-    initial_dataplane_output, prompt_found_after_dataplane = read_and_print_realtime(shell, timeout_sec=30, print_realtime=True)
+    initial_dataplane_output, prompt_found_after_dataplane = read_and_print_realtime(shell, timeout_sec=30,
+                                                                                     print_realtime=True)
     if not prompt_found_after_dataplane:
-        logging.warning("Prompt not detected after initial 'monitor dataplane' output. Attempting to send newline and re-check.")
+        logging.warning(
+            "Prompt not detected after initial 'monitor dataplane' output. Attempting to send newline and re-check.")
         shell.send("\n")
         retry_output, prompt_found_after_dataplane = read_and_print_realtime(shell, timeout_sec=5, print_realtime=True)
         initial_dataplane_output += retry_output
         if not prompt_found_after_dataplane:
-            raise RouterCommandError(f"Failed to reach prompt after 'monitor dataplane' command. Output: {initial_dataplane_output}")
+            raise RouterCommandError(
+                f"Failed to reach prompt after 'monitor dataplane' command. Output: {initial_dataplane_output}")
     logging.info("Prompt returned after 'monitor dataplane' initiation.")
 
     router_monitor_start_time = get_router_timestamp(shell)
@@ -420,10 +443,12 @@ def poll_dataplane_monitoring_736(shell: paramiko.Channel, max_poll_duration_sec
         raise DataplaneError(
             f"Dataplane monitoring did not complete within {max_poll_duration_sec // 60} minutes polling period, or no relevant completion log was found.")
 
+
 def get_group_number_from_script_name(script_name: str) -> str:
     """Extracts the group number from the script name."""
     match = re.search(r'group(\d+)\.py', script_name)
     return match.group(1) if match else "N/A"
+
 
 def parse_script_output_for_errors(script_name: str, script_output: str) -> List[Dict[str, str]]:
     """
@@ -469,7 +494,8 @@ def parse_script_output_for_errors(script_name: str, script_output: str) -> List
             }
 
             j = i + 1
-            while j < len(lines) and not faulty_link_pattern.search(lines[j]) and not lines[j].strip().startswith("Total "):
+            while j < len(lines) and not faulty_link_pattern.search(lines[j]) and not lines[j].strip().startswith(
+                    "Total "):
                 status_match = status_line_pattern.search(lines[j])
                 if status_match:
                     metric = status_match.group(1)
@@ -489,6 +515,7 @@ def parse_script_output_for_errors(script_name: str, script_output: str) -> List
         i += 1
 
     return errors_found_details
+
 
 def format_and_print_error_report(script_name: str, group_number: str, error_details: List[Dict[str, str]]):
     """
@@ -514,12 +541,16 @@ def format_and_print_error_report(script_name: str, group_number: str, error_det
         logging.info("No errors detected for this group.")
         first_line_of_table = table_string.splitlines()[0]
         border_length = len(first_line_of_table)
-        print(f"+{'-'*(border_length-2)}+")
+        print(f"+{'-' * (border_length - 2)}+")
     else:
         for detail in error_details:
-            flr_display = f"{detail['FLR']} ({detail['FLR_Status']})" if detail['FLR_Status'] != "N/A" else detail['FLR']
-            ber_display = f"{detail['BER']} ({detail['BER_Status']})" if detail['BER_Status'] != "N/A" else detail['BER']
-            link_flap_display = f"{detail['Link_flap']} ({detail['Link_flap_Status']})" if detail['Link_flap_Status'] != "N/A" else detail['Link_flap']
+            flr_display = f"{detail['FLR']} ({detail['FLR_Status']})" if detail['FLR_Status'] != "N/A" else detail[
+                'FLR']
+            ber_display = f"{detail['BER']} ({detail['BER_Status']})" if detail['BER_Status'] != "N/A" else detail[
+                'BER']
+            link_flap_display = f"{detail['Link_flap']} ({detail['Link_flap_Status']})" if detail[
+                                                                                               'Link_flap_Status'] != "N/A" else \
+            detail['Link_flap']
 
             table.add_row([
                 detail["Link Connection"],
@@ -535,7 +566,8 @@ def format_and_print_error_report(script_name: str, group_number: str, error_det
         logging.error(f"Errors detected for this group. Total {len(error_details)} degraded links found.")
         first_line_of_table = table_string.splitlines()[0]
         border_length = len(first_line_of_table)
-        print(f"+{'-'*(border_length-2)}+")
+        print(f"+{'-' * (border_length - 2)}+")
+
 
 def wait_for_prompt_after_ctrlc(shell: paramiko.Channel, timeout_sec: int = 60) -> bool:
     """
@@ -560,6 +592,7 @@ def wait_for_prompt_after_ctrlc(shell: paramiko.Channel, timeout_sec: int = 60) 
 
     logging.warning("Failed to detect prompt after Ctrl+C within timeout.")
     return False
+
 
 def run_show_tech_fabric_threaded(shell: paramiko.Channel, hostname: str,
                                   show_tech_finished_event: threading.Event,
@@ -703,6 +736,7 @@ def run_show_tech_fabric_threaded(shell: paramiko.Channel, hostname: str,
         show_tech_finished_event.set()
         logging.info("Show tech thread finished and signaled completion.")
 
+
 def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, monitor_description: str,
                                 ssh_timeout: int, dataplane_timeout: int) -> bool:
     """
@@ -717,7 +751,7 @@ def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, mo
     try:
         logging.info(f"Connecting to {router_ip} for {monitor_description} dataplane monitor...")
         client.connect(router_ip, port=22, username=username, password=password, timeout=ssh_timeout,
-                      look_for_keys=False)
+                       look_for_keys=False)
         logging.info(f"Successfully connected for {monitor_description} dataplane monitor.")
         shell = client.invoke_shell()
         time.sleep(1)
@@ -765,7 +799,8 @@ def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, mo
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
             except Exception as e:
-                logging.warning(f"Error during graceful shell exit in {monitor_description} monitor: {e}. The socket might have already been closed.")
+                logging.warning(
+                    f"Error during graceful shell exit in {monitor_description} monitor: {e}. The socket might have already been closed.")
             finally:
                 try:
                     shell.close()
@@ -777,6 +812,7 @@ def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, mo
             except Exception as e:
                 logging.warning(f"Error closing Paramiko SSH client in {monitor_description} monitor: {e}")
         logging.info(f"SSH connection for {monitor_description} monitor closed.")
+
 
 def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, password: str,
                                            ssh_timeout: int, countdown_duration_minutes: int,
@@ -793,7 +829,7 @@ def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, passwo
     try:
         logging.info(f"Connecting to {router_ip} for Concurrent Countdown and Show Tech...")
         client.connect(router_ip, port=22, username=username, password=password, timeout=ssh_timeout,
-                      look_for_keys=False)
+                       look_for_keys=False)
         logging.info(f"Successfully connected for Concurrent Countdown and Show Tech.")
 
         shell = client.invoke_shell()
@@ -863,7 +899,8 @@ def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, passwo
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
             except Exception as e:
-                logging.warning(f"Error during graceful shell exit attempt: {e}. The socket might have already been closed.")
+                logging.warning(
+                    f"Error during graceful shell exit attempt: {e}. The socket might have already been closed.")
             finally:
                 # Ensure the shell channel is closed, even if the exit command failed
                 try:
@@ -878,6 +915,7 @@ def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, passwo
                 logging.warning(f"Error closing Paramiko SSH client: {e}")
         logging.info("SSH connection closed for concurrent tasks phase.")
 
+
 def execute_script_phase(router_ip: str, username: str, password: str, scripts_to_run: List[str],
                          script_arg_option: str, ssh_timeout: int) -> bool:
     """
@@ -891,7 +929,7 @@ def execute_script_phase(router_ip: str, username: str, password: str, scripts_t
     try:
         logging.info(f"Attempting to connect to {router_ip} for phase with option '{script_arg_option}'...")
         client.connect(router_ip, port=22, username=username, password=password, timeout=ssh_timeout,
-                      look_for_keys=False)
+                       look_for_keys=False)
         logging.info(f"Successfully connected to {router_ip}.")
 
         shell = client.invoke_shell()
@@ -953,7 +991,8 @@ def execute_script_phase(router_ip: str, username: str, password: str, scripts_t
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
             except Exception as e:
-                logging.warning(f"Error during graceful shell exit in script phase: {e}. The socket might have already been closed.")
+                logging.warning(
+                    f"Error during graceful shell exit in script phase: {e}. The socket might have already been closed.")
             finally:
                 try:
                     shell.close()
@@ -965,6 +1004,7 @@ def execute_script_phase(router_ip: str, username: str, password: str, scripts_t
             except Exception as e:
                 logging.warning(f"Error closing Paramiko SSH client in script phase: {e}")
         logging.info("SSH connection closed.")
+
 
 def run_asic_errors_show_command(router_ip: str, username: str, password: str, ssh_timeout: int) -> bool:
     """
@@ -979,7 +1019,7 @@ def run_asic_errors_show_command(router_ip: str, username: str, password: str, s
     try:
         logging.info(f"Connecting to {router_ip} to run asic_errors_show command...")
         client.connect(router_ip, port=22, username=username, password=password, timeout=ssh_timeout,
-                      look_for_keys=False)
+                       look_for_keys=False)
         logging.info(f"Successfully connected to {router_ip}.")
 
         shell = client.invoke_shell()
@@ -1054,7 +1094,8 @@ def run_asic_errors_show_command(router_ip: str, username: str, password: str, s
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
             except Exception as e:
-                logging.warning(f"Error during graceful shell exit after asic_errors_show: {e}. The socket might have already been closed.")
+                logging.warning(
+                    f"Error during graceful shell exit after asic_errors_show: {e}. The socket might have already been closed.")
             finally:
                 try:
                     shell.close()
@@ -1067,6 +1108,7 @@ def run_asic_errors_show_command(router_ip: str, username: str, password: str, s
                 logging.warning(f"Error closing Paramiko SSH client after asic_errors_show: {e}")
         logging.info("SSH connection closed.")
 
+
 def print_final_summary(results: Dict[str, str]):
     """Prints a summary table of all executed steps."""
     logging.info(f"{'=' * 30} FINAL SCRIPT SUMMARY {'=' * 30}")
@@ -1078,6 +1120,7 @@ def print_final_summary(results: Dict[str, str]):
 
     print(table)
     logging.info(f"{'=' * 75}")
+
 
 # --- Main execution block ---
 if __name__ == "__main__":
@@ -1097,15 +1140,19 @@ if __name__ == "__main__":
         initial_client = paramiko.SSHClient()
         initial_client.load_system_host_keys()
         initial_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        initial_client.connect(ROUTER_IP, port=22, username=SSH_USERNAME, password=SSH_PASSWORD, timeout=SSH_TIMEOUT_SECONDS, look_for_keys=False)
+        initial_client.connect(ROUTER_IP, port=22, username=SSH_USERNAME, password=SSH_PASSWORD,
+                               timeout=SSH_TIMEOUT_SECONDS, look_for_keys=False)
         initial_shell = initial_client.invoke_shell()
         time.sleep(1)
-        execute_command_in_shell(initial_shell, "terminal length 0", "set terminal length to 0", timeout=5, print_realtime_output=False)
-        execute_command_in_shell(initial_shell, "terminal width 511", "set terminal width to 511", timeout=5, print_realtime_output=False)
+        execute_command_in_shell(initial_shell, "terminal length 0", "set terminal length to 0", timeout=5,
+                                 print_realtime_output=False)
+        execute_command_in_shell(initial_shell, "terminal width 511", "set terminal width to 511", timeout=5,
+                                 print_realtime_output=False)
         hostname_for_log = get_hostname(initial_shell)
         logging.info(f"Retrieved hostname: {hostname_for_log}")
     except Exception as e:
-        logging.error(f"Failed to retrieve hostname during initial connection: {e}. Using 'unknown_host' for log directory and filenames.")
+        logging.error(
+            f"Failed to retrieve hostname during initial connection: {e}. Using 'unknown_host' for log directory and filenames.")
     finally:
         if initial_shell:
             try:
@@ -1126,7 +1173,8 @@ if __name__ == "__main__":
         os.makedirs(router_log_dir, exist_ok=True)
         logging.info(f"Ensured router log directory exists: {os.path.abspath(router_log_dir)}")
     except OSError as e:
-        logging.critical(f"Failed to create or access router log directory {router_log_dir}: {e}. Script cannot proceed without a log directory. Exiting.")
+        logging.critical(
+            f"Failed to create or access router log directory {router_log_dir}: {e}. Script cannot proceed without a log directory. Exiting.")
         exit(1)
 
     # --- Reconfigure Application Logging to the new directory ---
@@ -1147,21 +1195,25 @@ if __name__ == "__main__":
 
     # --- Open Session Log Files in the new directory ---
     timestamp_for_session_logs = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    console_mirror_filename = os.path.join(router_log_dir, f"{hostname_for_log}_post_check_session_log_{timestamp_for_session_logs}.txt")
-    raw_output_filename = os.path.join(router_log_dir, f"{hostname_for_log}_post_check_outputs_{timestamp_for_session_logs}.txt")
+    console_mirror_filename = os.path.join(router_log_dir,
+                                           f"{hostname_for_log}_post_check_session_log_{timestamp_for_session_logs}.txt")
+    raw_output_filename = os.path.join(router_log_dir,
+                                       f"{hostname_for_log}_post_check_outputs_{timestamp_for_session_logs}.txt")
 
     try:
         session_log_file_console_mirror = open(console_mirror_filename, 'w', encoding='utf-8')
         logging.info(f"Console mirror session output will be logged to: {console_mirror_filename}")
     except IOError as e:
-        logging.error(f"Could not open console mirror session log file {console_mirror_filename}: {e}. Console mirror output will not be logged to file.")
+        logging.error(
+            f"Could not open console mirror session log file {console_mirror_filename}: {e}. Console mirror output will not be logged to file.")
         session_log_file_console_mirror = None
 
     try:
         session_log_file_raw_output = open(raw_output_filename, 'w', encoding='utf-8')
         logging.info(f"Raw SSH output will be logged to: {raw_output_filename}")
     except IOError as e:
-        logging.error(f"Could not open raw SSH output log file {raw_output_filename}: {e}. Raw SSH output will not be logged to file.")
+        logging.error(
+            f"Could not open raw SSH output log file {raw_output_filename}: {e}. Raw SSH output will not be logged to file.")
         session_log_file_raw_output = None
 
     # --- List of your scripts to run (hardcoded) ---

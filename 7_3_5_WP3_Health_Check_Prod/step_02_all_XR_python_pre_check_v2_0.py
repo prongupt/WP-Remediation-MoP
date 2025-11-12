@@ -553,8 +553,7 @@ def get_hostname_from_router(router_ip, username, password):
 
     try:
         logging.info(f"Attempting to connect to {router_ip} to retrieve hostname...")
-        client.connect(router_ip, port=22, username=username, password=password, timeout=SSH_TIMEOUT_SECONDS,
-                       look_for_keys=False)
+        connect_with_retry(client, router_ip, username, password)
         logging.info(f"Successfully connected to {router_ip} for hostname retrieval.")
 
         stdin, stdout, stderr = client.exec_command("show running | i hostname", timeout=COMMAND_TIMEOUT_SECONDS)
@@ -646,6 +645,37 @@ def print_final_summary_table(phase_results: Dict[str, str]):
 
     print(summary_table)
     logging.info(f"--- End Final Script Summary ---")
+
+
+def connect_with_retry(client, router_ip, username, password, max_retries=3):
+    """Retry SSH connection with increasing delays for problematic routers"""
+    for attempt in range(max_retries):
+        try:
+            logging.info(f"Connection attempt {attempt + 1} of {max_retries}...")
+            client.connect(
+                router_ip,
+                port=22,
+                username=username,
+                password=password,
+                timeout=SSH_TIMEOUT_SECONDS,
+                look_for_keys=False,
+                allow_agent=False,
+                banner_timeout=120,
+                auth_timeout=120,
+                disabled_algorithms={'keys': ['rsa-sha2-256', 'rsa-sha2-512']}
+            )
+            time.sleep(2)  # Let connection stabilize
+            logging.info(f"Connection successful on attempt {attempt + 1}")
+            return True
+        except Exception as e:
+            logging.warning(f"Connection attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 5  # 5, 10, 15 seconds
+                logging.info(f"Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+            else:
+                raise e
+    return False
 
 
 if __name__ == "__main__":
@@ -744,17 +774,7 @@ if __name__ == "__main__":
             client_phase1 = paramiko.SSHClient()
             client_phase1.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             logging.info(f"Attempting to connect to {ROUTER_IP} for Phase 1...")
-            client_phase1.connect(
-                ROUTER_IP,
-                port=22,
-                username=SSH_USERNAME,
-                password=SSH_PASSWORD,
-                timeout=SSH_TIMEOUT_SECONDS,
-                look_for_keys=False,
-                allow_agent=False,
-                banner_timeout=60,
-                auth_timeout=60
-            )
+            connect_with_retry(client_phase1, ROUTER_IP, SSH_USERNAME, SSH_PASSWORD)
             time.sleep(2)  # Wait for banner to complete
             logging.info(f"Successfully connected to {ROUTER_IP} for Phase 1.")
 
@@ -767,7 +787,7 @@ if __name__ == "__main__":
                 execute_script_phase(shell_phase1, scripts_to_run, "'--dummy' yes", pbar_phase1)
 
             phase_results["Phase 1 Execution"] = "Complete"
-            logging.info(f"\033[1;92m✓ Phase 1 Complete. Waiting 1 minute before Phase 2...\033[0m")
+            logging.info(f"\033[1;92m✓ Phase 1 Complete. Waiting 20 minute before Phase 2...\033[0m")
 
         except paramiko.AuthenticationException as e:
             phase_results["Phase 1 Execution"] = "Failed (Authentication)"
@@ -803,17 +823,7 @@ if __name__ == "__main__":
             client_phase2 = paramiko.SSHClient()
             client_phase2.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             logging.info(f"Attempting to connect to {ROUTER_IP} for Phase 2...")
-            client_phase2.connect(
-                ROUTER_IP,
-                port=22,
-                username=SSH_USERNAME,
-                password=SSH_PASSWORD,
-                timeout=SSH_TIMEOUT_SECONDS,
-                look_for_keys=False,
-                allow_agent=False,
-                banner_timeout=60,
-                auth_timeout=60
-            )
+            connect_with_retry(client_phase2, ROUTER_IP, SSH_USERNAME, SSH_PASSWORD)
             time.sleep(2)  # Wait for banner to complete
             logging.info(f"Successfully connected to {ROUTER_IP} for Phase 2.")
 

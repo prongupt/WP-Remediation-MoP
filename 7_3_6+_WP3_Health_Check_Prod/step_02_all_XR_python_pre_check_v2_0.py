@@ -1,23 +1,20 @@
 # This script connects to a Cisco IOS-XR device via SSH to execute a two-phase dummy script process.
 # It simulates a scenario where initial scripts are run, followed by a waiting period, and then a second set of scripts.
-# The script incorporates a custom progress bar and comprehensive logging to manage console output and file recording.
+# The script incorporates comprehensive logging to manage console output and file recording.
 #
 # It performs the following actions:
 # - Establishes an SSH connection to the specified router.
 # - Retrieves and sanitizes the router's hostname for directory and log file naming.
 # - Configures advanced logging, redirecting all console output to both the terminal and a dedicated raw output file.
-# - Implements a custom progress bar to visually track the execution of script groups in each phase, ensuring it
-#   coexists cleanly with log messages and other console output.
 # - **Phase 1:** Connects to the router, navigates to the bash prompt, and executes a predefined list of dummy Python scripts
-#   with the argument '--dummy' yes.
+# with the argument '--dummy' yes.
 # - Waits for a specified duration (20 minutes) between the two phases.
 # - **Phase 2:** Re-establishes an SSH connection (or re-uses the existing one if session is maintained), navigates to
-#   the bash prompt, and executes the same list of dummy Python scripts with the argument '--dummy' no.
+# the bash prompt, and executes the same list of dummy Python scripts with the argument '--dummy' no.
 # - Parses the output of the '--dummy' no scripts to identify and report simulated errors (codewords, BER, FLR, RX Link Down Count)
-#   in a formatted table.
+# in a formatted table.
 # - Logs all internal script messages and router command outputs to separate files.
 # - Handles SSH connection errors, command execution failures, and other unexpected exceptions gracefully.
-# - Ensures the final state of the progress bar is recorded in the raw output file.
 
 __author__ = "Pronoy Dasgupta"
 __copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
@@ -70,96 +67,7 @@ class HostnameRetrievalError(Exception):
     pass
 
 
-# --- Enhanced Progress Bar Class ---
-class SimpleProgressBar:
-    _active_pbar = None
-
-    def __init__(self, total, original_console_stream, description="", color_code='\033[94m'):
-        self.total = total
-        self.current = 0
-        self.description = description
-        self.color_code = color_code
-        self.original_console_stream = original_console_stream
-        self.start_time = time.time()
-        self.bar_length = 50
-        self._last_pbar_line_length = 0
-        self.update_display()
-
-    def update(self, step=1):
-        self.current += step
-        if self.current > self.total:
-            self.current = self.total
-        self.update_display()
-
-    def update_display(self):
-        percent = ("{0:.1f}").format(100 * (self.current / float(self.total)))
-        filled_length = int(self.bar_length * self.current // self.total)
-        bar = '█' * filled_length + '-' * (self.bar_length - filled_length)
-
-        elapsed_time = time.time() - self.start_time
-
-        estimated_remaining_time_str = "--:--"
-        if self.current > 0 and self.current < self.total:
-            avg_time_per_step = elapsed_time / self.current
-            remaining_steps = self.total - self.current
-            estimated_remaining_time = avg_time_per_step * remaining_steps
-            estimated_remaining_time_str = self._format_time(estimated_remaining_time)
-        elif self.current == self.total:
-            estimated_remaining_time_str = "00:00"
-
-        time_info = f"[{self._format_time(elapsed_time)}<{estimated_remaining_time_str}]"
-
-        pbar_message = f"{self.color_code}{self.description} |{bar}| {percent}% {time_info}\033[0m"
-        self.original_console_stream.write('\r' + ' ' * self._last_pbar_line_length + '\r')
-        self.original_console_stream.write(pbar_message)
-        self.original_console_stream.flush()
-        self._last_pbar_line_length = len(pbar_message)
-
-    def hide(self):
-        """Erases the progress bar from the current line."""
-        self.original_console_stream.write('\r' + ' ' * self._last_pbar_line_length + '\r')
-        self.original_console_stream.flush()
-
-    def show(self):
-        """Redraws the progress bar on the current line."""
-        self.update_display()
-
-    def _format_time(self, seconds):
-        minutes, seconds = divmod(int(seconds), 60)
-        hours, minutes = divmod(minutes, 60)
-        if hours > 0:
-            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        return f"{minutes:02d}:{seconds:02d}"
-
-    def __enter__(self):
-        SimpleProgressBar._active_pbar = self
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.current = self.total
-        self.update_display()
-        self.original_console_stream.write('\n')
-        self.original_console_stream.flush()
-        SimpleProgressBar._active_pbar = None
-
-        # Ensure final progress bar state is recorded in raw output file
-        final_summary_message = f"{self.color_code}{self.description} |{'█' * self.bar_length}| 100.0% [{self._format_time(time.time() - self.start_time)}<00:00]\033[0m"
-        print(final_summary_message)
-
-
 # --- Enhanced Logging Classes ---
-class ProgressBarAwareHandler(logging.StreamHandler):
-    def emit(self, record):
-        pbar = SimpleProgressBar._active_pbar
-        if pbar:
-            pbar.hide()
-            self.stream.write(self.format(record) + '\n')
-            self.flush()
-            pbar.show()
-        else:
-            super().emit(record)
-
-
 class CompactFormatter(logging.Formatter):
     """Enhanced formatter with bright colors for status messages"""
     FORMATS = {
@@ -190,16 +98,9 @@ class Tee:
         self.file_object = file_object
 
     def write(self, data):
-        pbar = SimpleProgressBar._active_pbar
-        if pbar:
-            pbar.hide()
-            # Write data as-is without adding extra newlines
-            self.stdout.write(data)
-            self.stdout.flush()
-            pbar.show()
-        else:
-            self.stdout.write(data)
-            self.stdout.flush()
+        # Write data as-is without adding extra newlines
+        self.stdout.write(data)
+        self.stdout.flush()
         self.file_object.write(data)
         self.file_object.flush()
 
@@ -304,7 +205,7 @@ def execute_command_in_shell(shell, command, command_description, timeout=COMMAN
     return True
 
 
-def run_script_list_phase(shell, scripts_to_run, script_arg_option, pbar=None):
+def run_script_list_phase(shell, scripts_to_run, script_arg_option):
     """
     Executes a list of Python scripts sequentially within an already established shell session.
     """
@@ -337,10 +238,6 @@ def run_script_list_phase(shell, scripts_to_run, script_arg_option, pbar=None):
 
         logging.info(f"{'=' * padding_len}--- Finished execution for: {script_name} ---{'=' * padding_len}")
 
-        # Update progress bar if provided
-        if pbar:
-            pbar.update(1)
-
     return all_scripts_raw_output
 
 
@@ -357,10 +254,6 @@ def extract_link_components(part_string):
 
 def parse_and_print_errors(script_name, script_output):
     """Enhanced error parsing with better output coordination"""
-    pbar = SimpleProgressBar._active_pbar
-    if pbar:
-        pbar.hide()
-
     errors_found = []
     lines = script_output.splitlines()
 
@@ -492,7 +385,6 @@ def parse_and_print_errors(script_name, script_output):
     true_original_stdout.write(table_output + "\n")
     true_original_stdout.flush()
 
-    # Log success message if no errors
     # Log success message and track global error status
     global PHASE2_ERRORS_DETECTED
     if not errors_found:
@@ -501,10 +393,8 @@ def parse_and_print_errors(script_name, script_output):
         PHASE2_ERRORS_DETECTED = True  # Set flag if any errors found
         logging.error(f"\033[1;91m✗ {len(errors_found)} errors detected for Group {group_number}.\033[0m")
 
-    # DON'T show the progress bar again here - let it stay hidden until naturally redrawn
 
-
-def execute_script_phase(shell, scripts_to_run, script_arg_option, pbar=None):
+def execute_script_phase(shell, scripts_to_run, script_arg_option):
     """Enhanced script phase execution"""
     try:
         logging.info(f"--- Initial Shell Output ---")
@@ -529,7 +419,7 @@ def execute_script_phase(shell, scripts_to_run, script_arg_option, pbar=None):
                                         timeout=COMMAND_TIMEOUT_SECONDS, print_realtime_output=False):
             raise RouterCommandError(f"Failed to change directory on router.")
 
-        scripts_outputs = run_script_list_phase(shell, scripts_to_run, script_arg_option, pbar)
+        scripts_outputs = run_script_list_phase(shell, scripts_to_run, script_arg_option)
 
         if script_arg_option == "'--dummy' no":
             logging.info(
@@ -595,10 +485,39 @@ def get_hostname_from_router(router_ip, username, password):
             logging.info(f"Temporary SSH connection for hostname retrieval closed.")
 
 
-def print_final_summary_table(phase_results: Dict[str, str]):
-    """Enhanced final summary table with specific Phase status logic"""
+def format_execution_time(seconds):
+    """Format execution time in human-readable format"""
+    hours, remainder = divmod(int(seconds), 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    if hours > 0:
+        return f"{hours:02d}h {minutes:02d}m {seconds:02d}s"
+    elif minutes > 0:
+        return f"{minutes:02d}m {seconds:02d}s"
+    else:
+        return f"{seconds:02d}s"
+
+
+def print_final_summary_table(phase_results: Dict[str, str], total_execution_time: float):
+    """Enhanced final summary table with execution time and specific Phase status logic"""
     print(f"\n--- Final Script Summary ---")
 
+    # Format the execution time
+    formatted_time = format_execution_time(total_execution_time)
+
+    # Manual table creation to ensure proper formatting
+    execution_time_text = f"Total time for execution: {formatted_time}"
+    time_table_width = max(len(execution_time_text) + 4, 60)  # Minimum width of 60
+
+    # Print execution time table
+    time_separator = "+" + "-" * (time_table_width - 2) + "+"
+    time_content = f"| {execution_time_text:<{time_table_width - 4}} |"
+
+    print(time_separator)
+    print(time_content)
+    print(time_separator)
+
+    # Create the main summary table using PrettyTable
     from prettytable import PrettyTable
 
     summary_table = PrettyTable()
@@ -679,10 +598,13 @@ def connect_with_retry(client, router_ip, username, password, max_retries=3):
 
 
 if __name__ == "__main__":
-    # Enhanced main execution with better output coordination
+    # Enhanced main execution with execution time tracking
     session_log_file_handler = None
     raw_output_file = None
     true_original_stdout = sys.stdout
+
+    # Record script start time
+    script_start_time = time.time()
 
     # Clear existing handlers
     for handler in logging.root.handlers[:]:
@@ -748,11 +670,11 @@ if __name__ == "__main__":
             raw_output_file = None
             sys.stdout = true_original_stdout
 
-        # Setup progress bar aware console handler
-        pbar_console_formatter = CompactFormatter()
-        pbar_console_handler = ProgressBarAwareHandler(true_original_stdout)
-        pbar_console_handler.setFormatter(pbar_console_formatter)
-        logging.root.addHandler(pbar_console_handler)
+        # Setup console handler
+        console_formatter = CompactFormatter()
+        console_handler = logging.StreamHandler(true_original_stdout)
+        console_handler.setFormatter(console_formatter)
+        logging.root.addHandler(console_handler)
 
         logging.root.setLevel(logging.INFO)
 
@@ -781,10 +703,7 @@ if __name__ == "__main__":
             shell_phase1 = client_phase1.invoke_shell()
             time.sleep(1)
 
-            total_scripts_phase1 = len(scripts_to_run)
-            with SimpleProgressBar(total=total_scripts_phase1, original_console_stream=true_original_stdout,
-                                   description="Phase 1 (Dummy Yes) Progress", color_code='\033[94m') as pbar_phase1:
-                execute_script_phase(shell_phase1, scripts_to_run, "'--dummy' yes", pbar_phase1)
+            execute_script_phase(shell_phase1, scripts_to_run, "'--dummy' yes")
 
             phase_results["Phase 1 Execution"] = "Complete"
             logging.info(f"\033[1;92m✓ Phase 1 Complete. Waiting 20 minute before Phase 2...\033[0m")
@@ -813,7 +732,7 @@ if __name__ == "__main__":
                 logging.info(f"SSH connection for Phase 1 closed.")
 
         # Countdown between phases
-        countdown_timer(20 * 60, true_original_stdout)  # 1 minute for testing
+        countdown_timer(20 * 60, true_original_stdout)  # 20 minutes
 
         # Phase 2 execution
         client_phase2 = None
@@ -830,10 +749,7 @@ if __name__ == "__main__":
             shell_phase2 = client_phase2.invoke_shell()
             time.sleep(1)
 
-            total_scripts_phase2 = len(scripts_to_run)
-            with SimpleProgressBar(total=total_scripts_phase2, original_console_stream=true_original_stdout,
-                                   description="Phase 2 (Dummy No) Progress", color_code='\033[92m') as pbar_phase2:
-                execute_script_phase(shell_phase2, scripts_to_run, "'--dummy' no", pbar_phase2)
+            execute_script_phase(shell_phase2, scripts_to_run, "'--dummy' no")
 
             phase_results["Phase 2 Execution"] = "Complete"
             logging.info(f"\033[1;92m✓ Phase 2 Complete.\033[0m")
@@ -873,13 +789,16 @@ if __name__ == "__main__":
         script_aborted = True
         phase_results["Script Execution"] = "Failed (Critical Error)"
     finally:
+        # Calculate total execution time
+        total_execution_time = time.time() - script_start_time
+
         if script_aborted:
             logging.info(f"\033[1;91m--- Script Execution Aborted ---\033[0m")
         else:
             logging.info(f"\033[1;92m--- Script Execution Finished Successfully ---\033[0m")
 
-        # Print final summary
-        print_final_summary_table(phase_results)
+        # Print final summary with execution time
+        print_final_summary_table(phase_results, total_execution_time)
 
         # Restore stdout
         sys.stdout = true_original_stdout
@@ -896,10 +815,8 @@ if __name__ == "__main__":
 
         # Clean up logging handlers
         for handler in logging.root.handlers[:]:
-            if isinstance(handler, ProgressBarAwareHandler):
-                logging.root.removeHandler(handler)
-                break
-        for handler in logging.root.handlers[:]:
             if isinstance(handler, logging.StreamHandler) and handler.stream == true_original_stdout:
                 logging.root.removeHandler(handler)
                 break
+
+        print(f"\nTotal script execution time: {format_execution_time(total_execution_time)}")

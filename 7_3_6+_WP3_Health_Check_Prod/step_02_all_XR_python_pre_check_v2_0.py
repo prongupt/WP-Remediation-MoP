@@ -69,26 +69,30 @@ class HostnameRetrievalError(Exception):
 
 # --- Enhanced Logging Classes ---
 class CompactFormatter(logging.Formatter):
-    """Enhanced formatter with bright colors for status messages"""
+    """Enhanced formatter with bright colors for status messages and consistent timestamps"""
+
+    def __init__(self):
+        super().__init__(datefmt='%Y-%m-%d %H:%M:%S')
+
     FORMATS = {
-        logging.ERROR: '\033[91m%(levelname)s\033[0m - %(message)s',
-        logging.WARNING: '\033[93m%(levelname)s\033[0m - %(message)s',
-        logging.INFO: '%(levelname)s - %(message)s',
-        logging.CRITICAL: '\033[91m%(levelname)s\033[0m - %(message)s',
+        logging.ERROR: '%(asctime)s - \033[91m%(levelname)s\033[0m - %(message)s',
+        logging.WARNING: '%(asctime)s - \033[93m%(levelname)s\033[0m - %(message)s',
+        logging.INFO: '%(asctime)s - %(levelname)s - %(message)s',
+        logging.CRITICAL: '%(asctime)s - \033[91m%(levelname)s\033[0m - %(message)s',
     }
 
     def format(self, record):
         msg = record.getMessage()
         if msg.startswith('✓ ') and ('passed' in msg or 'complete' in msg):
             # Bright green for passed checks
-            return f'\033[92m{record.levelname}\033[0m - \033[1;92m{msg}\033[0m'
+            return f'{self.formatTime(record, self.datefmt)} - \033[92m{record.levelname}\033[0m - \033[1;92m{msg}\033[0m'
         elif msg.startswith('✗ ') and ('failed' in msg or 'error' in msg):
             # Bright red for failed checks
-            return f'\033[91m{record.levelname}\033[0m - \033[1;91m{msg}\033[0m'
+            return f'{self.formatTime(record, self.datefmt)} - \033[91m{record.levelname}\033[0m - \033[1;91m{msg}\033[0m'
         else:
             # Use original formatting for other messages
-            log_fmt = self.FORMATS.get(record.levelno, '%(levelname)s - %(message)s')
-            formatter = logging.Formatter(log_fmt, datefmt='%H:%M:%S')
+            log_fmt = self.FORMATS.get(record.levelno, '%(asctime)s - %(levelname)s - %(message)s')
+            formatter = logging.Formatter(log_fmt, datefmt=self.datefmt)
             return formatter.format(record)
 
 
@@ -612,8 +616,9 @@ if __name__ == "__main__":
 
     router_hostname = "unknown_host"
 
-    # Initial console handler
-    initial_console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    # Initial console handler with consistent timestamp format
+    initial_console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
+                                                 datefmt='%Y-%m-%d %H:%M:%S')
     initial_console_handler = logging.StreamHandler(true_original_stdout)
     initial_console_handler.setFormatter(initial_console_formatter)
     logging.root.addHandler(initial_console_handler)
@@ -652,7 +657,8 @@ if __name__ == "__main__":
 
         try:
             session_log_file_handler = logging.FileHandler(session_log_path)
-            session_log_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+            session_log_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
+                                                                   datefmt='%Y-%m-%d %H:%M:%S'))
             logging.root.addHandler(session_log_file_handler)
             logging.info(f"Internal script logs will be saved to: {session_log_path}")
         except IOError as e:
@@ -670,7 +676,7 @@ if __name__ == "__main__":
             raw_output_file = None
             sys.stdout = true_original_stdout
 
-        # Setup console handler
+        # Setup console handler with consistent timestamp format
         console_formatter = CompactFormatter()
         console_handler = logging.StreamHandler(true_original_stdout)
         console_handler.setFormatter(console_formatter)

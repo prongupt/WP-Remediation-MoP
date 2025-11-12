@@ -1,3 +1,68 @@
+#!/usr/bin/env python3
+import sys
+import os
+import platform
+import subprocess
+from pathlib import Path
+
+
+# Architecture detection and re-execution logic
+def ensure_compatible_environment():
+    """Ensure script runs with architecture-compatible dependencies."""
+    arch = platform.machine()
+    script_dir = Path(__file__).parent
+    venv_path = script_dir / f".venv_{arch}"
+    venv_python = venv_path / "bin" / "python"
+
+    # Check if we're already running in the correct venv
+    if sys.prefix == str(venv_path):
+        return  # Already in correct environment
+
+    # Check if venv exists and has dependencies
+    if venv_python.exists():
+        try:
+            result = subprocess.run(
+                [str(venv_python), "-c", "import paramiko"],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                # Re-execute script with venv Python
+                os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+        except Exception:
+            pass
+
+    # Need to create venv and install dependencies
+    print(f"Setting up {arch}-compatible environment...")
+    print(f"This is a one-time setup and may take a minute...\n")
+
+    try:
+        # Create venv
+        import venv
+        venv.create(venv_path, with_pip=True)
+
+        # Install dependencies
+        pip_path = venv_path / "bin" / "pip"
+        subprocess.run([str(pip_path), "install", "--upgrade", "pip"],
+                       check=True, capture_output=True)
+        subprocess.run([str(pip_path), "install", "paramiko", "prettytable"],
+                       check=True, capture_output=True)
+
+        print("✓ Environment setup complete\n")
+
+        # Re-execute with new venv
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+
+    except Exception as e:
+        print(f"Error setting up environment: {e}")
+        print("Attempting to run with system Python...")
+        # Continue with system Python as fallback
+
+
+# Run environment check before any other imports
+ensure_compatible_environment()
+
+
 # This script connects to a Cisco IOS-XR device via SSH to execute a two-phase dummy script process.
 # It simulates a scenario where initial scripts are run, followed by a waiting period, and then a second set of scripts.
 # The script incorporates comprehensive logging to manage console output and file recording.
@@ -503,7 +568,7 @@ def format_execution_time(seconds):
 
 
 def print_final_summary_table(phase_results: Dict[str, str], total_execution_time: float):
-    """Enhanced final summary table with execution time and specific Phase status logic"""
+    """Enhanced final summary table with execution time and wrapped column headers"""
     print(f"\n--- Final Script Summary ---")
 
     # Format the execution time
@@ -525,10 +590,11 @@ def print_final_summary_table(phase_results: Dict[str, str], total_execution_tim
     from prettytable import PrettyTable
 
     summary_table = PrettyTable()
-    summary_table.field_names = ["Test number", "Section Name", "Status"]
+    # Use multi-line header for Test number column
+    summary_table.field_names = ["Test\nnumber", "Section Name", "Status"]
 
-    # Left align all columns
-    summary_table.align["Test number"] = "l"
+    # Center align Test number, left align others
+    summary_table.align["Test\nnumber"] = "c"  # Center align for numbers
     summary_table.align["Section Name"] = "l"
     summary_table.align["Status"] = "l"
 
@@ -618,7 +684,7 @@ if __name__ == "__main__":
 
     # Initial console handler with consistent timestamp format
     initial_console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
-                                                 datefmt='%Y-%m-%d %H:%M:%S')
+                                                  datefmt='%Y-%m-%d %H:%M:%S')
     initial_console_handler = logging.StreamHandler(true_original_stdout)
     initial_console_handler.setFormatter(initial_console_formatter)
     logging.root.addHandler(initial_console_handler)
@@ -658,7 +724,7 @@ if __name__ == "__main__":
         try:
             session_log_file_handler = logging.FileHandler(session_log_path)
             session_log_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
-                                                                   datefmt='%Y-%m-%d %H:%M:%S'))
+                                                                    datefmt='%Y-%m-%d %H:%M:%S'))
             logging.root.addHandler(session_log_file_handler)
             logging.info(f"Internal script logs will be saved to: {session_log_path}")
         except IOError as e:

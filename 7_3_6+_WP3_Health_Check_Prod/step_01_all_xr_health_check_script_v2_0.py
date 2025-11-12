@@ -1972,9 +1972,36 @@ def find_earliest_file_as_permanent_baseline(hostname_prefix: str, output_direct
     return earliest_file
 
 
-def print_final_summary_table(statuses: Dict[str, str]):
-    """Print enhanced final summary table"""
+def format_execution_time(seconds):
+    """Format execution time in human-readable format"""
+    hours, remainder = divmod(int(seconds), 3600)  # 3600 seconds = 1 hour
+    minutes, seconds = divmod(remainder, 60)  # 60 seconds = 1 minute
+
+    if hours > 0:
+        return f"{hours:02d}h {minutes:02d}m {seconds:02d}s"  # e.g., "01h 23m 45s"
+    elif minutes > 0:
+        return f"{minutes:02d}m {seconds:02d}s"  # e.g., "23m 45s"
+    else:
+        return f"{seconds:02d}s"  # e.g., "45s"
+
+
+def print_final_summary_table(statuses: Dict[str, str], total_execution_time: float):
+    """Print enhanced final summary table with execution time and wrapped headers"""
     print(f"\n--- Final Script Summary ---")
+
+    # Format the execution time
+    formatted_time = format_execution_time(total_execution_time)
+
+    # Print execution time table
+    execution_time_text = f"Total time for execution: {formatted_time}"
+    time_table_width = max(len(execution_time_text) + 4, 60)
+
+    time_separator = "+" + "-" * (time_table_width - 2) + "+"
+    time_content = f"| {execution_time_text:<{time_table_width - 4}} |"
+
+    print(time_separator)
+    print(time_content)
+    print(time_separator)
 
     # Sections to exclude from the summary table
     excluded_sections = {
@@ -1984,13 +2011,14 @@ def print_final_summary_table(statuses: Dict[str, str]):
 
     # Filter out excluded sections
     filtered_statuses = {section: status for section, status in statuses.items()
-                         if section not in excluded_sections}
+                        if section not in excluded_sections}
 
     summary_table = PrettyTable()
-    summary_table.field_names = ["Test number", "Section Name", "Status"]
+    # Use multi-line header for Test number column
+    summary_table.field_names = ["Test\nnumber", "Section Name", "Status"]
 
-    # Left align all columns
-    summary_table.align["Test number"] = "l"
+    # Center align Test number, left align others
+    summary_table.align["Test\nnumber"] = "c"  # Center align for numbers
     summary_table.align["Section Name"] = "l"
     summary_table.align["Status"] = "l"
 
@@ -2020,6 +2048,7 @@ def print_final_summary_table(statuses: Dict[str, str]):
 
 # === MAIN EXECUTION ===
 def main():
+    script_start_time = time.time()
     true_original_stdout = sys.stdout
 
     logger = logging.getLogger()
@@ -2330,7 +2359,11 @@ def main():
             cli_output_file.close()
             logger.info(f"CLI output saved to {cli_output_path}")
 
-        print_final_summary_table(section_statuses)
+        # Calculate total execution time
+        total_execution_time = time.time() - script_start_time
+
+        # Print final summary with execution time
+        print_final_summary_table(section_statuses, total_execution_time)
 
         if overall_script_failed[0]:
             logger.critical(f"--- Script Execution Finished with ERRORS / DIFFERENCES DETECTED ---")

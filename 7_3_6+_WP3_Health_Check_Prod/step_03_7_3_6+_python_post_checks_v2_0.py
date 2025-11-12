@@ -1,38 +1,61 @@
+# This script connects to a Cisco IOS-XR device via SSH to execute a comprehensive post-check process.
+# It performs dataplane monitoring, script execution phases, show tech collection, and ASIC error clearing.
+# The script incorporates comprehensive logging to manage console output and file recording.
+#
+# It performs the following actions:
+# - Phase 1: Executes dummy scripts with '--dummy' yes
+# - Dataplane monitoring phases (pre and post)
+# - Phase 2 & 3: Executes dummy scripts with '--dummy' no (twice)
+# - Concurrent show tech collection with countdown timer
+# - ASIC error clearing operations
+# - Comprehensive error analysis and reporting
+
+__author__ = "Pronoy Dasgupta"
+__copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
+__credits__ = "Pronoy Dasgupta"
+__version__ = "2.0.0"
+__maintainer__ = "Pronoy Dasgupta"
+__email__ = "prongupt@cisco.com"
+__status__ = "production"
+
 import paramiko
 import time
 import getpass
 import re
 import threading
 from prettytable import PrettyTable
-from prettytable.prettytable import HEADER, ALL
 import datetime
 import logging
-import platform
+#import platform
 import os
+import sys
 from typing import Optional, List, Tuple, Dict, Any
+
 
 # --- Constants and Configuration ---
 SSH_TIMEOUT_SECONDS = 15
-DATAPLANE_MONITOR_TIMEOUT_SECONDS = 1200  # 20 minutes
+DATAPLANE_MONITOR_TIMEOUT_SECONDS = 1500  # 20 minutes
 SHOW_TECH_MONITOR_TIMEOUT_SECONDS = 3600  # 60 minutes
 COUNTDOWN_DURATION_MINUTES = 15
+COMMAND_TIMEOUT_SECONDS = 30
+SCRIPT_EXECUTION_TIMEOUT_SECONDS = 600
 
-# Define common prompt patterns for IOS-XR bash and CLI
+# Dual error tracking for two dummy no phases
+PHASE2_ERRORS_DETECTED = False  # First dummy no run (Step 4)
+PHASE3_ERRORS_DETECTED = False  # Second dummy no run (Step 7)
+
 PROMPT_PATTERNS = [
-    r'#\s*$',  # Matches '#' followed by optional whitespace at end of line
-    r'\$\s*$'  # Matches '$' for non-root users
+    r'#\s*$',
+    r'\$\s*$'
 ]
 
 # Global variables to store show tech timing information
 SHOW_TECH_START_TIMESTAMP_FROM_LOG: Optional[str] = None
 SHOW_TECH_END_TIMESTAMP_FROM_LOG: Optional[str] = None
 
-# Global variables for session log files
+# Global variables for session log files (for existing functionality)
 session_log_file_console_mirror = None
 session_log_file_raw_output = None
-
-# Global variable for the determined router log directory
-router_log_dir = None
 
 
 # --- Custom Exceptions ---
@@ -66,19 +89,106 @@ class AsicErrorShowError(Exception):
     pass
 
 
-# --- Initial Logging Configuration ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
+class HostnameRetrievalError(Exception):
+    """Custom exception for failures during hostname retrieval."""
+    pass
 
 
-# --- Helper Functions ---
+# --- Enhanced Logging Classes ---
+class CompactFormatter(logging.Formatter):
+    """Enhanced formatter with bright colors and timestamps for status messages"""
+    FORMATS = {
+        logging.ERROR: '\033[91m%(asctime)s - %(levelname)s\033[0m - %(message)s',
+        logging.WARNING: '\033[93m%(asctime)s - %(levelname)s\033[0m - %(message)s',
+        logging.INFO: '%(asctime)s - %(levelname)s - %(message)s',
+        logging.CRITICAL: '\033[91m%(asctime)s - %(levelname)s\033[0m - %(message)s',
+        logging.DEBUG: '%(asctime)s - %(levelname)s - %(message)s',
+    }
+
+    def format(self, record):
+        msg = record.getMessage()
+        if msg.startswith('✓ ') and ('passed' in msg or 'complete' in msg or 'Success' in msg):
+            return f'\033[92m%(asctime)s - %(levelname)s\033[0m - \033[1;92m{msg}\033[0m' % {
+                'asctime': self.formatTime(record), 'levelname': record.levelname}
+        elif msg.startswith('✗ ') and ('failed' in msg or 'error' in msg):
+            return f'\033[91m%(asctime)s - %(levelname)s\033[0m - \033[1;91m{msg}\033[0m' % {
+                'asctime': self.formatTime(record), 'levelname': record.levelname}
+        else:
+            log_fmt = self.FORMATS.get(record.levelno, '%(asctime)s - %(levelname)s - %(message)s')
+            formatter = logging.Formatter(log_fmt, datefmt='%Y-%m-%d %H:%M:%S')
+            return formatter.format(record)
+
+
+class Tee:
+    def __init__(self, stdout_stream, file_object):
+        self.stdout = stdout_stream
+        self.file_object = file_object
+
+    def write(self, data):
+        self.stdout.write(data)
+        self.stdout.flush()
+        self.file_object.write(data)
+        self.file_object.flush()
+
+    def flush(self):
+        self.stdout.flush()
+        self.file_object.flush()
+
+
+# --- Enhanced Connection Function ---
+def connect_with_retry(client, router_ip, username, password, max_retries=3):
+    """Retry SSH connection with increasing delays for problematic routers"""
+    for attempt in range(max_retries):
+        try:
+            logging.info(f"Connection attempt {attempt + 1} of {max_retries}...")
+            client.connect(
+                router_ip,
+                port=22,
+                username=username,
+                password=password,
+                timeout=SSH_TIMEOUT_SECONDS,
+                look_for_keys=False,
+                allow_agent=False,
+                banner_timeout=120,
+                auth_timeout=120,
+                disabled_algorithms={'keys': ['rsa-sha2-256', 'rsa-sha2-512']}
+            )
+            time.sleep(2)
+            logging.info(f"✅ Connection successful on attempt {attempt + 1}")
+            return True
+        except Exception as e:
+            logging.warning(f"⚠️  Connection attempt {attempt + 1} failed: {type(e).__name__}")
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 5
+                logging.info(f"⏳ Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+            else:
+                logging.error(f"❌ All {max_retries} connection attempts failed")
+                raise e
+    return False
+
+
+# --- Enhanced Helper Functions ---
+def countdown_timer(seconds, console_stream):
+    logging.info(f'Countdown Timer: Starting for {seconds // 60:02d}:{seconds % 60:02d}.')
+
+    while seconds:
+        mins, secs = divmod(seconds, 60)
+        timer = f'{mins:02d}:{secs:02d}'
+        console_stream.write(f'\rCountdown Timer: {timer}')
+        console_stream.flush()
+        time.sleep(1)
+        seconds -= 1
+
+    console_stream.write('\r' + ' ' * 30 + '\r')
+    console_stream.flush()
+    logging.info('Countdown Timer: 00:00 - Time is up!')
+
+
 def colorful_countdown_timer(seconds: int):
     """Displays a countdown timer on the console."""
+    logging.info(f'Colorful Countdown Timer: Starting for {seconds // 60:02d}:{seconds % 60:02d}.')
+
     while seconds:
         mins, secs = divmod(seconds, 60)
         timer = f'{mins:02d}:{secs:02d}'
@@ -90,10 +200,7 @@ def colorful_countdown_timer(seconds: int):
 
 def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 600, print_realtime: bool = True) -> Tuple[
     str, bool]:
-    """
-    Reads shell output and prints in real-time until a prompt is found or timeout occurs.
-    Returns the full accumulated output and a boolean indicating if a prompt was found.
-    """
+    """Enhanced version with proper dot handling and global file logging"""
     full_output_buffer = ""
     start_time = time.time()
     prompt_found = False
@@ -146,11 +253,8 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 600,
 
 def execute_command_in_shell(shell: paramiko.Channel, command: str, command_description: str,
                              timeout: int = 30, print_realtime_output: bool = True) -> bool:
-    """
-    Sends a command to the shell, prints output in real-time (or not), and waits for prompt.
-    Returns True on success (prompt found), False otherwise.
-    """
-    logging.info(f"Sending '{command_description}'...")
+    """Enhanced command execution with proper logging format"""
+    logging.info(f"Sending '{command_description}' ('{command}')...")
 
     time.sleep(0.1)
     while shell.recv_ready():
@@ -174,9 +278,7 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
 
 def run_script_list_phase(shell: paramiko.Channel, scripts_to_run: List[str], script_arg_option: str) -> List[
     Tuple[str, str]]:
-    """
-    Executes a list of Python scripts sequentially within an already established shell session.
-    """
+    """Enhanced script execution"""
     all_scripts_raw_output = []
 
     for script_name in scripts_to_run:
@@ -189,8 +291,9 @@ def run_script_list_phase(shell: paramiko.Channel, scripts_to_run: List[str], sc
             f"{'=' * padding_len}--- Running Group {group_number} with option {script_arg_option_for_log} ---{'=' * padding_len}")
 
         command_to_execute = f"python3 {script_name} {script_arg_option}"
-        logging.info(f"Sending '{command_to_execute}'...")
+        logging.info(f"Sending 'python3 script execution' ('{command_to_execute}')...")
         shell.send(command_to_execute + "\n")
+        time.sleep(0.3)
 
         logging.info(f"Waiting for '{script_name}' to finish (up to 10 minutes) and printing output in real-time...")
         script_output, prompt_found = read_and_print_realtime(shell, timeout_sec=600, print_realtime=True)
@@ -201,21 +304,21 @@ def run_script_list_phase(shell: paramiko.Channel, scripts_to_run: List[str], sc
             logging.warning(f"Prompt not detected within 600 seconds after running '{script_name}'.")
             logging.warning(f"The remote script might still be running, or the prompt format is unexpected.")
         else:
-            logging.info(f"Prompt detected, '{script_name}' execution assumed complete.")
-            logging.info(f"{'=' * padding_len}--- Finished execution for: {script_name} ---{'=' * padding_len}")
+            logging.info(f"\033[1;92m✓ Prompt detected, '{script_name}' execution assumed complete.\033[0m")
+
+        logging.info(f"{'=' * padding_len}--- Finished execution for: {script_name} ---{'=' * padding_len}")
 
     return all_scripts_raw_output
 
 
+# --- Parsing and Utility Functions (PRESERVED) ---
 def parse_version_string(version_str: str) -> Tuple[int, ...]:
     """Parses a version string (e.g., "7.3.5") into a tuple of integers (e.g., (7, 3, 5))."""
     return tuple(map(int, version_str.split('.')))
 
 
 def get_ios_xr_version(shell: paramiko.Channel) -> str:
-    """
-    Retrieves the IOS-XR version from the router.
-    """
+    """Retrieves the IOS-XR version from the router."""
     logging.info("Attempting to retrieve IOS-XR version...")
     shell.send("show version\n")
     output, prompt_found = read_and_print_realtime(shell, timeout_sec=30, print_realtime=False)
@@ -234,10 +337,7 @@ def get_ios_xr_version(shell: paramiko.Channel) -> str:
 
 
 def get_hostname(shell: paramiko.Channel) -> str:
-    """
-    Retrieves the hostname from the router using 'show running-config | i hostname'.
-    Returns 'unknown_host' if hostname cannot be determined.
-    """
+    """Enhanced hostname retrieval with full hostname preservation"""
     logging.info("Attempting to retrieve hostname using 'show running-config | i hostname'...")
     shell.send("show running-config | i hostname\n")
     output, prompt_found = read_and_print_realtime(shell, timeout_sec=10, print_realtime=False)
@@ -247,8 +347,8 @@ def get_hostname(shell: paramiko.Channel) -> str:
         match = re.search(r"^\s*hostname\s+(\S+)", line)
         if match:
             hostname = match.group(1)
-            hostname = hostname.replace('.', '-')
-            logging.info(f"Hostname detected from 'show running-config': {hostname}")
+            hostname = hostname.replace('.', '-')  # Only replace dots with dashes
+            logging.info(f"Full hostname detected from 'show running-config': {hostname}")
             return hostname
 
     if prompt_found:
@@ -264,73 +364,57 @@ def get_hostname(shell: paramiko.Channel) -> str:
     return "unknown_host"
 
 
-def parse_dataplane_output_for_errors(output_text: str) -> bool:
-    """
-    Parses the output of 'monitor dataplane' or 'show dataplane status'
-    and reports non-zero values in LOSS, CORRUPT, or ERROR columns.
-    Returns True if no errors, False if errors found.
-    """
-    errors_found = []
-    header_pattern = re.compile(r"LC\s+NP\s+Slice\s+GOOD\s+LOSS\s+CORRUPT\s+ERROR")
-    data_pattern = re.compile(r"^\s*(\d+)?\s+(\d+)?\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$")
+def get_hostname_from_router(router_ip, username, password):
+    """Enhanced hostname retrieval with retry mechanism"""
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-    lines = output_text.splitlines()
-    parsing_data = False
-    current_lc = None
-    current_np = None
+    try:
+        logging.info(f"Attempting to connect to {router_ip} to retrieve hostname...")
+        connect_with_retry(client, router_ip, username, password)
+        logging.info(f"Successfully connected to {router_ip} for hostname retrieval.")
 
-    for line in lines:
-        if header_pattern.search(line):
-            parsing_data = True
-            continue
+        stdin, stdout, stderr = client.exec_command("show running | i hostname", timeout=COMMAND_TIMEOUT_SECONDS)
+        output = stdout.read().decode('utf-8', errors='ignore')
+        error_output = stderr.read().decode('utf-8', errors='ignore')
 
-        if parsing_data:
-            if re.match(r"^-+$", line.strip()) or "Summary of results:" in line or "DATAPLANE CHECK IS CLEAN." in line:
-                parsing_data = False
-                continue
+        if error_output:
+            logging.error(f"Error during hostname retrieval command: {error_output}")
+            raise HostnameRetrievalError(f"Command execution failed: {error_output}")
 
-            match = data_pattern.match(line)
-            if match:
-                lc_str, np_str, slice_str, good_str, loss_str, corrupt_str, error_str = match.groups()
+        lines = output.strip().splitlines()
+        if not lines:
+            raise HostnameRetrievalError("No output received for hostname command.")
 
-                if lc_str is not None and lc_str.strip():
-                    current_lc = int(lc_str)
-                if np_str is not None and np_str.strip():
-                    current_np = int(np_str)
+        hostname = None
+        for line in lines:
+            line = line.strip()
+            if line.startswith("hostname "):
+                hostname = line.split(" ", 1)[1].strip()
+                break
 
-                lc = current_lc if current_lc is not None else "N/A"
-                npu = current_np if current_np is not None else "N/A"
+        if not hostname:
+            raise HostnameRetrievalError(f"Hostname not found in command output: \n{output}")
 
-                slice_val = int(slice_str)
-                loss = int(loss_str)
-                corrupt = int(corrupt_str)
-                error = int(error_str)
+        sanitized_hostname = hostname.replace('.', '-')
+        logging.info(f"Retrieved full hostname: {hostname}, Sanitized for directory: {sanitized_hostname}")
+        return sanitized_hostname
 
-                if loss > 0 or corrupt > 0 or error > 0:
-                    errors_found.append({
-                        "LC": lc, "NPU": npu, "Slice": slice_val,
-                        "LOSS": loss, "CORRUPT": corrupt, "ERROR": error
-                    })
-
-    if errors_found:
-        logging.error("!!! DATAPLANE ERRORS DETECTED !!!")
-        table = PrettyTable()
-        table.field_names = ["LC", "NPU", "Slice", "LOSS", "CORRUPT", "ERROR"]
-        for err in errors_found:
-            table.add_row([err["LC"], err["NPU"], err["Slice"], err["LOSS"], err["CORRUPT"], err["ERROR"]])
-        logging.error(f"\n{table}")
-        logging.error("!!! Please investigate the reported non-zero values. !!!")
-        return False
-    else:
-        logging.info("Dataplane output check: No LOSS, CORRUPT, or ERROR detected.")
-        return True
+    except paramiko.AuthenticationException as e:
+        raise HostnameRetrievalError(f"Authentication failed during hostname retrieval. Error: {e}")
+    except paramiko.SSHException as e:
+        raise HostnameRetrievalError(f"SSH error during hostname retrieval: {e}")
+    except Exception as e:
+        raise HostnameRetrievalError(f"An unexpected error occurred during hostname retrieval: {e}")
+    finally:
+        if client:
+            client.close()
+            logging.info(f"Temporary SSH connection for hostname retrieval closed.")
 
 
 def get_router_timestamp(shell: paramiko.Channel) -> datetime.datetime:
-    """
-    Gets the current timestamp from the router using 'show clock'.
-    Returns a datetime object.
-    """
+    """Gets the current timestamp from the router using 'show clock'."""
     logging.info("Getting router's current timestamp using 'show clock'...")
     shell.send("show clock\n")
     output, prompt_found = read_and_print_realtime(shell, timeout_sec=10, print_realtime=False)
@@ -352,11 +436,9 @@ def get_router_timestamp(shell: paramiko.Channel) -> datetime.datetime:
         raise RouterCommandError(f"Could not parse 'show clock' output for timestamp: {output}")
 
 
+# --- Dataplane Monitoring Functions (PRESERVED) ---
 def poll_dataplane_monitoring_736(shell: paramiko.Channel, max_poll_duration_sec: int) -> bool:
-    """
-    For IOS-XR 7.3.6 and higher. Polls 'show logging | i "%PLATFORM-DPH_MONITOR-6"' every 3 minutes
-    to detect dataplane monitoring completion.
-    """
+    """PRESERVED - Dataplane monitoring for IOS-XR 7.3.6+"""
     logging.info(f"Running 'monitor dataplane' command (IOS-XR 7.3.6+)...")
     shell.send("monitor dataplane\n")
     time.sleep(2)
@@ -444,21 +526,104 @@ def poll_dataplane_monitoring_736(shell: paramiko.Channel, max_poll_duration_sec
             f"Dataplane monitoring did not complete within {max_poll_duration_sec // 60} minutes polling period, or no relevant completion log was found.")
 
 
+def parse_dataplane_output_for_errors(output_text: str) -> bool:
+    """PRESERVED - Parses dataplane output for errors - COMPLETE VERSION"""
+    errors_found = []
+    explicit_failures_detected = False
+
+    # Check for explicit failure messages but DON'T return yet
+    if "Loss detected:" in output_text or "FAILURES DETECTED IN DATAPATH" in output_text:
+        logging.error("!!! EXPLICIT DATAPLANE FAILURES DETECTED IN OUTPUT !!!")
+        logging.error("Loss detected or failures explicitly mentioned in dataplane output.")
+        explicit_failures_detected = True
+
+    # ALWAYS parse tabular data for non-zero values (even if explicit failures found)
+    header_pattern = re.compile(r"LC\s+NP\s+Slice\s+GOOD\s+LOSS\s+CORRUPT\s+ERROR")
+    data_pattern = re.compile(r"^\s*(\d+)?\s+(\d+)?\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$")
+
+    lines = output_text.splitlines()
+    parsing_data = False
+    current_lc = None
+    current_np = None
+
+    for line in lines:
+        if header_pattern.search(line):
+            parsing_data = True
+            continue
+
+        if parsing_data:
+            if re.match(r"^-+$", line.strip()) or "Summary of results:" in line or "DATAPLANE CHECK IS CLEAN." in line:
+                parsing_data = False
+                continue
+
+            match = data_pattern.match(line)
+            if match:
+                lc_str, np_str, slice_str, good_str, loss_str, corrupt_str, error_str = match.groups()
+
+                # Update current LC/NP context
+                if lc_str is not None and lc_str.strip():
+                    current_lc = int(lc_str)
+                if np_str is not None and np_str.strip():
+                    current_np = int(np_str)
+
+                lc = current_lc if current_lc is not None else "N/A"
+                npu = current_np if current_np is not None else "N/A"
+
+                slice_val = int(slice_str)
+                good_val = int(good_str)
+                loss = int(loss_str)
+                corrupt = int(corrupt_str)
+                error = int(error_str)
+
+                # Check for non-zero LOSS, CORRUPT, or ERROR values
+                if loss > 0 or corrupt > 0 or error > 0:
+                    errors_found.append({
+                        "LC": lc, "NPU": npu, "Slice": slice_val,
+                        "GOOD": good_val, "LOSS": loss, "CORRUPT": corrupt, "ERROR": error
+                    })
+
+    # Show tabular errors if found
+    if errors_found:
+        logging.error("!!! DATAPLANE ERRORS DETECTED IN TABULAR DATA !!!")
+        table = PrettyTable()
+        table.field_names = ["LC", "NPU", "Slice", "GOOD", "LOSS", "CORRUPT", "ERROR"]
+        for err in errors_found:
+            table.add_row([err["LC"], err["NPU"], err["Slice"], err["GOOD"], err["LOSS"], err["CORRUPT"], err["ERROR"]])
+        logging.error(f"\n{table}")
+        logging.error("!!! Please investigate the reported non-zero values. !!!")
+
+    # Return False if EITHER explicit failures OR tabular errors detected
+    if explicit_failures_detected or errors_found:
+        return False
+    else:
+        logging.info("Dataplane output check: No LOSS, CORRUPT, or ERROR detected.")
+        return True
+
+
+# --- Error Parsing Functions (ENHANCED) ---
 def get_group_number_from_script_name(script_name: str) -> str:
     """Extracts the group number from the script name."""
     match = re.search(r'group(\d+)\.py', script_name)
     return match.group(1) if match else "N/A"
 
 
+def extract_link_components(part_string):
+    """Extracts LCx or FCx from a link component string."""
+    lc_match = re.search(r'(\d+)/CPU(\d+)', part_string)
+    if lc_match:
+        return f"LC{lc_match.group(1)}"
+    fc_match = re.search(r'FC(\d+)', part_string)
+    if fc_match:
+        return f"FC{fc_match.group(1)}"
+    return part_string.strip()
+
+
 def parse_script_output_for_errors(script_name: str, script_output: str) -> List[Dict[str, str]]:
-    """
-    Parses the output of a monitor_8800_system script for faulty link details.
-    Returns a list of dictionaries, each representing a faulty link.
-    """
+    """PRESERVED - Parses script output for faulty link details"""
     errors_found_details = []
 
     faulty_link_pattern = re.compile(
-        r"Link\s+(.*?)\s+---\s+(.*?)\s+between\s+(.*?)\s+and\s+(.*?)\s+is faulty\s+-\s+codewords\s+(.*?),\s+BER\s+([\d\.e-]+)\s+FLR\s+([\d\.e-]+)\s+RX Link Down Count\s+(\d+)"
+        r"Link\s+(.*?)\s+---\s+(.*?)\s+between\s+(.*?)\s+and\s+(.*?)\s+is faulty\s+-\s+codewords\s+(.*?),\s+BER\s+([\d.e-]+)\s+FLR\s+([\d\.e-]+)\s+RX Link Down Count\s+(\d+)"
     )
 
     status_line_pattern = re.compile(r"^(Codewords|BER|FLR|RX Link Down Count):\s+(OK|BAD)$")
@@ -517,62 +682,72 @@ def parse_script_output_for_errors(script_name: str, script_output: str) -> List
     return errors_found_details
 
 
-def format_and_print_error_report(script_name: str, group_number: str, error_details: List[Dict[str, str]]):
-    """
-    Formats and prints the error report for a given script.
-    """
-    logging.info(f"--- Error Report for {script_name} ---")
-    logging.info("Reference Thresholds: BER < 1e-08, FLR < 1e-21")
+def format_and_print_error_report(script_name: str, group_number: str, error_details: List[Dict[str, str]],
+                                  phase_name: str = ""):
+    """Enhanced error reporting with consistent table format matching Part II"""
+    # Track errors globally for final summary
+    global PHASE2_ERRORS_DETECTED, PHASE3_ERRORS_DETECTED
 
-    table = PrettyTable()
-    table.field_names = ["Link Connection", "Group_number", "Codewords", "FLR", "BER", "Link_flap"]
+    phase_identifier = f" ({phase_name})" if phase_name else ""
 
-    table.align["Link Connection"] = "l"
-    table.align["Group_number"] = "c"
-    table.align["Codewords"] = "l"
-    table.align["FLR"] = "l"
-    table.align["BER"] = "l"
-    table.align["Link_flap"] = "l"
+    table_output_lines = [f"\n--- Error Report for {script_name}{phase_identifier} ---",
+                          f"Reference Thresholds: BER < 1e-08, FLR < 1e-21"]
+
+    # CONSISTENT: Always use the same table format regardless of errors
+    error_table = PrettyTable()
+    error_table.field_names = ["Link Connection", "Group_number", "Codewords", "FLR", "BER", "Link_flap"]
+    error_table.align = "l"  # Left align all columns
 
     if not error_details:
-        table.add_row(["", group_number, "", "", "", ""])
-        table_string = table.get_string(hrules=HEADER, vrules=ALL, header=True, border=True)
-        print(table_string)
-        logging.info("No errors detected for this group.")
-        first_line_of_table = table_string.splitlines()[0]
-        border_length = len(first_line_of_table)
-        print(f"+{'-' * (border_length - 2)}+")
+        # CONSISTENT: Use same table format with blank row for no errors
+        error_table.add_row(["", group_number, "", "", "", ""])
+        print("\n".join(table_output_lines))
+        print(error_table)
+        logging.info(f"\033[1;92m✓ No errors detected for Group {group_number}{phase_identifier}.\033[0m")
     else:
-        for detail in error_details:
-            flr_display = f"{detail['FLR']} ({detail['FLR_Status']})" if detail['FLR_Status'] != "N/A" else detail[
-                'FLR']
-            ber_display = f"{detail['BER']} ({detail['BER_Status']})" if detail['BER_Status'] != "N/A" else detail[
-                'BER']
-            link_flap_display = f"{detail['Link_flap']} ({detail['Link_flap_Status']})" if detail[
-                                                                                               'Link_flap_Status'] != "N/A" else \
-            detail['Link_flap']
+        # Set appropriate global error flag
+        if "Phase 2" in phase_name:
+            PHASE2_ERRORS_DETECTED = True
+        elif "Phase 3" in phase_name:
+            PHASE3_ERRORS_DETECTED = True
 
-            table.add_row([
-                detail["Link Connection"],
+        for detail in error_details:
+            # OPTION A: Simplified link format (extract FC and LC)
+            link_full = detail['Link Connection']
+
+            # Extract FC and LC information
+            fc_match = re.search(r'0/FC(\d+)', link_full)
+            lc_match = re.search(r'0/(\d+)/CPU0', link_full)
+
+            if fc_match and lc_match:
+                simplified_link = f"FC{fc_match.group(1)}<->LC{lc_match.group(1)}"
+            else:
+                # Fallback to original if pattern doesn't match
+                simplified_link = link_full[:25] + "..." if len(link_full) > 25 else link_full
+
+            # SIMPLIFIED: Only show Good/Bad status, not values
+            codewords_display = "Good" if detail.get('Codewords_Status') != 'BAD' else "Bad"
+            flr_display = "Good" if detail.get('FLR_Status') != 'BAD' else "Bad"
+            ber_display = "Good" if detail.get('BER_Status') != 'BAD' else "Bad"
+            link_flap_display = "Good" if int(detail.get('Link_flap', '0')) == 0 else "Bad"
+
+            error_table.add_row([
+                simplified_link,
                 group_number,
-                detail["Codewords"],
+                codewords_display,
                 flr_display,
                 ber_display,
                 link_flap_display
             ])
 
-        table_string = table.get_string(hrules=ALL, vrules=ALL, header=True, border=True)
-        print(table_string)
-        logging.error(f"Errors detected for this group. Total {len(error_details)} degraded links found.")
-        first_line_of_table = table_string.splitlines()[0]
-        border_length = len(first_line_of_table)
-        print(f"+{'-' * (border_length - 2)}+")
+        print("\n".join(table_output_lines))
+        print(error_table)
+        logging.error(
+            f"\033[1;91m✗ {len(error_details)} errors detected for Group {group_number}{phase_identifier}.\033[0m")
 
 
 def wait_for_prompt_after_ctrlc(shell: paramiko.Channel, timeout_sec: int = 60) -> bool:
-    """
-    Waits for the shell prompt to return after sending Ctrl+C.
-    """
+    """PRESERVED - Waits for shell prompt after Ctrl+C"""
     logging.info(f"Waiting for bash prompt after Ctrl+C (timeout: {timeout_sec}s)...")
     start_time = time.time()
 
@@ -594,13 +769,11 @@ def wait_for_prompt_after_ctrlc(shell: paramiko.Channel, timeout_sec: int = 60) 
     return False
 
 
+# --- Show Tech Functions (PRESERVED) ---
 def run_show_tech_fabric_threaded(shell: paramiko.Channel, hostname: str,
                                   show_tech_finished_event: threading.Event,
                                   result_dict: Dict) -> None:
-    """
-    Runs the show tech fabric link-include command, monitors its progress in a thread,
-    and calculates the time taken. Signals completion via events and results via dict.
-    """
+    """PRESERVED - Show tech fabric collection in thread"""
     global SHOW_TECH_START_TIMESTAMP_FROM_LOG, SHOW_TECH_END_TIMESTAMP_FROM_LOG
     SHOW_TECH_START_TIMESTAMP_FROM_LOG = None
     SHOW_TECH_END_TIMESTAMP_FROM_LOG = None
@@ -638,7 +811,7 @@ def run_show_tech_fabric_threaded(shell: paramiko.Channel, hostname: str,
                                         print_realtime_output=False):
             raise ShowTechError("Failed to attach to RP for show tech log monitoring.")
 
-        if not execute_command_in_shell(shell, "cd /misc/disk1/", "cd to /misc/disk1/", timeout=10,
+        if not execute_command_in_shell(shell, "cd /misc/disk1/", "change directory to /misc/disk1/", timeout=10,
                                         print_realtime_output=False):
             raise RouterCommandError("Failed to change directory to /misc/disk1/ for show tech log monitoring.")
 
@@ -695,15 +868,13 @@ def run_show_tech_fabric_threaded(shell: paramiko.Channel, hostname: str,
             logging.warning(
                 f"Show tech completion string not found within internal timeout ({SHOW_TECH_MONITOR_TIMEOUT_SECONDS}s).")
 
-        # Attempt to send Ctrl+C if not already sent or if the loop timed out
         try:
             shell.send("\x03")
         except Exception as e:
             logging.warning(f"Error sending Ctrl+C to shell: {e}")
 
         if SHOW_TECH_END_TIMESTAMP_FROM_LOG is None:
-            SHOW_TECH_END_TIMESTAMP_FROM_LOG = datetime.datetime.now().strftime(
-                "%Y-%b-%d.%H%M%S.UTC")
+            SHOW_TECH_END_TIMESTAMP_FROM_LOG = datetime.datetime.now().strftime("%Y-%b-%d.%H%M%S.UTC")
 
         if not wait_for_prompt_after_ctrlc(shell, timeout_sec=60):
             raise ShowTechError("Failed to recover bash prompt after sending Ctrl+C during show tech monitoring.")
@@ -737,12 +908,10 @@ def run_show_tech_fabric_threaded(shell: paramiko.Channel, hostname: str,
         logging.info("Show tech thread finished and signaled completion.")
 
 
+# --- Phase Execution Functions (ENHANCED) ---
 def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, monitor_description: str,
                                 ssh_timeout: int, dataplane_timeout: int) -> bool:
-    """
-    Connects to the router, runs a dataplane monitor, and returns success/failure.
-    This function is for sequential dataplane monitoring steps.
-    """
+    """PRESERVED - Dataplane monitoring phase with enhanced connection"""
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -750,9 +919,9 @@ def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, mo
     shell = None
     try:
         logging.info(f"Connecting to {router_ip} for {monitor_description} dataplane monitor...")
-        client.connect(router_ip, port=22, username=username, password=password, timeout=ssh_timeout,
-                       look_for_keys=False)
+        connect_with_retry(client, router_ip, username, password)
         logging.info(f"Successfully connected for {monitor_description} dataplane monitor.")
+
         shell = client.invoke_shell()
         time.sleep(1)
         logging.info(f"--- Initial Shell Output ({monitor_description} Dataplane Monitor) ---")
@@ -768,19 +937,15 @@ def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, mo
 
         logging.info(f"Running 'monitor dataplane' (polling logs) for IOS-XR 7.3.6+.")
         dataplane_check_clean = poll_dataplane_monitoring_736(shell, dataplane_timeout)
-        monitoring_performed = True
 
-        if monitoring_performed:
-            if dataplane_check_clean:
-                logging.info(f"{monitor_description} Dataplane monitoring completed and reported no errors.")
-                return True
-            else:
-                logging.error(
-                    f"{monitor_description} Dataplane monitoring completed, but errors were reported. Please check the output above.")
-                raise DataplaneError(
-                    f"Dataplane errors detected during {monitor_description} monitor.")
-        else:
+        if dataplane_check_clean:
+            logging.info(
+                f"\033[1;92m✓ {monitor_description} Dataplane monitoring completed and reported no errors.\033[0m")
             return True
+        else:
+            logging.error(
+                f"\033[1;91m✗ {monitor_description} Dataplane monitoring completed, but errors were reported.\033[0m")
+            raise DataplaneError(f"Dataplane errors detected during {monitor_description} monitor.")
 
     except paramiko.AuthenticationException as e:
         raise SSHConnectionError(f"Authentication failed for {monitor_description} monitor: {e}")
@@ -799,8 +964,7 @@ def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, mo
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
             except Exception as e:
-                logging.warning(
-                    f"Error during graceful shell exit in {monitor_description} monitor: {e}. The socket might have already been closed.")
+                logging.warning(f"Error during graceful shell exit in {monitor_description} monitor: {e}")
             finally:
                 try:
                     shell.close()
@@ -817,10 +981,7 @@ def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, mo
 def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, password: str,
                                            ssh_timeout: int, countdown_duration_minutes: int,
                                            show_tech_monitor_timeout_seconds: int) -> bool:
-    """
-    Connects to router CLI, runs parallel show tech and countdown.
-    This function waits for BOTH the countdown timer and show tech collection to complete.
-    """
+    """PRESERVED - Concurrent countdown and show tech with enhanced connection"""
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -828,8 +989,7 @@ def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, passwo
     shell = None
     try:
         logging.info(f"Connecting to {router_ip} for Concurrent Countdown and Show Tech...")
-        client.connect(router_ip, port=22, username=username, password=password, timeout=ssh_timeout,
-                       look_for_keys=False)
+        connect_with_retry(client, router_ip, username, password)
         logging.info(f"Successfully connected for Concurrent Countdown and Show Tech.")
 
         shell = client.invoke_shell()
@@ -863,10 +1023,10 @@ def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, passwo
             f"Waiting for BOTH the {countdown_duration_minutes}-minute timer AND show tech collection to complete...")
 
         timer_thread.join()
-        logging.info(f"{countdown_duration_minutes}-minute countdown timer has finished.")
+        logging.info(f"\033[1;92m✓ {countdown_duration_minutes}-minute countdown timer has finished.\033[0m")
 
         show_tech_thread.join()
-        logging.info("Show tech collection has finished.")
+        logging.info(f"\033[1;92m✓ Show tech collection has finished.\033[0m")
 
         logging.info("Both parallel waiting conditions met. Proceeding with next steps.")
 
@@ -885,24 +1045,19 @@ def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, passwo
     except ShowTechError as e:
         raise ShowTechError(f"Show tech collection failed during concurrent tasks phase: {e}")
     except Exception as e:
-        # Catch any other unexpected errors that might occur before the finally block
         logging.error(f"An unexpected error occurred during concurrent tasks phase: {e}", exc_info=True)
         raise Exception(f"An unexpected error occurred during concurrent tasks phase: {e}")
     finally:
         if shell:
             logging.info("Attempting to gracefully exit CLI session after concurrent tasks phase.")
             try:
-                # Attempt to send exit command. This might fail if the socket is already closed.
                 shell.send("exit\n")
                 time.sleep(1)
-                # Clear any remaining buffer, ignoring errors if socket is closed
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
             except Exception as e:
-                logging.warning(
-                    f"Error during graceful shell exit attempt: {e}. The socket might have already been closed.")
+                logging.warning(f"Error during graceful shell exit attempt: {e}")
             finally:
-                # Ensure the shell channel is closed, even if the exit command failed
                 try:
                     shell.close()
                 except Exception as e:
@@ -917,10 +1072,8 @@ def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, passwo
 
 
 def execute_script_phase(router_ip: str, username: str, password: str, scripts_to_run: List[str],
-                         script_arg_option: str, ssh_timeout: int) -> bool:
-    """
-    Handles the SSH connection, initial commands, and execution of scripts for a single phase.
-    """
+                         script_arg_option: str, ssh_timeout: int, phase_name: str = "") -> bool:
+    """Enhanced script phase execution with phase tracking"""
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -928,14 +1081,15 @@ def execute_script_phase(router_ip: str, username: str, password: str, scripts_t
     shell = None
     try:
         logging.info(f"Attempting to connect to {router_ip} for phase with option '{script_arg_option}'...")
-        client.connect(router_ip, port=22, username=username, password=password, timeout=ssh_timeout,
-                       look_for_keys=False)
+        connect_with_retry(client, router_ip, username, password)
         logging.info(f"Successfully connected to {router_ip}.")
 
         shell = client.invoke_shell()
         time.sleep(1)
         logging.info("--- Initial Shell Output ---")
-        read_and_print_realtime(shell, timeout_sec=2)
+        initial_output, _ = read_and_print_realtime(shell, timeout_sec=2, print_realtime=False)
+        print(f"{initial_output}", end='')
+        print()
         logging.info("--- End Initial Shell Output ---")
 
         if not execute_command_in_shell(shell, "terminal length 0", "set terminal length to 0", timeout=5,
@@ -949,26 +1103,25 @@ def execute_script_phase(router_ip: str, username: str, password: str, scripts_t
                                         print_realtime_output=False):
             raise RouterCommandError("Failed to establish bash prompt on router.")
 
-        if not execute_command_in_shell(shell, "cd /misc/disk1/", "cd to /misc/disk1/", timeout=10,
+        if not execute_command_in_shell(shell, "cd /misc/disk1/", "change directory to /misc/disk1/", timeout=10,
                                         print_realtime_output=False):
             raise RouterCommandError("Failed to change directory on router.")
 
         scripts_outputs = run_script_list_phase(shell, scripts_to_run, script_arg_option)
 
         if script_arg_option == "'--dummy' no":
-            logging.info(f"{'=' * 70}{'=' * 70}")
-            logging.info("### Analyzing 'dummy no' script outputs for errors ###")
-            errors_found_in_dummy_no = False
+            logging.info(f"\n{'=' * 70}\n### Analyzing 'dummy no' script outputs for errors ###\n{'=' * 70}\n")
+            errors_found_in_dummy_no = False  # Initialize the variable
             for s_name, s_output in scripts_outputs:
                 group_num = get_group_number_from_script_name(s_name)
                 detailed_errors = parse_script_output_for_errors(s_name, s_output)
-                format_and_print_error_report(s_name, group_num, detailed_errors)
+                format_and_print_error_report(s_name, group_num, detailed_errors, phase_name)
                 if detailed_errors:
                     errors_found_in_dummy_no = True
 
+            # Add the error check that stops execution with intuitive message
             if errors_found_in_dummy_no:
-                raise ScriptExecutionError(
-                    "Errors detected in 'dummy no' script outputs. Aborting.")
+                raise ScriptExecutionError("Degraded links found")
 
         return True
 
@@ -978,10 +1131,15 @@ def execute_script_phase(router_ip: str, username: str, password: str, scripts_t
         raise SSHConnectionError(f"SSH error during script phase '{script_arg_option}': {e}")
     except RouterCommandError as e:
         raise RouterCommandError(f"Router command error during script phase '{script_arg_option}': {e}")
-    except ScriptExecutionError:
-        raise
     except Exception as e:
-        raise ScriptExecutionError(f"An unexpected error occurred during script phase '{script_arg_option}': {e}")
+        if script_arg_option == "'--dummy' no":
+            # Check if it's our specific degraded links error
+            if "Degraded links found" in str(e):
+                raise ScriptExecutionError("Degraded links found")
+            else:
+                raise ScriptExecutionError(f"Script analysis failed during dummy no phase: {e}")
+        else:
+            raise ScriptExecutionError(f"An unexpected error occurred during script phase '{script_arg_option}': {e}")
     finally:
         if shell:
             logging.info("Exiting bash prompt...")
@@ -991,8 +1149,7 @@ def execute_script_phase(router_ip: str, username: str, password: str, scripts_t
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
             except Exception as e:
-                logging.warning(
-                    f"Error during graceful shell exit in script phase: {e}. The socket might have already been closed.")
+                logging.warning(f"Error during graceful shell exit in script phase: {e}")
             finally:
                 try:
                     shell.close()
@@ -1007,10 +1164,7 @@ def execute_script_phase(router_ip: str, username: str, password: str, scripts_t
 
 
 def run_asic_errors_show_command(router_ip: str, username: str, password: str, ssh_timeout: int) -> bool:
-    """
-    Connects to the router, runs the asic_errors_show command from bash.
-    The command varies based on the IOS-XR version (7.x.x vs 24.x.x).
-    """
+    """PRESERVED - ASIC errors show command with enhanced connection"""
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -1018,8 +1172,7 @@ def run_asic_errors_show_command(router_ip: str, username: str, password: str, s
     shell = None
     try:
         logging.info(f"Connecting to {router_ip} to run asic_errors_show command...")
-        client.connect(router_ip, port=22, username=username, password=password, timeout=ssh_timeout,
-                       look_for_keys=False)
+        connect_with_retry(client, router_ip, username, password)
         logging.info(f"Successfully connected to {router_ip}.")
 
         shell = client.invoke_shell()
@@ -1094,8 +1247,7 @@ def run_asic_errors_show_command(router_ip: str, username: str, password: str, s
                 while shell.recv_ready():
                     shell.recv(65535).decode('utf-8', errors='ignore')
             except Exception as e:
-                logging.warning(
-                    f"Error during graceful shell exit after asic_errors_show: {e}. The socket might have already been closed.")
+                logging.warning(f"Error during graceful shell exit after asic_errors_show: {e}")
             finally:
                 try:
                     shell.close()
@@ -1109,262 +1261,283 @@ def run_asic_errors_show_command(router_ip: str, username: str, password: str, s
         logging.info("SSH connection closed.")
 
 
-def print_final_summary(results: Dict[str, str]):
-    """Prints a summary table of all executed steps."""
-    logging.info(f"{'=' * 30} FINAL SCRIPT SUMMARY {'=' * 30}")
-    table = PrettyTable()
-    table.field_names = ["Step", "Description", "Status"]
-    for step_num, result in results.items():
-        status_text = result.split(': ')[1]
-        table.add_row([step_num, result.split(': ')[0], status_text])
+def format_execution_time(seconds):
+    """Format execution time in human-readable format"""
+    hours, remainder = divmod(int(seconds), 3600)  # 3600 seconds = 1 hour
+    minutes, seconds = divmod(remainder, 60)  # 60 seconds = 1 minute
 
-    print(table)
-    logging.info(f"{'=' * 75}")
+    if hours > 0:
+        return f"{hours:02d}h {minutes:02d}m {seconds:02d}s"  # e.g., "01h 23m 45s"
+    elif minutes > 0:
+        return f"{minutes:02d}m {seconds:02d}s"  # e.g., "23m 45s"
+    else:
+        return f"{seconds:02d}s"  # e.g., "45s"
+
+
+def print_final_summary_table(results_summary: Dict[str, str], total_execution_time: float):
+    """Enhanced final summary table with execution time and specific logic for Part III"""
+    print(f"\n--- Final Script Summary ---")
+
+    # Format the execution time
+    formatted_time = format_execution_time(total_execution_time)
+
+    # Print execution time table
+    execution_time_text = f"Total time for execution: {formatted_time}"
+    time_table_width = max(len(execution_time_text) + 4, 60)
+
+    time_separator = "+" + "-" * (time_table_width - 2) + "+"
+    time_content = f"| {execution_time_text:<{time_table_width - 4}} |"
+
+    print(time_separator)
+    print(time_content)
+    print(time_separator)
+
+    # Main summary table
+    summary_table = PrettyTable()
+    summary_table.field_names = ["Test number", "Section Name", "Status"]
+
+    # Left align all columns
+    summary_table.align["Test number"] = "l"
+    summary_table.align["Section Name"] = "l"
+    summary_table.align["Status"] = "l"
+
+    def get_enhanced_status(step_name, original_status):
+        """Determine status with Part III specific logic"""
+        global PHASE2_ERRORS_DETECTED, PHASE3_ERRORS_DETECTED
+
+        if "Phase 1" in original_status and "Success" in original_status:
+            return "\033[1;94mCollection Only\033[0m"  # Bright Blue
+        elif "Phase 2 (Dummy No)" in original_status and "Success" in original_status:
+            if PHASE2_ERRORS_DETECTED:
+                return "\033[1;91mErrors Found\033[0m"  # Bright Red
+            else:
+                return "\033[1;92mSuccessful\033[0m"  # Bright Green
+        elif "Final Dummy No" in original_status and "Success" in original_status:
+            if PHASE3_ERRORS_DETECTED:
+                return "\033[1;91mErrors Found\033[0m"  # Bright Red
+            else:
+                return "\033[1;92mSuccessful\033[0m"  # Bright Green
+        elif "Success" in original_status:
+            return f"\033[1;92m{original_status.split(': ')[1]}\033[0m"  # Bright Green
+        elif "Failed" in original_status:
+            return f"\033[1;91m{original_status.split(': ')[1]}\033[0m"  # Bright Red
+        else:
+            return original_status.split(': ')[1] if ': ' in original_status else original_status
+
+    test_number = 1
+    for step_name, result in results_summary.items():
+        section_name = result.split(': ')[0] if ': ' in result else result
+        enhanced_status = get_enhanced_status(step_name, result)
+        summary_table.add_row([str(test_number), section_name, enhanced_status])
+        test_number += 1
+
+    print(summary_table)
+    logging.info(f"--- End Final Script Summary ---")
 
 
 # --- Main execution block ---
 if __name__ == "__main__":
-    logging.info(f"--- IOS-XR Router Automation Script ---")
+    # Record script start time
+    script_start_time = time.time()
+    # Enhanced main execution with consistent formatting
+    session_log_file_handler = None
+    raw_output_file = None
+    true_original_stdout = sys.stdout
 
-    # --- Router details (prompted) ---
-    ROUTER_IP = input(f"Enter Router IP_add / Host: ")
-    SSH_USERNAME = input(f"Enter SSH Username: ")
-    SSH_PASSWORD = getpass.getpass(f"Enter SSH Password: ")
-
-    # --- Get Hostname for Router Directory and Log Files ---
-    hostname_for_log = "unknown_host"
-    initial_client = None
-    initial_shell = None
-    try:
-        logging.info(f"Attempting initial connection to {ROUTER_IP} to retrieve hostname for log directory...")
-        initial_client = paramiko.SSHClient()
-        initial_client.load_system_host_keys()
-        initial_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        initial_client.connect(ROUTER_IP, port=22, username=SSH_USERNAME, password=SSH_PASSWORD,
-                               timeout=SSH_TIMEOUT_SECONDS, look_for_keys=False)
-        initial_shell = initial_client.invoke_shell()
-        time.sleep(1)
-        execute_command_in_shell(initial_shell, "terminal length 0", "set terminal length to 0", timeout=5,
-                                 print_realtime_output=False)
-        execute_command_in_shell(initial_shell, "terminal width 511", "set terminal width to 511", timeout=5,
-                                 print_realtime_output=False)
-        hostname_for_log = get_hostname(initial_shell)
-        logging.info(f"Retrieved hostname: {hostname_for_log}")
-    except Exception as e:
-        logging.error(
-            f"Failed to retrieve hostname during initial connection: {e}. Using 'unknown_host' for log directory and filenames.")
-    finally:
-        if initial_shell:
-            try:
-                while initial_shell.recv_ready():
-                    initial_shell.recv(65535).decode('utf-8', errors='ignore')
-                initial_shell.send("exit\n")
-                time.sleep(1)
-            except Exception as e:
-                logging.warning(f"Error during initial shell exit: {e}")
-            initial_shell.close()
-        if initial_client:
-            initial_client.close()
-        logging.info("Initial SSH connection for hostname retrieval closed.")
-
-    # --- Determine and Create Router Directory ---
-    router_log_dir = hostname_for_log
-    try:
-        os.makedirs(router_log_dir, exist_ok=True)
-        logging.info(f"Ensured router log directory exists: {os.path.abspath(router_log_dir)}")
-    except OSError as e:
-        logging.critical(
-            f"Failed to create or access router log directory {router_log_dir}: {e}. Script cannot proceed without a log directory. Exiting.")
-        exit(1)
-
-    # --- Reconfigure Application Logging to the new directory ---
-    timestamp_for_app_log = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    app_log_filename = os.path.join(router_log_dir, f"{hostname_for_log}_automation_log_{timestamp_for_app_log}.log")
-
+    # Clear existing handlers
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(app_log_filename),
-            logging.StreamHandler()
-        ]
-    )
-    logging.info(f"Application logs will be written to: {app_log_filename}")
 
-    # --- Open Session Log Files in the new directory ---
-    timestamp_for_session_logs = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    console_mirror_filename = os.path.join(router_log_dir,
-                                           f"{hostname_for_log}_post_check_session_log_{timestamp_for_session_logs}.txt")
-    raw_output_filename = os.path.join(router_log_dir,
-                                       f"{hostname_for_log}_post_check_outputs_{timestamp_for_session_logs}.txt")
+    router_hostname = "unknown_host"
+
+    # Initial console handler
+    initial_console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    initial_console_handler = logging.StreamHandler(true_original_stdout)
+    initial_console_handler.setFormatter(initial_console_formatter)
+    logging.root.addHandler(initial_console_handler)
 
     try:
-        session_log_file_console_mirror = open(console_mirror_filename, 'w', encoding='utf-8')
-        logging.info(f"Console mirror session output will be logged to: {console_mirror_filename}")
-    except IOError as e:
-        logging.error(
-            f"Could not open console mirror session log file {console_mirror_filename}: {e}. Console mirror output will not be logged to file.")
-        session_log_file_console_mirror = None
+        logging.info(f"--- IOS-XR Router Automation Script (Part III - Post Checks) ---")
+        ROUTER_IP = input(f"Enter Router IP address or Hostname: ")
+        SSH_USERNAME = input(f"Enter SSH Username: ")
+        SSH_PASSWORD = getpass.getpass(f"Enter SSH Password for {SSH_USERNAME}@{ROUTER_IP}: ")
 
-    try:
-        session_log_file_raw_output = open(raw_output_filename, 'w', encoding='utf-8')
-        logging.info(f"Raw SSH output will be logged to: {raw_output_filename}")
-    except IOError as e:
-        logging.error(
-            f"Could not open raw SSH output log file {raw_output_filename}: {e}. Raw SSH output will not be logged to file.")
-        session_log_file_raw_output = None
-
-    # --- List of your scripts to run (hardcoded) ---
-    scripts_to_run = [
-        "monitor_8800_system_v2_3_msft_bash_group0.py",
-        "monitor_8800_system_v2_3_msft_bash_group1.py",
-        "monitor_8800_system_v2_3_msft_bash_group2.py",
-        "monitor_8800_system_v2_3_msft_bash_group3.py",
-    ]
-
-    results_summary: Dict[str, str] = {}
-    script_aborted = False
-
-    try:
-        # Step 1: Phase 1: Dummy Yes
-        logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info("### Step 1: Starting Phase 1: Running scripts with '--dummy' yes ###")
         try:
-            execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run, "'--dummy' yes",
-                                 SSH_TIMEOUT_SECONDS)
-            results_summary["Step 1"] = "Phase 1 (Dummy Yes): Success"
-            logging.info("Phase 1 completed successfully.")
-        except (SSHConnectionError, RouterCommandError, ScriptExecutionError) as e:
-            results_summary["Step 1"] = f"Phase 1 (Dummy Yes): Failed - {e}"
-            logging.critical(f"Phase 1 failed: {e}")
-            script_aborted = True
-            raise
+            router_hostname = get_hostname_from_router(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD)
+        except HostnameRetrievalError as e:
+            logging.error(f"Could not retrieve hostname: {e}. Using IP address for log filename.")
+            router_hostname = ROUTER_IP.replace('.', '-')
+
+        hostname_dir = os.path.join(os.getcwd(), router_hostname)
+
+        try:
+            os.makedirs(hostname_dir, exist_ok=True)
+            logging.info(f"Ensured router log directory exists: {os.path.abspath(hostname_dir)}")
+        except OSError as e:
+            logging.critical(
+                f"Failed to create or access router log directory {hostname_dir}: {e}. Script cannot proceed without a log directory. Exiting.")
+            sys.exit(1)
+
+        timestamp_for_logs = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        session_log_path = os.path.join(hostname_dir,
+                                        f"{router_hostname}_7_3_6+_post-checks_session_log_{timestamp_for_logs}.txt")
+        raw_output_log_path = os.path.join(hostname_dir,
+                                           f"{router_hostname}_7_3_6+_post-checks_output_{timestamp_for_logs}.txt")
+
+        # Clear handlers and setup enhanced logging
+        for handler in logging.root.handlers[:]:
+            logging.root.removeHandler(handler)
+
+        try:
+            session_log_file_handler = logging.FileHandler(session_log_path)
+            session_log_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+            logging.root.addHandler(session_log_file_handler)
+            logging.info(f"Internal script logs will be saved to: {session_log_path}")
+        except IOError as e:
+            logging.error(f"Could not open internal session log file {session_log_path}: {e}.")
+            session_log_file_handler = None
+
+        try:
+            raw_output_file = open(raw_output_log_path, 'w', encoding='utf-8')
+            sys.stdout = Tee(true_original_stdout, raw_output_file)
+            logging.info(f"All console output will be logged to: {raw_output_log_path}")
+        except IOError as e:
+            logging.error(f"Could not open raw output log file {raw_output_log_path}: {e}.")
+            raw_output_file = None
+            sys.stdout = true_original_stdout
+
+        # Setup global file logging for existing functionality
+        try:
+            session_log_file_console_mirror = open(session_log_path.replace('session_log', 'console_mirror'), 'w',
+                                                   encoding='utf-8')
+            session_log_file_raw_output = open(raw_output_log_path.replace('output', 'raw_output'), 'w',
+                                               encoding='utf-8')
+        except IOError:
+            session_log_file_console_mirror = None
+            session_log_file_raw_output = None
+
+        # Setup enhanced console handler with timestamps
+        console_formatter = CompactFormatter()
+        console_formatter.datefmt = '%Y-%m-%d %H:%M:%S'
+        console_handler = logging.StreamHandler(true_original_stdout)
+        console_handler.setFormatter(console_formatter)
+        logging.root.addHandler(console_handler)
+
+        logging.root.setLevel(logging.INFO)
+
+        scripts_to_run = [
+            "monitor_8800_system_v2_3_msft_bash_group0.py",
+            "monitor_8800_system_v2_3_msft_bash_group1.py",
+            "monitor_8800_system_v2_3_msft_bash_group2.py",
+            "monitor_8800_system_v2_3_msft_bash_group3.py",
+        ]
+
+        results_summary: Dict[str, str] = {}
+        script_aborted = False
+
+        # Step 1: Phase 1: Dummy Yes
+        logging.info(
+            f"\n{'#' * 70}\n### Step 1: Starting Phase 1: Running scripts with '--dummy' yes ###\n{'#' * 70}\n")
+        execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run, "'--dummy' yes",
+                             SSH_TIMEOUT_SECONDS, "Phase 1")
+        results_summary["Step 1"] = "Phase 1 (Dummy Yes): Success"
+        logging.info(f"\033[1;92m✓ Phase 1 completed successfully.\033[0m")
 
         # Step 2: Monitor Dataplane (First instance)
-        logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info("### Step 2: Running First Dataplane Monitor ###")
-        try:
-            run_dataplane_monitor_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, "FIRST", SSH_TIMEOUT_SECONDS,
-                                        DATAPLANE_MONITOR_TIMEOUT_SECONDS)
-            results_summary["Step 2"] = "First Dataplane Monitor: Success"
-            logging.info("First Dataplane Monitor completed successfully.")
-        except (SSHConnectionError, RouterCommandError, DataplaneError) as e:
-            results_summary["Step 2"] = f"First Dataplane Monitor: Failed - {e}"
-            logging.critical(f"First Dataplane Monitor failed: {e}")
-            script_aborted = True
-            raise
+        logging.info(f"\n{'#' * 70}\n### Step 2: Running First Dataplane Monitor ###\n{'#' * 70}\n")
+        run_dataplane_monitor_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, "FIRST", SSH_TIMEOUT_SECONDS,
+                                    DATAPLANE_MONITOR_TIMEOUT_SECONDS)
+        results_summary["Step 2"] = "First Dataplane Monitor: Success"
+        logging.info(f"\033[1;92m✓ First Dataplane Monitor completed successfully.\033[0m")
 
         # Step 3: Wait 15 minutes (Sequential timer)
-        logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info(f"### Step 3: Starting Sequential {COUNTDOWN_DURATION_MINUTES}-minute Countdown ###")
-        try:
-            colorful_countdown_timer(COUNTDOWN_DURATION_MINUTES * 60)
-            results_summary["Step 3"] = "Sequential 15-minute Countdown: Success"
-            logging.info(f"Sequential {COUNTDOWN_DURATION_MINUTES}-minute countdown finished.")
-        except Exception as e:
-            results_summary["Step 3"] = f"Sequential 15-minute Countdown: Failed - {e}"
-            logging.critical(f"Sequential countdown failed: {e}")
-            script_aborted = True
-            raise
+        logging.info(
+            f"\n{'#' * 70}\n### Step 3: Starting Sequential {COUNTDOWN_DURATION_MINUTES}-minute Countdown ###\n{'#' * 70}\n")
+        colorful_countdown_timer(COUNTDOWN_DURATION_MINUTES * 60)
+        results_summary["Step 3"] = "Sequential 15-minute Countdown: Success"
+        logging.info(f"\033[1;92m✓ Sequential {COUNTDOWN_DURATION_MINUTES}-minute countdown finished.\033[0m")
 
-        # Step 4: Phase 2: Dummy no
-        logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info("### Step 4: Starting Phase 2: Running scripts with '--dummy' no ###")
-        try:
-            execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run, "'--dummy' no",
-                                 SSH_TIMEOUT_SECONDS)
-            results_summary["Step 4"] = "Phase 2 (Dummy No): Success"
-            logging.info("Phase 2 completed successfully.")
-        except (SSHConnectionError, RouterCommandError, ScriptExecutionError) as e:
-            results_summary["Step 4"] = f"Phase 2 (Dummy No): Failed - {e}"
-            logging.critical(f"Phase 2 failed: {e}")
-            script_aborted = True
-            raise
+        # Step 4: Phase 2: Dummy no (First dummy no run)
+        logging.info(f"\n{'#' * 70}\n### Step 4: Starting Phase 2: Running scripts with '--dummy' no ###\n{'#' * 70}\n")
+        execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run, "'--dummy' no",
+                             SSH_TIMEOUT_SECONDS, "Phase 2")
+        results_summary["Step 4"] = "Phase 2 (Dummy No): Success"
+        logging.info(f"\033[1;92m✓ Phase 2 completed successfully.\033[0m")
 
         # Step 5: Monitor dataplane (Second instance)
-        logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info("### Step 5: Running Second Dataplane Monitor ###")
-        try:
-            run_dataplane_monitor_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, "SECOND", SSH_TIMEOUT_SECONDS,
-                                        DATAPLANE_MONITOR_TIMEOUT_SECONDS)
-            results_summary["Step 5"] = "Second Dataplane Monitor: Success"
-            logging.info("Second Dataplane Monitor completed successfully.")
-        except (SSHConnectionError, RouterCommandError, DataplaneError) as e:
-            results_summary["Step 5"] = f"Second Dataplane Monitor: Failed - {e}"
-            logging.critical(f"Second Dataplane Monitor failed: {e}")
-            script_aborted = True
-            raise
+        logging.info(f"\n{'#' * 70}\n### Step 5: Running Second Dataplane Monitor ###\n{'#' * 70}\n")
+        run_dataplane_monitor_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, "SECOND", SSH_TIMEOUT_SECONDS,
+                                    DATAPLANE_MONITOR_TIMEOUT_SECONDS)
+        results_summary["Step 5"] = "Second Dataplane Monitor: Success"
+        logging.info(f"\033[1;92m✓ Second Dataplane Monitor completed successfully.\033[0m")
 
-        # Step 6: Concurrent 15 minute timer and show tech collection
-        logging.info(f"\n{'#' * 70}{'#' * 70}")
+        # Step 6: Concurrent 15-minute timer and show tech collection
         logging.info(
-            f"### Step 6: Starting Concurrent {COUNTDOWN_DURATION_MINUTES}-minute Countdown and Show Tech Collection ###")
-        try:
-            concurrent_success = run_concurrent_countdown_and_show_tech(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD,
-                                                                        SSH_TIMEOUT_SECONDS, COUNTDOWN_DURATION_MINUTES,
-                                                                        SHOW_TECH_MONITOR_TIMEOUT_SECONDS)
-            if concurrent_success:
-                results_summary["Step 6"] = "Concurrent 15-minute Countdown and Show Tech: Success"
-                logging.info("Concurrent countdown and show tech phase completed successfully.")
-            else:
-                results_summary["Step 6"] = "Concurrent 15-minute Countdown and Show Tech: Failed - Show tech issue"
-                logging.critical("Concurrent countdown and show tech phase failed due to show tech issue.")
-                script_aborted = True
-                raise ShowTechError("Show tech collection failed during concurrent tasks phase.")
-        except (SSHConnectionError, RouterCommandError, ShowTechError) as e:
-            results_summary["Step 6"] = f"Concurrent 15-minute Countdown and Show Tech: Failed - {e}"
-            logging.critical(f"Concurrent countdown and show tech phase failed: {e}")
-            script_aborted = True
-            raise
+            f"\n{'#' * 70}\n### Step 6: Starting Concurrent {COUNTDOWN_DURATION_MINUTES}-minute Countdown and Show Tech Collection ###\n{'#' * 70}\n")
+        concurrent_success = run_concurrent_countdown_and_show_tech(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD,
+                                                                    SSH_TIMEOUT_SECONDS, COUNTDOWN_DURATION_MINUTES,
+                                                                    SHOW_TECH_MONITOR_TIMEOUT_SECONDS)
+        if concurrent_success:
+            results_summary["Step 6"] = "Concurrent 15-minute Countdown and Show Tech: Success"
+            logging.info(f"\033[1;92m✓ Concurrent countdown and show tech phase completed successfully.\033[0m")
+        else:
+            results_summary["Step 6"] = "Concurrent 15-minute Countdown and Show Tech: Failed - Show tech issue"
+            logging.critical(
+                f"\033[1;91m✗ Concurrent countdown and show tech phase failed due to show tech issue.\033[0m")
+            raise ShowTechError("Show tech collection failed during concurrent tasks phase.")
 
-        # Step 7: Final Dummy No Run
-        logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info("### Step 7: Starting Final Phase: Running scripts with '--dummy' no again ###")
-        try:
-            execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run,
-                                 "'--dummy' no",
-                                 SSH_TIMEOUT_SECONDS)
-            results_summary["Step 7"] = "Final Dummy No: Success"
-            logging.info("Final 'dummy no' phase completed successfully.")
-        except (SSHConnectionError, RouterCommandError, ScriptExecutionError) as e:
-            results_summary["Step 7"] = f"Final Dummy No: Failed - {e}"
-            logging.critical(f"Final 'dummy no' phase failed: {e}")
-            script_aborted = True
-            raise
+        # Step 7: Final Dummy No Run (Phase 3)
+        logging.info(
+            f"\n{'#' * 70}\n### Step 7: Starting Phase 3: Running scripts with '--dummy' no again ###\n{'#' * 70}\n")
+        execute_script_phase(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, scripts_to_run, "'--dummy' no",
+                             SSH_TIMEOUT_SECONDS, "Phase 3")
+        results_summary["Step 7"] = "Final Dummy No: Success"
+        logging.info(f"\033[1;92m✓ Final 'dummy no' phase completed successfully.\033[0m")
 
         # Step 8: Run asic_errors_show command
-        logging.info(f"\n{'#' * 70}{'#' * 70}")
-        logging.info("### Step 8: Running asic_errors_show command ###")
-        try:
-            run_asic_errors_show_command(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, SSH_TIMEOUT_SECONDS)
-            results_summary["Step 8"] = "asic_errors_show Command: Success"
-            logging.info("asic_errors_show command completed successfully.")
-        except (SSHConnectionError, RouterCommandError, AsicErrorShowError) as e:
-            results_summary["Step 8"] = f"asic_errors_show Command: Failed - {e}"
-            logging.critical(f"asic_errors_show command failed: {e}")
+        logging.info(f"\n{'#' * 70}\n### Step 8: Running asic_errors_show command ###\n{'#' * 70}\n")
+        run_asic_errors_show_command(ROUTER_IP, SSH_USERNAME, SSH_PASSWORD, SSH_TIMEOUT_SECONDS)
+        results_summary["Step 8"] = "asic_errors_show Command: Success"
+        logging.info(f"\033[1;92m✓ asic_errors_show command completed successfully.\033[0m")
 
-    except Exception as e:
-        logging.critical(f"An unhandled critical error occurred during script execution: {e}", exc_info=True)
+    except (SSHConnectionError, RouterCommandError, ScriptExecutionError, DataplaneError, ShowTechError,
+            AsicErrorShowError) as e:
+        logging.critical(f"\033[1;91m✗ Script execution failed and aborted: {e}\033[0m")
         script_aborted = True
+        # Add appropriate failed status to results_summary based on where it failed
+        if "Step 1" not in results_summary:
+            results_summary["Step 1"] = f"Phase 1 (Dummy Yes): Failed - {e}"
+        elif "Step 2" not in results_summary:
+            results_summary["Step 2"] = f"First Dataplane Monitor: Failed - {e}"
+        elif "Step 3" not in results_summary:
+            results_summary["Step 3"] = f"Sequential 15-minute Countdown: Failed - {e}"
+        elif "Step 4" not in results_summary:
+            results_summary["Step 4"] = f"Phase 2 (Dummy No): Failed - {e}"
+        elif "Step 5" not in results_summary:
+            results_summary["Step 5"] = f"Second Dataplane Monitor: Failed - {e}"
+        elif "Step 6" not in results_summary:
+            results_summary["Step 6"] = f"Concurrent 15-minute Countdown and Show Tech: Failed - {e}"
+        elif "Step 7" not in results_summary:
+            results_summary["Step 7"] = f"Final Dummy No: Failed - {e}"
+        else:
+            results_summary["Step 8"] = f"asic_errors_show Command: Failed - {e}"
+    except Exception as e:
+        logging.critical(f"\033[1;91m✗ An unhandled critical error occurred: {e}\033[0m", exc_info=True)
+        script_aborted = True
+        results_summary["Critical Error"] = f"Unhandled Error: {e}"
     finally:
-        pass
+        if script_aborted:
+            logging.info(f"\033[1;91m--- Script Execution Aborted ---\033[0m")
+        else:
+            logging.info(f"\033[1;92m--- Script Execution Finished Successfully ---\033[0m")
 
-    # Print Final Summary
-    logging.info(f"\n{'#' * 70}{'#' * 70}")
-    logging.info("### Printing Final Summary ###")
-    if script_aborted:
-        logging.critical("Script execution was aborted due to a critical error.")
-    else:
-        logging.info("All planned steps completed.")
-    print_final_summary(results_summary)
-    logging.info(f"--- Script Execution Finished ---")
+        # Print final summary
+        # Calculate total execution time
+        total_execution_time = time.time() - script_start_time
 
-    # Close the session log files at the very end
-    if session_log_file_console_mirror:
-        session_log_file_console_mirror.close()
-        logging.info(f"Console mirror session log file closed.")
-    if session_log_file_raw_output:
-        session_log_file_raw_output.close()
-        logging.info(f"Raw SSH output log file closed.")
+        # Print final summary with execution time
+        print_final_summary_table(results_summary, total_execution_time)
+        logging.info(f"--- Script Execution Finished ---")
+
+        # Restore stdout
+        sys.stdout = true_original_stdout

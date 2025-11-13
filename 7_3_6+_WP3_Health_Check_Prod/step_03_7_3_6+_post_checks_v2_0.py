@@ -1,3 +1,68 @@
+#!/usr/bin/env python3
+import sys
+import os
+import platform
+import subprocess
+from pathlib import Path
+
+
+# Architecture detection and re-execution logic
+def ensure_compatible_environment():
+    """Ensure script runs with architecture-compatible dependencies."""
+    arch = platform.machine()
+    script_dir = Path(__file__).parent
+    venv_path = script_dir / f".venv_{arch}"
+    venv_python = venv_path / "bin" / "python"
+
+    # Check if we're already running in the correct venv
+    if sys.prefix == str(venv_path):
+        return  # Already in correct environment
+
+    # Check if venv exists and has dependencies
+    if venv_python.exists():
+        try:
+            result = subprocess.run(
+                [str(venv_python), "-c", "import paramiko"],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                # Re-execute script with venv Python
+                os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+        except Exception:
+            pass
+
+    # Need to create venv and install dependencies
+    print(f"Setting up {arch}-compatible environment...")
+    print(f"This is a one-time setup and may take a minute...\n")
+
+    try:
+        # Create venv
+        import venv
+        venv.create(venv_path, with_pip=True)
+
+        # Install dependencies
+        pip_path = venv_path / "bin" / "pip"
+        subprocess.run([str(pip_path), "install", "--upgrade", "pip"],
+                       check=True, capture_output=True)
+        subprocess.run([str(pip_path), "install", "paramiko", "prettytable"],
+                       check=True, capture_output=True)
+
+        print("✓ Environment setup complete\n")
+
+        # Re-execute with new venv
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+
+    except Exception as e:
+        print(f"Error setting up environment: {e}")
+        print("Attempting to run with system Python...")
+        # Continue with system Python as fallback
+
+
+# Run environment check before any other imports
+ensure_compatible_environment()
+
+
 # This script connects to a Cisco IOS-XR device via SSH to execute a comprehensive post-check process.
 # It performs dataplane monitoring, script execution phases, show tech collection, and ASIC error clearing.
 # The script incorporates comprehensive logging to manage console output and file recording.
@@ -682,27 +747,54 @@ def parse_script_output_for_errors(script_name: str, script_output: str) -> List
     return errors_found_details
 
 
-def format_and_print_error_report(script_name: str, group_number: str, error_details: List[Dict[str, str]],
-                                  phase_name: str = ""):
+def format_and_print_error_report(script_name: str, group_number: str, error_details: List[Dict[str, str]], phase_name: str = ""):
     """Enhanced error reporting with consistent table format matching Part II"""
     # Track errors globally for final summary
     global PHASE2_ERRORS_DETECTED, PHASE3_ERRORS_DETECTED
 
     phase_identifier = f" ({phase_name})" if phase_name else ""
 
-    table_output_lines = [f"\n--- Error Report for {script_name}{phase_identifier} ---",
-                          f"Reference Thresholds: BER < 1e-08, FLR < 1e-21"]
+    # Use EXACT same table formatting as Part II - manual column widths
+    col_widths = {
+        "Link Connection": 20,
+        "Group_number": 15,
+        "Codewords": 12,
+        "FLR": 22,
+        "BER": 22,
+        "Link_flap": 12
+    }
 
-    # CONSISTENT: Always use the same table format regardless of errors
-    error_table = PrettyTable()
-    error_table.field_names = ["Link Connection", "Group_number", "Codewords", "FLR", "BER", "Link_flap"]
-    error_table.align = "l"  # Left align all columns
+    header_cols = [
+        f"{'Link Connection':<{col_widths['Link Connection']}}",
+        f"{'Group_number':<{col_widths['Group_number']}}",
+        f"{'Codewords':<{col_widths['Codewords']}}",
+        f"{'FLR':<{col_widths['FLR']}}",
+        f"{'BER':<{col_widths['BER']}}",
+        f"{'Link_flap':<{col_widths['Link_flap']}}"
+    ]
+    header = f"| {' | '.join(header_cols)} |"
+
+    separator_line_len = len(header)
+    separator_line = f"{'+'}{'-' * (separator_line_len - 2)}{'+'}"
+
+    table_output_lines = []
+    table_output_lines.append(f"\n--- Error Report for {script_name}{phase_identifier} ---")
+    table_output_lines.append(f"Reference Thresholds: BER < 1e-08, FLR < 1e-21")
+    table_output_lines.append(f"{separator_line}")
+    table_output_lines.append(f"{header}")
+    table_output_lines.append(f"{separator_line}")
 
     if not error_details:
         # CONSISTENT: Use same table format with blank row for no errors
-        error_table.add_row(["", group_number, "", "", "", ""])
-        print("\n".join(table_output_lines))
-        print(error_table)
+        blank_row_cols = [
+            f"{'':<{col_widths['Link Connection']}}",
+            f"{group_number:<{col_widths['Group_number']}}",
+            f"{'':<{col_widths['Codewords']}}",
+            f"{'':<{col_widths['FLR']}}",
+            f"{'':<{col_widths['BER']}}",
+            f"{'':<{col_widths['Link_flap']}}"
+        ]
+        table_output_lines.append(f"| {' | '.join(blank_row_cols)} |")
         logging.info(f"\033[1;92m✓ No errors detected for Group {group_number}{phase_identifier}.\033[0m")
     else:
         # Set appropriate global error flag
@@ -731,19 +823,23 @@ def format_and_print_error_report(script_name: str, group_number: str, error_det
             ber_display = "Good" if detail.get('BER_Status') != 'BAD' else "Bad"
             link_flap_display = "Good" if int(detail.get('Link_flap', '0')) == 0 else "Bad"
 
-            error_table.add_row([
-                simplified_link,
-                group_number,
-                codewords_display,
-                flr_display,
-                ber_display,
-                link_flap_display
-            ])
+            row_cols = [
+                f"{simplified_link:<{col_widths['Link Connection']}}",
+                f"{group_number:<{col_widths['Group_number']}}",
+                f"{codewords_display:<{col_widths['Codewords']}}",
+                f"{flr_display:<{col_widths['FLR']}}",
+                f"{ber_display:<{col_widths['BER']}}",
+                f"{link_flap_display:<{col_widths['Link_flap']}}"
+            ]
+            table_output_lines.append(f"| {' | '.join(row_cols)} |")
 
-        print("\n".join(table_output_lines))
-        print(error_table)
-        logging.error(
-            f"\033[1;91m✗ {len(error_details)} errors detected for Group {group_number}{phase_identifier}.\033[0m")
+        logging.error(f"\033[1;91m✗ {len(error_details)} errors detected for Group {group_number}{phase_identifier}.\033[0m")
+
+    table_output_lines.append(f"{separator_line}")
+
+    # Print the entire table as one block
+    table_output = "\n".join(table_output_lines)
+    print(table_output)
 
 
 def wait_for_prompt_after_ctrlc(shell: paramiko.Channel, timeout_sec: int = 60) -> bool:
@@ -1275,7 +1371,7 @@ def format_execution_time(seconds):
 
 
 def print_final_summary_table(results_summary: Dict[str, str], total_execution_time: float):
-    """Enhanced final summary table with execution time and specific logic for Part III"""
+    """Enhanced final summary table with execution time and wrapped column headers"""
     print(f"\n--- Final Script Summary ---")
 
     # Format the execution time
@@ -1294,10 +1390,11 @@ def print_final_summary_table(results_summary: Dict[str, str], total_execution_t
 
     # Main summary table
     summary_table = PrettyTable()
-    summary_table.field_names = ["Test number", "Section Name", "Status"]
+    # Use multi-line header for Test number column
+    summary_table.field_names = ["Test\nnumber", "Section Name", "Status"]
 
-    # Left align all columns
-    summary_table.align["Test number"] = "l"
+    # Center align Test number, left align others
+    summary_table.align["Test\nnumber"] = "c"  # Center align for numbers
     summary_table.align["Section Name"] = "l"
     summary_table.align["Status"] = "l"
 

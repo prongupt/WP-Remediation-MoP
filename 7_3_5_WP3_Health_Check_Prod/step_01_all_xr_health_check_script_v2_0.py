@@ -328,25 +328,28 @@ class ProgressBarAwareHandler(logging.StreamHandler):
 
 
 class CompactFormatter(logging.Formatter):
-    """Enhanced formatter with bright colors for status messages"""
+    """Enhanced formatter with bright colors and timestamps for status messages"""
+
+    def __init__(self):
+        super().__init__(datefmt='%Y-%m-%d %H:%M:%S')
+
     FORMATS = {
-        logging.ERROR: '\033[91m%(levelname)s\033[0m - %(message)s',
-        logging.WARNING: '\033[93m%(levelname)s\033[0m - %(message)s',
-        logging.INFO: '%(levelname)s - %(message)s',
+        logging.ERROR: '%(asctime)s - \033[91m%(levelname)s\033[0m - %(message)s',
+        logging.WARNING: '%(asctime)s - \033[93m%(levelname)s\033[0m - %(message)s',
+        logging.INFO: '%(asctime)s - %(levelname)s - %(message)s',
+        logging.CRITICAL: '%(asctime)s - \033[91m%(levelname)s\033[0m - %(message)s',
+        logging.DEBUG: '%(asctime)s - %(levelname)s - %(message)s',
     }
 
     def format(self, record):
         msg = record.getMessage()
         if msg.startswith('✓ ') and 'passed' in msg:
-            # Bright green for passed checks
-            return f'\033[92m{record.levelname}\033[0m - \033[1;92m{msg}\033[0m'
+            return f'{self.formatTime(record, self.datefmt)} - \033[92m{record.levelname}\033[0m - \033[1;92m{msg}\033[0m'
         elif msg.startswith('✗ ') and 'failed:' in msg:
-            # Bright red for failed checks
-            return f'\033[91m{record.levelname}\033[0m - \033[1;91m{msg}\033[0m'
+            return f'{self.formatTime(record, self.datefmt)} - \033[91m{record.levelname}\033[0m - \033[1;91m{msg}\033[0m'
         else:
-            # Use original formatting for other messages
-            log_fmt = self.FORMATS.get(record.levelno, '%(levelname)s - %(message)s')
-            formatter = logging.Formatter(log_fmt, datefmt='%H:%M:%S')
+            log_fmt = self.FORMATS.get(record.levelno, '%(asctime)s - %(levelname)s - %(message)s')
+            formatter = logging.Formatter(log_fmt, datefmt=self.datefmt)
             return formatter.format(record)
 
 

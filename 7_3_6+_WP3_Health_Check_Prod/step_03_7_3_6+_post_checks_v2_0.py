@@ -201,9 +201,9 @@ class CompactFormatter(logging.Formatter):
 
     def format(self, record):
         msg = record.getMessage()
-        if msg.startswith('✓ ') and ('passed' in msg or 'complete' in msg or 'Success' in msg):
+        if msg.startswith('✓ ') and 'passed' in msg:
             return f'{self.formatTime(record, self.datefmt)} - \033[92m{record.levelname}\033[0m - \033[1;92m{msg}\033[0m'
-        elif msg.startswith('✗ ') and ('failed' in msg or 'error' in msg):
+        elif msg.startswith('✗ ') and 'failed:' in msg:
             return f'{self.formatTime(record, self.datefmt)} - \033[91m{record.levelname}\033[0m - \033[1;91m{msg}\033[0m'
         else:
             log_fmt = self.FORMATS.get(record.levelno, '%(asctime)s - %(levelname)s - %(message)s')

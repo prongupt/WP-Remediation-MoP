@@ -817,11 +817,23 @@ def format_and_print_error_report(script_name: str, group_number: str, error_det
                 # Fallback to original if pattern doesn't match
                 simplified_link = link_full[:25] + "..." if len(link_full) > 25 else link_full
 
-            # SIMPLIFIED: Only show Good/Bad status, not values
-            codewords_display = "Good" if detail.get('Codewords_Status') != 'BAD' else "Bad"
-            flr_display = "Good" if detail.get('FLR_Status') != 'BAD' else "Bad"
-            ber_display = "Good" if detail.get('BER_Status') != 'BAD' else "Bad"
-            link_flap_display = "Good" if int(detail.get('Link_flap', '0')) == 0 else "Bad"
+            # DETAILED FORMAT (matching Part II): Show values when Bad
+            codewords_display = detail.get('Codewords_Status', 'Good') if detail.get(
+                'Codewords_Status') != 'BAD' else "Bad"
+
+            if detail.get('FLR_Status') == 'BAD':
+                flr_display = f"Bad ({detail.get('FLR', 'N/A')})"
+            else:
+                flr_display = "Good"
+
+            if detail.get('BER_Status') == 'BAD':
+                ber_display = f"Bad ({detail.get('BER', 'N/A')})"
+            else:
+                ber_display = "Good"
+
+            # Link flap shows actual count when > 0
+            link_flap_count = int(detail.get('Link_flap', '0'))
+            link_flap_display = str(link_flap_count) if link_flap_count > 0 else ""
 
             row_cols = [
                 f"{simplified_link:<{col_widths['Link Connection']}}",

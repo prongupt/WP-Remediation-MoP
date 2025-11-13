@@ -1,0 +1,237 @@
+2025-11-12 22:14:18,888 - INFO - Created output directory: /Users/prongupt/Python-Scripts/Command_Collection_Infra/7_3_6+_WP3_Health_Check_Prod/8818_SJC24_P34_SYS-06
+2025-11-12 22:14:18,888 - INFO - Session log will be saved to: /Users/prongupt/Python-Scripts/Command_Collection_Infra/7_3_6+_WP3_Health_Check_Prod/8818_SJC24_P34_SYS-06/8818_SJC24_P34_SYS-06_combined_session_log_20251112_221418.txt
+2025-11-12 22:14:18,888 - INFO - CLI output will be saved to: /Users/prongupt/Python-Scripts/Command_Collection_Infra/7_3_6+_WP3_Health_Check_Prod/8818_SJC24_P34_SYS-06/8818_SJC24_P34_SYS-06_combined_cli_output_20251112_221418.txt
+
+--- Device Information Report (Pre-checks) ---
+2025-11-12 22:14:18,889 - INFO - --- Running IOS-XR Version Check ---
+2025-11-12 22:14:18,889 - INFO - Retrieving IOS-XR Version...
+2025-11-12 22:14:18,890 - INFO - Sending 'show version' ('show version')...
+2025-11-12 22:14:24,902 - INFO - IOS-XR Version detected: 24.4.2
++----------------+--------+
+|  Information   | Value  |
++----------------+--------+
+| IOS-XR Version | 24.4.2 |
++----------------+--------+
+2025-11-12 22:14:24,910 - INFO - [1;92m✓ IOS-XR Version Check passed[0m
+2025-11-12 22:14:24,910 - INFO - --- Running Platform Status & Serial Numbers ---
+2025-11-12 22:14:24,910 - INFO - Retrieving Platform Status and Serial Numbers...
+2025-11-12 22:14:24,915 - INFO - Sending 'show platform' ('show platform')...
+2025-11-12 22:14:30,979 - INFO - Sending 'show inventory for FCs' ('show inventory | utility egrep 0/FC -A1 -B1')...
+2025-11-12 22:14:37,018 - INFO - Sending 'show inventory for LCs/RPs' ('show inventory | utility egrep /CPU0 -A1 -B1')...
+2025-11-12 22:14:43,062 - INFO - Sending 'show inventory for FTs' ('show inventory | utility egrep 0/FT -A1 -B1')...
+Platform Status:
++----------------------------+-------------+---------------+-----+-------------+
+| LC / FC / RP / FT Location |    State    | Serial Number | VID |     PID     |
++----------------------------+-------------+---------------+-----+-------------+
+|         0/RP0/CPU0         |  IOS XR RUN |  FOC2751N184  | V02 |   8800-RP   |
+|          0/2/CPU0          |  IOS XR RUN |  FOC2741N3CE  | V03 | 88-LC0-36FH |
+|          0/3/CPU0          |  IOS XR RUN |  FOC2812N5TY  | V03 | 8800-LC-48H |
+|          0/4/CPU0          |  IOS XR RUN |  FOC2741N36Z  | V03 | 88-LC0-36FH |
+|          0/5/CPU0          |  IOS XR RUN |  FOC2739N5H2  | V03 | 88-LC0-36FH |
+|          0/6/CPU0          |  IOS XR RUN |  FOC2741N2XE  | V03 | 88-LC0-36FH |
+|          0/7/CPU0          |  IOS XR RUN |  FOC2741N3B1  | V03 | 88-LC0-36FH |
+|          0/8/CPU0          |  IOS XR RUN |  FOC2741N2YU  | V03 | 88-LC0-36FH |
+|         0/16/CPU0          |  IOS XR RUN |  FOC2741N3FQ  | V03 | 88-LC0-36FH |
+|         0/17/CPU0          |  IOS XR RUN |  FOC2739N55D  | V03 | 88-LC0-36FH |
+|           0/FC0            | OPERATIONAL |  FOC2748N1RY  | V04 |   8818-FC0  |
+|           0/FC1            | OPERATIONAL |  FOC2802N317  | V04 |   8818-FC0  |
+|           0/FC2            | OPERATIONAL |  FOC2802N2YE  | V04 |   8818-FC0  |
+|           0/FC3            | OPERATIONAL |  FOC2802N2Y0  | V04 |   8818-FC0  |
+|           0/FC4            | OPERATIONAL |  FOC2802N30Z  | V04 |   8818-FC0  |
+|           0/FC5            | OPERATIONAL |  FOC2748N1P3  | V04 |   8818-FC0  |
+|           0/FC7            | OPERATIONAL |  FOC2802N2XM  | V04 |   8818-FC0  |
+|           0/FT0            | OPERATIONAL |  FOC2746N33S  | V01 |   8818-FAN  |
+|           0/FT1            | OPERATIONAL |  FOC2746N35K  | V01 |   8818-FAN  |
+|           0/FT2            | OPERATIONAL |  FOC2601NW6Y  | V01 |   8818-FAN  |
+|           0/FT3            | OPERATIONAL |  FOC2601NW5G  | V01 |   8818-FAN  |
+|           0/PT0            | OPERATIONAL |      N/A      | N/A |     N/A     |
+|           0/PT1            | OPERATIONAL |      N/A      | N/A |     N/A     |
+|           0/PT2            | OPERATIONAL |      N/A      | N/A |     N/A     |
+|           0/PT3            | OPERATIONAL |      N/A      | N/A |     N/A     |
++----------------------------+-------------+---------------+-----+-------------+
+2025-11-12 22:14:49,117 - INFO - All Line Cards, Fabric Cards, and Route Processors are in their expected states.
+2025-11-12 22:14:49,233 - INFO - [1;92m✓ Platform Status & Serial Numbers passed[0m
+2025-11-12 22:14:49,234 - INFO - --- Running Fabric Reachability Check ---
+2025-11-12 22:14:49,234 - INFO - Checking Fabric Reachability (show controller fabric fsdb-pla rack 0)...
+2025-11-12 22:14:49,356 - INFO - Sending 'show controller fabric fsdb-pla rack 0' ('show controller fabric fsdb-pla rack 0')...
+2025-11-12 22:14:55,407 - INFO - Fabric Reachability check passed. No issues detected.
+2025-11-12 22:14:55,407 - INFO - [1;92m✓ Fabric Reachability Check passed[0m
+2025-11-12 22:14:55,407 - INFO - --- Running Fabric Link Down Status Check ---
+2025-11-12 22:14:55,434 - INFO - Checking Fabric Link Down Status...
+2025-11-12 22:14:55,435 - INFO - Sending 'Fabric S1 RX Down Links' ('show controller fabric link port s1 rx down')...
+2025-11-12 22:15:01,506 - INFO - Sending 'Fabric FIA RX Down Links' ('show controller fabric link port fia rx down')...
+2025-11-12 22:15:07,560 - INFO - Fabric Link Down Status check passed. No issues detected.
+2025-11-12 22:15:07,563 - INFO - [1;92m✓ Fabric Link Down Status Check passed[0m
+2025-11-12 22:15:07,564 - INFO - --- Running NPU Link Information Check ---
+2025-11-12 22:15:07,668 - INFO - Checking NPU Link Information...
+2025-11-12 22:15:07,669 - INFO - Sending 'show controllers npu link-info' ('show controllers npu link-info rx 0 255 topo instance all location all | ex "EN/UP" | ex "NC              NC"')...
+2025-11-12 22:15:13,919 - INFO - NPU Link Information check passed. No down links reported.
+2025-11-12 22:15:13,920 - INFO - [1;92m✓ NPU Link Information Check passed[0m
+2025-11-12 22:15:13,934 - INFO - --- Running NPU Stats Link Check (UCE/CRC) ---
+2025-11-12 22:15:13,934 - INFO - Checking NPU Stats Link for UCE/CRC Errors...
+2025-11-12 22:15:13,934 - INFO - Sending 'show controllers npu stats link' ('show controllers npu stats link all instance all location all | ex "0        0        0"')...
+2025-11-12 22:15:19,996 - INFO - NPU Stats Link check passed. No non-zero UCE or CRC errors detected.
+2025-11-12 22:15:19,996 - INFO - [1;92m✓ NPU Stats Link Check (UCE/CRC) passed[0m
+2025-11-12 22:15:19,997 - INFO - --- Running NPU Driver Status Check ---
+2025-11-12 22:15:20,001 - INFO - Checking NPU Driver Status (Asic states)...
+2025-11-12 22:15:20,002 - INFO - Sending 'show controllers npu driver' ('show controllers npu driver location 0/RP0/CPU0')...
+2025-11-12 22:15:26,062 - INFO - NPU Driver Status check passed. All Asic states are as expected.
+2025-11-12 22:15:26,067 - INFO - [1;92m✓ NPU Driver Status Check passed[0m
+2025-11-12 22:15:26,067 - INFO - --- Running Fabric Plane Statistics Check ---
+2025-11-12 22:15:26,070 - INFO - Checking Fabric Plane Statistics (CE/UCE/PE Packets)...
+2025-11-12 22:15:26,070 - INFO - Sending 'show controllers fabric plane all statistics' ('show controllers fabric plane all statistics')...
+2025-11-12 22:15:32,123 - INFO - Fabric Plane Statistics check passed. No issues detected.
+2025-11-12 22:15:32,124 - INFO - [1;92m✓ Fabric Plane Statistics Check passed[0m
+2025-11-12 22:15:32,124 - INFO - --- Running ASIC Errors Check (RP0) ---
+2025-11-12 22:15:32,124 - INFO - Checking ASIC Errors (rx_link_status_down, count, npu[])...
+2025-11-12 22:15:32,134 - INFO - Sending 'show asic-errors' ('show asic-errors all detail location 0/RP0/CPU0 | inc "rx_link_status_down|count|npu\\["')...
+2025-11-12 22:15:41,125 - INFO - ASIC Errors check passed. No non-zero error counts detected.
+2025-11-12 22:15:41,129 - INFO - [1;92m✓ ASIC Errors Check (RP0) passed[0m
+2025-11-12 22:15:41,129 - INFO - --- Running Inventory Collection ---
+2025-11-12 22:15:41,139 - INFO - Running show inventory (output captured silently)...
+2025-11-12 22:15:41,139 - INFO - Sending 'show inventory' ('show inventory')...
+2025-11-12 22:15:47,173 - INFO - show inventory command executed and output captured.
+2025-11-12 22:15:47,175 - INFO - [1;92m✓ Inventory Collection passed[0m
+2025-11-12 22:15:47,175 - INFO - --- Running Interface Status Check ---
+2025-11-12 22:15:47,179 - INFO - Checking Interface Status...
+2025-11-12 22:15:47,179 - INFO - Sending 'show interface summary' ('show interface summary')...
+Interface Summary (ALL TYPES):
++-------+----+------+------------+
+| Total | UP | Down | Admin Down |
++-------+----+------+------------+
+|  339  | 2  |  0   |    337     |
++-------+----+------+------------+
+2025-11-12 22:15:53,236 - INFO - Interface summary for ALL TYPES successfully retrieved.
+2025-11-12 22:15:53,236 - INFO - Sending 'show interface brief' ('show interface brief')...
+2025-11-12 22:15:59,345 - INFO - show interface brief executed silently.
+2025-11-12 22:15:59,346 - INFO - Sending 'show interface description (excluding admin)' ('show interface description | ex admin')...
+2025-11-12 22:16:05,602 - INFO - show interface description | ex admin executed silently.
+2025-11-12 22:16:05,604 - INFO - [1;92m✓ Interface Status Check passed[0m
+2025-11-12 22:16:05,609 - INFO - --- Running HW Module FPD Status Check ---
+2025-11-12 22:16:05,610 - INFO - Checking HW Module FPD Status...
+2025-11-12 22:16:05,669 - INFO - Sending 'show hw-module fpd' ('show hw-module fpd')...
+2025-11-12 22:16:11,685 - INFO - show hw-module fpd executed silently.
+2025-11-12 22:16:11,687 - INFO - [1;92m✓ HW Module FPD Status Check passed[0m
+2025-11-12 22:16:11,687 - INFO - --- Running Active Alarms Check ---
+2025-11-12 22:16:11,691 - INFO - Checking Alarms and Capturing Install Logs...
+2025-11-12 22:16:11,691 - INFO - Sending 'show alarms brief system' ('show alarms brief system')...
+2025-11-12 22:16:17,778 - INFO - show alarms brief system executed and output captured.
+2025-11-12 22:16:17,778 - INFO - Sending 'show alarms brief system active (filtered)' ('show alarms brief system active | ex Optics | ex Coherent')...
+2025-11-12 22:16:23,827 - ERROR - !!! ACTIVE ALARMS DETECTED (excluding Optics/Coherent) !!!
+
+Active Alarms (excluding Optics/Coherent):
+ 0/RP0/CPU0      Critical     Software         10/14/2025 16:49:17 PDT    Redundancy Partner Not Present
+ 0/RP0/CPU0      Minor        Fabric           10/14/2025 16:49:45 PDT    Fabric Plane-6 status
+ 0/RP0/CPU0      Major        Software         10/14/2025 16:50:09 PDT    Communications Failure With Cisco Licensing Cloud
+2025-11-12 22:16:23,892 - CRITICAL - [1;91m✗ Active Alarms Check failed: Active alarms detected after filtering.[0m
+2025-11-12 22:16:23,948 - INFO - --- Running LC ASIC Errors Check ---
+2025-11-12 22:16:23,948 - INFO - Checking LC ASIC Errors...
+2025-11-12 22:16:24,001 - INFO - Sending 'show asic-errors for 0/2/CPU0' ('show asic-errors all location 0/2/CPU0 | i "CPU|Bit|Reset|Parity" | ex ": 0"')...
+2025-11-12 22:16:30,037 - INFO - Sending 'show asic-errors for 0/3/CPU0' ('show asic-errors all location 0/3/CPU0 | i "CPU|Bit|Reset|Parity" | ex ": 0"')...
+2025-11-12 22:16:36,088 - INFO - Sending 'show asic-errors for 0/4/CPU0' ('show asic-errors all location 0/4/CPU0 | i "CPU|Bit|Reset|Parity" | ex ": 0"')...
+2025-11-12 22:16:42,117 - INFO - Sending 'show asic-errors for 0/5/CPU0' ('show asic-errors all location 0/5/CPU0 | i "CPU|Bit|Reset|Parity" | ex ": 0"')...
+2025-11-12 22:16:48,140 - INFO - Sending 'show asic-errors for 0/6/CPU0' ('show asic-errors all location 0/6/CPU0 | i "CPU|Bit|Reset|Parity" | ex ": 0"')...
+2025-11-12 22:16:54,207 - INFO - Sending 'show asic-errors for 0/7/CPU0' ('show asic-errors all location 0/7/CPU0 | i "CPU|Bit|Reset|Parity" | ex ": 0"')...
+2025-11-12 22:17:00,240 - INFO - Sending 'show asic-errors for 0/8/CPU0' ('show asic-errors all location 0/8/CPU0 | i "CPU|Bit|Reset|Parity" | ex ": 0"')...
+2025-11-12 22:17:06,292 - INFO - Sending 'show asic-errors for 0/16/CPU0' ('show asic-errors all location 0/16/CPU0 | i "CPU|Bit|Reset|Parity" | ex ": 0"')...
+2025-11-12 22:17:12,334 - INFO - Sending 'show asic-errors for 0/17/CPU0' ('show asic-errors all location 0/17/CPU0 | i "CPU|Bit|Reset|Parity" | ex ": 0"')...
+2025-11-12 22:17:18,380 - INFO - LC ASIC Errors check passed. No non-blank output detected.
+2025-11-12 22:17:18,381 - INFO - [1;92m✓ LC ASIC Errors Check passed[0m
+2025-11-12 22:17:18,383 - INFO - --- Running Fan Tray Status Check ---
+2025-11-12 22:17:18,383 - INFO - Checking Fan Tray Status...
+2025-11-12 22:17:18,383 - INFO - Sending 'Fan Tray active alarms' ('show alarms brief system active | i FT')...
+2025-11-12 22:17:24,442 - INFO - Sending 'show environment fan' ('show environment fan')...
+2025-11-12 22:17:31,194 - INFO - show environment fan executed and output captured.
+2025-11-12 22:17:31,202 - INFO - Checking fan tray: 0/FT0
+2025-11-12 22:17:31,205 - INFO - Sending 'show environment for 0/FT0' ('show environment all location 0/FT0')...
+2025-11-12 22:17:37,269 - INFO - Checking fan tray: 0/FT1
+2025-11-12 22:17:37,271 - INFO - Sending 'show environment for 0/FT1' ('show environment all location 0/FT1')...
+2025-11-12 22:17:43,297 - INFO - Checking fan tray: 0/FT2
+2025-11-12 22:17:43,298 - INFO - Sending 'show environment for 0/FT2' ('show environment all location 0/FT2')...
+2025-11-12 22:17:49,363 - INFO - Checking fan tray: 0/FT3
+2025-11-12 22:17:49,366 - INFO - Sending 'show environment for 0/FT3' ('show environment all location 0/FT3')...
+2025-11-12 22:17:55,395 - INFO - Fan Tray Status check passed. No issues detected.
+2025-11-12 22:17:55,400 - INFO - [1;92m✓ Fan Tray Status Check passed[0m
+2025-11-12 22:17:55,405 - INFO - --- Running Overall Environment Status Check ---
+2025-11-12 22:17:55,414 - INFO - Checking Environment Status (Temperature, Voltage, Power Supply)...
+2025-11-12 22:17:55,414 - INFO - Sending 'show environment' ('show environment')...
+2025-11-12 22:18:02,764 - INFO - Environment Status check passed. No critical/major temperature/voltage alarms or power supply issues detected.
+2025-11-12 22:18:02,766 - INFO - [1;92m✓ Overall Environment Status Check passed[0m
+
+--------------------------------------------------------------------------------
+               INITIATING DOWN PHYSICAL INTERFACES (CURRENT RUN)                
+--------------------------------------------------------------------------------
+No physical interfaces were found to be 'down' (operationally) during the current run's initial check.
+
+
+================================================================================
+                 INITIATING COMPARISON WITH PERMANENT BASELINE                  
+================================================================================
+
+2025-11-12 22:18:02,774 - INFO - Using permanent baseline file for comparison: /Users/prongupt/Python-Scripts/Command_Collection_Infra/7_3_6+_WP3_Health_Check_Prod/8818_SJC24_P34_SYS-06/8818_SJC24_P34_SYS-06_combined_cli_output_20251112_221418.txt
+2025-11-12 22:18:02,814 - INFO - Comparing optics inventory...
+
+--------------------------------------------------------------------------------
+                       OPTICS INVENTORY COMPARISON REPORT                       
+--------------------------------------------------------------------------------
+No optics inventory differences detected.
+
+2025-11-12 22:18:02,814 - INFO - Comparing LC/FC/RP inventory...
+--------------------------------------------------------------------------------
+     LINE CARD / FABRIC CARD / ROUTE PROCESSOR INVENTORY COMPARISON REPORT      
+--------------------------------------------------------------------------------
++-------------------------------+--------------------+------------------+------------------+
+| Device: 8818_SJC24_P34_SYS-06 | Tile number: BN120 | Date: 11/12/2025 | Status: Complete |
++-------------------------------+--------------------+------------------+------------------+
++---------------------------------------------+
+|                   Message                   |
++---------------------------------------------+
+| No LC/FC/RP inventory differences detected. |
++---------------------------------------------+
+
+
+
+--------------------------------------------------------------------------------
+                  PHYSICAL INTERFACE STATUS COMPARISON REPORT                   
+--------------------------------------------------------------------------------
+No physical interface status differences detected between current and previous run.
+
+2025-11-12 22:18:02,834 - INFO - Comparing FPD statuses...
+
+--------------------------------------------------------------------------------
+                          FPD STATUS COMPARISON REPORT                          
+--------------------------------------------------------------------------------
+No FPD status differences detected between current and previous run.
+
+
+--- COMPARISON COMPLETED - NO DIFFERENCES FOUND ---
+2025-11-12 22:18:02,834 - INFO - Exiting CLI session.
+2025-11-12 22:18:03,901 - INFO - SSH connection closed.
+2025-11-12 22:18:03,903 - INFO - CLI output saved to /Users/prongupt/Python-Scripts/Command_Collection_Infra/7_3_6+_WP3_Health_Check_Prod/8818_SJC24_P34_SYS-06/8818_SJC24_P34_SYS-06_combined_cli_output_20251112_221418.txt
+
+--- Final Script Summary ---
++----------------------------------------------------------+
+| Total time for execution: 04m 20s                        |
++----------------------------------------------------------+
++--------+----------------------------------+-----------------+
+|    Test
+number     | Section Name                     | Status          |
++--------+----------------------------------+-----------------+
+|   1    | IOS-XR Version Check             | [1;92mGood[0m            |
+|   2    | Platform Status & Serial Numbers | [1;92mGood[0m            |
+|   3    | Fabric Reachability Check        | [1;92mGood[0m            |
+|   4    | Fabric Link Down Status Check    | [1;92mGood[0m            |
+|   5    | NPU Link Information Check       | [1;92mGood[0m            |
+|   6    | NPU Stats Link Check (UCE/CRC)   | [1;92mGood[0m            |
+|   7    | NPU Driver Status Check          | [1;92mGood[0m            |
+|   8    | Fabric Plane Statistics Check    | [1;92mGood[0m            |
+|   9    | ASIC Errors Check (RP0)          | [1;92mGood[0m            |
+|   10   | Inventory Collection             | [1;94mCollection Only[0m |
+|   11   | Active Alarms Check              | [1;91mBad[0m             |
+|   12   | Install Log Collection           | [1;94mCollection Only[0m |
+|   13   | LC ASIC Errors Check             | [1;92mGood[0m            |
+|   14   | Fan Tray Status Check            | [1;92mGood[0m            |
+|   15   | Overall Environment Status Check | [1;92mGood[0m            |
++--------+----------------------------------+-----------------+
+2025-11-12 22:18:03,947 - INFO - --- End Final Script Summary ---
+2025-11-12 22:18:03,947 - CRITICAL - --- Script Execution Finished with ERRORS / DIFFERENCES DETECTED ---

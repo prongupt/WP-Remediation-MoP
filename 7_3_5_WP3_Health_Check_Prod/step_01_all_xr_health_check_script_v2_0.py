@@ -1,3 +1,68 @@
+#!/usr/bin/env python3
+import sys
+import os
+import platform
+import subprocess
+from pathlib import Path
+
+
+# Architecture detection and re-execution logic
+def ensure_compatible_environment():
+    """Ensure script runs with architecture-compatible dependencies."""
+    arch = platform.machine()
+    script_dir = Path(__file__).parent
+    venv_path = script_dir / f".venv_{arch}"
+    venv_python = venv_path / "bin" / "python"
+
+    # Check if we're already running in the correct venv
+    if sys.prefix == str(venv_path):
+        return  # Already in correct environment
+
+    # Check if venv exists and has dependencies
+    if venv_python.exists():
+        try:
+            result = subprocess.run(
+                [str(venv_python), "-c", "import paramiko"],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                # Re-execute script with venv Python
+                os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+        except Exception:
+            pass
+
+    # Need to create venv and install dependencies
+    print(f"Setting up {arch}-compatible environment...")
+    print(f"This is a one-time setup and may take a minute...\n")
+
+    try:
+        # Create venv
+        import venv
+        venv.create(venv_path, with_pip=True)
+
+        # Install dependencies
+        pip_path = venv_path / "bin" / "pip"
+        subprocess.run([str(pip_path), "install", "--upgrade", "pip"],
+                       check=True, capture_output=True)
+        subprocess.run([str(pip_path), "install", "paramiko", "prettytable"],
+                       check=True, capture_output=True)
+
+        print("✓ Environment setup complete\n")
+
+        # Re-execute with new venv
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+
+    except Exception as e:
+        print(f"Error setting up environment: {e}")
+        print("Attempting to run with system Python...")
+        # Continue with system Python as fallback
+
+
+# Run environment check before any other imports
+ensure_compatible_environment()
+
+
 # This script connects to a Cisco IOS-XR device via SSH to perform a comprehensive health check and comparison.
 # It performs the following actions:
 # - Establishes an SSH connection and configures terminal settings.

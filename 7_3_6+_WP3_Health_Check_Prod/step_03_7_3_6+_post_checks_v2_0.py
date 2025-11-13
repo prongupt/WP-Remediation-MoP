@@ -807,12 +807,12 @@ def format_and_print_error_report(script_name: str, group_number: str, error_det
             # OPTION A: Simplified link format (extract FC and LC)
             link_full = detail['Link Connection']
 
-            # Extract FC and LC information
+            # Extract FC and LC information to match Part II format
             fc_match = re.search(r'0/FC(\d+)', link_full)
             lc_match = re.search(r'0/(\d+)/CPU0', link_full)
 
             if fc_match and lc_match:
-                simplified_link = f"FC{fc_match.group(1)}<->LC{lc_match.group(1)}"
+                simplified_link = f"FC{fc_match.group(1)} - LC{lc_match.group(1)}"  # ← CORRECT FORMAT (space + dash)
             else:
                 # Fallback to original if pattern doesn't match
                 simplified_link = link_full[:25] + "..." if len(link_full) > 25 else link_full
@@ -1406,7 +1406,7 @@ def print_final_summary_table(results_summary: Dict[str, str], total_execution_t
     summary_table.field_names = ["Test #", "Section Name", "Status"]
 
     # Center align Test number, left align others
-    summary_table.align["Test\nnumber"] = "c"  # Center align for numbers
+    summary_table.align["Test #"] = "c"  # Center align for numbers
     summary_table.align["Section Name"] = "l"
     summary_table.align["Status"] = "l"
 

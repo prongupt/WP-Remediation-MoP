@@ -9,7 +9,7 @@ from typing import Dict
 # Import the entire module to access its global variables (like session_log_file_console_mirror)
 import utils_7_3_5_common
 
-# Import specific functionalities from utils_7_3_5_common.py
+# Import specific functionalities from testing_utils_7_3_5_common.py
 from utils_7_3_5_common import (
     SSHConnectionError, RouterCommandError, DataplaneError, ShowTechError, AsicErrorShowError,
     colorful_countdown_timer, execute_command_in_shell,

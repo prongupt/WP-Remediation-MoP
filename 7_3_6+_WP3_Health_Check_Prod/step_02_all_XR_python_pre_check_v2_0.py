@@ -591,7 +591,7 @@ def print_final_summary_table(phase_results: Dict[str, str], total_execution_tim
 
     summary_table = PrettyTable()
     # Use multi-line header for Test number column
-    summary_table.field_names = ["Test\nnumber", "Section Name", "Status"]
+    summary_table.field_names = ["Test #", "Section Name", "Status"]
 
     # Center align Test number, left align others
     summary_table.align["Test\nnumber"] = "c"  # Center align for numbers

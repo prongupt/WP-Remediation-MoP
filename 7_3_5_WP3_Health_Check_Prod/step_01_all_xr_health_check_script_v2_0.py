@@ -482,6 +482,39 @@ def safe_float_convert(value_str, default=0.0):
         return default
 
 
+# === ENHANCED CONNECTION FUNCTION === (ADD THIS ENTIRE SECTION)
+def connect_with_retry(client, router_ip, username, password, max_retries=3):
+    """Retry SSH connection with increasing delays for problematic routers"""
+    for attempt in range(max_retries):
+        try:
+            logging.info(f"Connection attempt {attempt + 1} of {max_retries}...")
+            client.connect(
+                router_ip,
+                port=22,
+                username=username,
+                password=password,
+                timeout=SSH_TIMEOUT_SECONDS,
+                look_for_keys=False,
+                allow_agent=False,
+                banner_timeout=120,
+                auth_timeout=120,
+                disabled_algorithms={'keys': ['rsa-sha2-256', 'rsa-sha2-512']}
+            )
+            time.sleep(2)
+            logging.info(f"✅ Connection successful on attempt {attempt + 1}")
+            return True
+        except Exception as e:
+            logging.warning(f"⚠️  Connection attempt {attempt + 1} failed: {type(e).__name__}")
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 5
+                logging.info(f"⏳ Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+            else:
+                logging.error(f"❌ All {max_retries} connection attempts failed")
+                raise e
+    return False
+
+
 def get_hostname(shell: paramiko.Channel, cli_output_file=None) -> str:
     logger.info("Attempting to retrieve hostname using 'show running-config | i hostname'...")
     output = execute_command_in_shell(shell, "show running-config | i hostname", "get hostname", timeout=10,
@@ -520,7 +553,7 @@ def parse_inventory_for_serial_numbers(inventory_output: str) -> Dict[str, Dict[
         name_match = re.search(r'NAME: "(\d+/\S+)",', line)
         if name_match:
             current_location = name_match.group(1)
-        pid_vid_sn_match = re.search(r'PID: (\S+)\s*,\s*VID: (\S+),\s*SN: (\S+)', line)
+        pid_vid_sn_match = re.search(r'PID:\s*([^,]+?)\s*,\s*VID:\s*([^,]+?)\s*,\s*SN:\s*(\S+)', line)
         if pid_vid_sn_match and current_location:
             card_info[current_location] = {
                 "PID": pid_vid_sn_match.group(1),
@@ -2080,7 +2113,7 @@ def print_final_summary_table(statuses: Dict[str, str], total_execution_time: fl
 
     summary_table = PrettyTable()
     # Use multi-line header for Test number column
-    summary_table.field_names = ["Test\nnumber", "Section Name", "Status"]
+    summary_table.field_names = ["Test #", "Section Name", "Status"]
 
     # Center align Test number, left align others
     summary_table.align["Test\nnumber"] = "c"  # Center align for numbers
@@ -2177,8 +2210,7 @@ def main():
 
     try:
         logger.info(f"Attempting to connect to {router_ip}...")
-        client.connect(router_ip, port=22, username=username, password=password, timeout=SSH_TIMEOUT_SECONDS,
-                       look_for_keys=False)
+        connect_with_retry(client, router_ip, username, password)
         logger.info(f"Successfully connected to {router_ip}.")
 
         shell = client.invoke_shell()

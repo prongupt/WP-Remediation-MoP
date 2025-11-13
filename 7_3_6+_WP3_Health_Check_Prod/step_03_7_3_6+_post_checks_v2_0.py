@@ -8,7 +8,7 @@ from pathlib import Path
 
 # Architecture detection and re-execution logic
 def ensure_compatible_environment():
-    """Ensure script runs with architecture-compatible dependencies."""
+    """Ensure script runs with architecture-compatible dependencies (with optional venv setup)."""
     arch = platform.machine()
     script_dir = Path(__file__).parent
     venv_path = script_dir / f".venv_{arch}"
@@ -32,11 +32,11 @@ def ensure_compatible_environment():
         except Exception:
             pass
 
-    # Need to create venv and install dependencies
-    print(f"Setting up {arch}-compatible environment...")
-    print(f"This is a one-time setup and may take a minute...\n")
-
+    # Try to create venv, but fall back gracefully if it fails
     try:
+        print(f"Setting up {arch}-compatible environment...")
+        print(f"This is a one-time setup and may take a minute...\n")
+
         # Create venv
         import venv
         venv.create(venv_path, with_pip=True)
@@ -54,8 +54,33 @@ def ensure_compatible_environment():
         os.execv(str(venv_python), [str(venv_python)] + sys.argv)
 
     except Exception as e:
-        print(f"Error setting up environment: {e}")
-        print("Attempting to run with system Python...")
+        print(f"⚠️  Virtual environment setup failed: {e}")
+        print("📋 This might be due to missing system packages (e.g., python3-venv on Ubuntu/Debian)")
+        print("🔄 Continuing with system Python...")
+        print("💡 Note: You can install missing packages with: sudo apt-get install python3-venv python3-pip")
+
+        # Check if required dependencies are available in system Python
+        missing_deps = []
+        try:
+            import paramiko
+        except ImportError:
+            missing_deps.append("paramiko")
+
+        try:
+            import prettytable
+        except ImportError:
+            missing_deps.append("prettytable")
+
+        if missing_deps:
+            print(f"❌ Missing required dependencies: {', '.join(missing_deps)}")
+            print(f"📦 Install with: pip3 install {' '.join(missing_deps)}")
+            print(f"   or: python3 -m pip install {' '.join(missing_deps)}")
+            user_choice = input("Continue anyway? (y/N): ").lower()
+            if user_choice not in ['y', 'yes']:
+                print("Script execution cancelled.")
+                sys.exit(1)
+
+        print("✅ Proceeding with system Python...\n")
         # Continue with system Python as fallback
 
 
@@ -162,25 +187,27 @@ class HostnameRetrievalError(Exception):
 # --- Enhanced Logging Classes ---
 class CompactFormatter(logging.Formatter):
     """Enhanced formatter with bright colors and timestamps for status messages"""
+
+    def __init__(self):
+        super().__init__(datefmt='%Y-%m-%d %H:%M:%S')
+
     FORMATS = {
-        logging.ERROR: '\033[91m%(asctime)s - %(levelname)s\033[0m - %(message)s',
-        logging.WARNING: '\033[93m%(asctime)s - %(levelname)s\033[0m - %(message)s',
+        logging.ERROR: '%(asctime)s - \033[91m%(levelname)s\033[0m - %(message)s',
+        logging.WARNING: '%(asctime)s - \033[93m%(levelname)s\033[0m - %(message)s',
         logging.INFO: '%(asctime)s - %(levelname)s - %(message)s',
-        logging.CRITICAL: '\033[91m%(asctime)s - %(levelname)s\033[0m - %(message)s',
+        logging.CRITICAL: '%(asctime)s - \033[91m%(levelname)s\033[0m - %(message)s',
         logging.DEBUG: '%(asctime)s - %(levelname)s - %(message)s',
     }
 
     def format(self, record):
         msg = record.getMessage()
         if msg.startswith('✓ ') and ('passed' in msg or 'complete' in msg or 'Success' in msg):
-            return f'\033[92m%(asctime)s - %(levelname)s\033[0m - \033[1;92m{msg}\033[0m' % {
-                'asctime': self.formatTime(record), 'levelname': record.levelname}
+            return f'{self.formatTime(record, self.datefmt)} - \033[92m{record.levelname}\033[0m - \033[1;92m{msg}\033[0m'
         elif msg.startswith('✗ ') and ('failed' in msg or 'error' in msg):
-            return f'\033[91m%(asctime)s - %(levelname)s\033[0m - \033[1;91m{msg}\033[0m' % {
-                'asctime': self.formatTime(record), 'levelname': record.levelname}
+            return f'{self.formatTime(record, self.datefmt)} - \033[91m{record.levelname}\033[0m - \033[1;91m{msg}\033[0m'
         else:
             log_fmt = self.FORMATS.get(record.levelno, '%(asctime)s - %(levelname)s - %(message)s')
-            formatter = logging.Formatter(log_fmt, datefmt='%Y-%m-%d %H:%M:%S')
+            formatter = logging.Formatter(log_fmt, datefmt=self.datefmt)
             return formatter.format(record)
 
 

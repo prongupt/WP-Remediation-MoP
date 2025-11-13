@@ -139,7 +139,7 @@ def main():
 
     parser.add_argument('--hosts', nargs='+', required=True, help='List of hostnames')
     parser.add_argument('--username', required=True, help='Username for login')
-    parser.add_argument('--password', required=True, help='Password for login')
+    parser.add_argument('--password', help='Password for login (will be prompted if not provided)')
     parser.add_argument('--timeout', type=int, default=30, help='Connection timeout in seconds (default: 30)')
     parser.add_argument('--max_workers', type=int, default=5, help='Max parallel uploads (default: 5)')
 

@@ -482,6 +482,7 @@ def safe_float_convert(value_str, default=0.0):
         return default
 
 
+# === ENHANCED CONNECTION FUNCTION === (ADD THIS ENTIRE SECTION)
 def connect_with_retry(client, router_ip, username, password, max_retries=3):
     """Retry SSH connection with increasing delays for problematic routers"""
     for attempt in range(max_retries):

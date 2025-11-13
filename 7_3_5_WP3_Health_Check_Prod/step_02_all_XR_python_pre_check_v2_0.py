@@ -594,7 +594,7 @@ def print_final_summary_table(phase_results: Dict[str, str], total_execution_tim
     summary_table.field_names = ["Test #", "Section Name", "Status"]
 
     # Center align Test number, left align others
-    summary_table.align["Test\nnumber"] = "c"  # Center align for numbers
+    summary_table.align["Test #"] = "c"  # Center align for numbers
     summary_table.align["Section Name"] = "l"
     summary_table.align["Status"] = "l"
 

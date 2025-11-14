@@ -164,7 +164,10 @@ graph TD
 - **Part II**: Two-phase Python script validation with error tracking  
 - **Part III**: 8-step post-commissioning workflow with advanced monitoring
 
-Total Compatibility Score: 100% - All parts implement appropriate features for their specific purposes while maintaining consistent patterns for shared functionality.
+
+<sub> Total Compatibility Score: 100% - All parts implement appropriate features for their specific purposes while maintaining consistent patterns for shared functionality. </sub>
+
 ---
 
 **🚀 Ready to automate your Cisco IOS-XR device commissioning process!**
+

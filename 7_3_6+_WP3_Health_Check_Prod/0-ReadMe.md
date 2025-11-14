@@ -84,10 +84,47 @@ graph TD
     python3 step_03_7_3_6+_post_checks_v2_0.py
    
 
-⏱️ Execution Times
+## ⏱️ Execution Times
 
-Script	Typical Duration	Purpose
-Pre-Check	10-15 minutes	Device health assessment
-Python Pre-Check	45-60 minutes	Script validation (includes 20min wait)
-Post-Check	2-3 hours	Comprehensive validation (includes dataplane monitoring)
-File Upload	2-5 minutes	File transfer utility
+| Script | Typical Duration | Purpose |
+|--------|------------------|---------|
+| Pre-Check | **10-15 minutes** | Device health assessment |
+| Python Pre-Check | **45-60 minutes** | Script validation (includes 20min wait) |
+| Post-Check | **2-3 hours** | Comprehensive validation (includes dataplane monitoring) |
+| File Upload | **2-5 minutes** | File transfer utility |
+
+## 🎨 Features
+
+### ✨ **Smart & Reliable**
+- 🔄 **Auto-retry SSH connections** for problematic devices
+- 🌐 **Cross-platform compatibility** with automatic environment setup
+- 📊 **Progress tracking** with real-time status updates
+- 🎯 **Detailed error analysis** with intuitive reporting
+
+### 📁 **Organized Output**
+- 📂 **Hostname-based directories** for organized file storage
+- 📝 **Session logs** for troubleshooting and audit trails
+- 📄 **Raw output files** with complete command responses
+- ⏰ **Execution time tracking** for performance monitoring
+
+### 🛡️ **Production Ready**
+- 🔧 **Graceful error handling** with informative messages
+- 🎨 **Color-coded status indicators** for quick visual feedback
+- 📊 **Comprehensive final summaries** with execution statistics
+- 🔍 **Detailed consistency verification** across all components
+
+## 📖 Getting Help
+
+### 🆘 Common Issues
+- **SSH Connection Problems**: Scripts include automatic retry with progressive delays
+- **Missing Dependencies**: Auto-setup creates isolated environments when possible
+- **Permission Issues**: Clear error messages with specific solution commands
+
+### 📞 Support
+- **Author**: Pronoy Dasgupta (prongupt@cisco.com)
+- **Version**: 2.0.0
+- **Status**: Production Ready
+
+---
+
+**🚀 Ready to automate your Cisco IOS-XR device commissioning process!**

@@ -1,4 +1,4 @@
-# 🔧 Cisco IOS-XR Device Commissioning Automation Suite
+# 🔧 Cisco 8000 IOS-XR Fabric Health Remediation Automation Suite
 
 A comprehensive Python automation toolkit for commissioning and validating Cisco IOS-XR devices (8804, 8808, 8812, 8818). This suite performs health checks, baseline establishment, script validation, and comprehensive post-commissioning verification.
 
@@ -15,7 +15,7 @@ This automation suite guides you through the complete device commissioning proce
 | **3** - `step_03_7_3_6+_post_checks_v2_0.py` | ✅ **Post-Installation Verification** | • Monitors dummy scripts and dataplane health<br>• Performs comprehensive 8-step validation workflow<br>• Captures show tech and clears ASIC counters |
 | **4** - `step_04_degradation_detect_file_upload_v2_0.py` | 📤 **File Upload Utility** | • Uploads monitor scripts to device hard disk<br>• **Run this first if monitor files don't exist on device** |
 
-
+## 📊 Process Flow
 ```mermaid
 graph TD
     subgraph Initialization
@@ -57,3 +57,5 @@ graph TD
     style N fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
     style P fill:#D1ECF1,stroke:#17A2B8,stroke-width:2px,color:#212529
 ```
+
+

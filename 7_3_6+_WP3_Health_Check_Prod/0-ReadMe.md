@@ -18,25 +18,25 @@ This automation suite guides you through the complete device commissioning proce
 ## 📊 Process Flow
 ```mermaid
 graph TD
-    subgraph Initialization
+    subgraph Pre-Checks
         A[🏁 Start] --> B{📁 Check if .py files exist on device?};
         B -- No --> C[📤 Run step_04_degradation_detect_file_upload_v2_0.py];
+        C --> D[🔍 Run step_01_all_xr_health_check_script_v2_0.py];
+        B -- Yes --> D;
+        D --> E[🐍 Run step_02_all_XR_python_pre_check_v2_0.py - gather baseline];
     end
 
-    subgraph Pre-Checks and Remediation
-        C --> D[🔍 Run step_01_all_xr_health_check_script_v2_0.py];
-        B -- Yes --> D; 
-        D --> E[🐍 Run step_02_all_XR_python_pre_check_v2_0.py - gather baseline];
-        E --> F[🔧 Perform installation/remediation];
-        F --> I[⚡ Power on device];
-        J_node[🔍 Re-run step_01_all_xr_health_check_script_v2_0.py];
-        I --> J_node;
+    subgraph Remediation
+        E --> F[⚡ Power off device];
+        F --> G[🔧 Installation];
+        G --> H[⚡ Power on device];
+    end
+
+    subgraph Post-Checks
+        H --> J_node[🔍 Run step_01_all_xr_health_check_script_v2_0.py];
         J_node --> K{✅ Post-install status OK?};
         K -- No --> K_Remediate_Step[🔧 Remediate issues];
         K_Remediate_Step --> J_node;
-    end
-
-    subgraph Post-check Phases
         K -- Yes --> L[🔄 Perform first reload];
         L --> L1[⏰ Wait 20 minutes];
         L1 --> L2[🔍 Run CLI pre-check<br>verify optics/interfaces];
@@ -54,9 +54,6 @@ graph TD
         N -- Yes --> P[🎉 Hand device to customer];
         N -- No --> O[🔧 Remediate problems];
         O --> M;
-    end
-    
-    subgraph Finalization
         P --> Q[🏁 End];
     end
 

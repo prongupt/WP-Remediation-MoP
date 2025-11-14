@@ -1,6 +1,6 @@
 # 🔧 Cisco 8000 IOS-XR Fabric Health Remediation Automation Suite
 
-A comprehensive Python automation toolkit for commissioning and validating Cisco IOS-XR devices (8804, 8808, 8812, 8818). This suite performs health checks, baseline establishment, script validation, and comprehensive post-commissioning verification.
+A comprehensive Python automation toolkit for remediating Cisco IOS-XR devices (8804, 8808, 8812, 8818) fabric link problems. This suite performs health checks, baseline establishment, script validation, and comprehensive post-commissioning verification.
 
 ## 🚀 Quick Overview
 

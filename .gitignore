@@ -8,3 +8,14 @@
 .idea/misc.xml
 .idea/modules.xml
 .idea/vcs.xml
+
+#Python
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python/
+env/
+venv/
+.venv/

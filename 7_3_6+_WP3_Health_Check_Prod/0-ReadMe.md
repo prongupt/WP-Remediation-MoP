@@ -8,12 +8,12 @@ This automation suite guides you through the complete device commissioning proce
 
 ### 📋 What Each Script Does
 
-| **Script** | **Purpose** | **What It Does** |
-|------------|-------------|------------------|
-| **1** - `step_01_all_xr_health_check_script_v2_0.py` | 🔍 **CLI Pre-Check** | • Performs comprehensive device health checks<br>• Captures baseline for optics/FPD/serial numbers<br>• **First run creates the baseline for all future comparisons** |
-| **2** - `step_02_all_XR_python_pre_check_v2_0.py` | 🐍 **Python Script Validation** | • Provides baseline of degraded links<br>• Validates Python script execution capability<br>• Two-phase dummy script testing |
-| **3** - `step_03_7_3_6+_post_checks_v2_0.py` | ✅ **Post-Installation Verification** | • Monitors dummy scripts and dataplane health<br>• Performs comprehensive 8-step validation workflow<br>• Captures show tech and clears ASIC counters |
-| **4** - `step_04_degradation_detect_file_upload_v2_0.py` | 📤 **File Upload Utility** | • Uploads monitor scripts to device hard disk<br>• **Run this first if monitor files don't exist on device** |
+| **Script**                                               | **Purpose**                          | **What It Does**                                                                                                                                                      |
+|----------------------------------------------------------|--------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **1** - `step_01_all_xr_health_check_script_v2_0.py`     | 🔍 **CLI Pre-Check**                 | • Performs comprehensive device health checks<br>• Captures baseline for optics/FPD/serial numbers<br>• **First run creates the baseline for all future comparisons** |
+| **2** - `step_02_all_XR_python_pre_check_v2_0.py`        | 🐍 **Python Script Validation**      | • Provides baseline of degraded links<br>• Validates Python script execution capability<br>• Two-phase dummy script testing                                           |
+| **3** - `step_03_7_3_6+_post_checks_v2_0.py`             | ✅ **Post-Installation Verification** | • Monitors dummy scripts and dataplane health<br>• Performs comprehensive 8-step validation workflow<br>• Captures show tech and clears ASIC counters                 |
+| **4** - `step_04_degradation_detect_file_upload_v2_0.py` | 📤 **File Upload Utility**           | • Uploads monitor scripts to device hard disk<br>• **Run this first if monitor files don't exist on device**                                                          |
 
 ## 📊 Process Flow
 ```mermaid
@@ -86,12 +86,12 @@ graph TD
 
 ## ⏱️ Execution Times
 
-| Script | Typical Duration | Purpose |
-|--------|------------------|---------|
-| Pre-Check | **10-15 minutes** | Device health assessment |
-| Python Pre-Check | **45-60 minutes** | Script validation (includes 20min wait) |
-| Post-Check | **2-3 hours** | Comprehensive validation (includes dataplane monitoring) |
-| File Upload | **2-5 minutes** | File transfer utility |
+| Script           | Typical Duration  | Purpose                                                  |
+|------------------|-------------------|----------------------------------------------------------|
+| Pre-Check        | **10-15 minutes** | Device health assessment                                 |
+| Python Pre-Check | **45-60 minutes** | Script validation (includes 20min wait)                  |
+| Post-Check       | **2-3 hours**     | Comprehensive validation (includes dataplane monitoring) |
+| File Upload      | **2-5 minutes**   | File transfer utility                                    |
 
 ## 🎨 Features
 
@@ -127,37 +127,37 @@ graph TD
 
 ## 🔍 Feature Compatibility Matrix
 
-| **Feature** | **Part I<br>Pre-Check** | **Part II<br>Python Pre-Check** | **Part III<br>Post-Check** |
-|-------------|:-----------------------:|:--------------------------------:|:--------------------------:|
-| **Cross-Platform Venv Setup** | ✅ | ✅ | ✅ |
-| **Enhanced SSH Retry (3x)** | ✅ | ✅ | ✅ |
-| **Progressive Connection Delays** | ✅ | ✅ | ✅ |
-| **Problem Router Support** | ✅ | ✅ | ✅ |
-| **Enhanced Command Format** | ✅ | ✅ | ✅ |
-| **Terminal Length/Width Setup** | ✅ | ✅ | ✅ |
-| **Full Hostname Preservation** | ✅ | ✅ | ✅ |
-| **Progress Bar Tracking** | ✅ | ❌ | ❌ |
-| **Colored Logging (✓/✗)** | ✅ | ✅ | ✅ |
-| **Complete Timestamps** | ✅ | ✅ | ✅ |
-| **Output Coordination (Tee)** | ✅ | ✅ | ✅ |
-| **Manual Error Table Widths** | ❌ | ✅ | ✅ |
-| **Detailed Error Values** | ❌ | ✅ | ✅ |
-| **Execution Time Tracking** | ✅ | ✅ | ✅ |
-| **Final Summary Tables** | ✅ | ✅ | ✅ |
-| **Center-Aligned Test Numbers** | ✅ | ✅ | ✅ |
-| **Color-Coded Status** | ✅ | ✅ | ✅ |
-| **Fail-Fast Error Handling** | ❌ | ❌ | ✅ |
-| **Global Error Tracking** | ❌ | ✅ | ✅ |
-| **Python 3.7+ Compatibility** | ✅ | ✅ | ✅ |
-| **Fabric/NPU Health Checks** | ✅ | ❌ | ❌ |
-| **Field Notice Compliance** | ✅ | ❌ | ❌ |
-| **Baseline Comparison** | ✅ | ❌ | ❌ |
-| **Link Degradation Analysis** | ❌ | ✅ | ✅ |
-| **Dataplane Monitoring** | ❌ | ❌ | ✅ |
-| **Show Tech Collection** | ❌ | ❌ | ✅ |
-| **ASIC Error Clearing** | ❌ | ❌ | ✅ |
-| **Concurrent Operations** | ❌ | ❌ | ✅ |
-| **Multi-Phase Execution** | ❌ | ✅ | ✅ |
+| **Feature**                       | **Part I<br>Pre-Check** | **Part II<br>Python Pre-Check** | **Part III<br>Post-Check** |
+|-----------------------------------|:-----------------------:|:-------------------------------:|:--------------------------:|
+| **Cross-Platform Venv Setup**     |            ✅            |                ✅                |             ✅              |
+| **Enhanced SSH Retry (3x)**       |            ✅            |                ✅                |             ✅              |
+| **Progressive Connection Delays** |            ✅            |                ✅                |             ✅              |
+| **Problem Router Support**        |            ✅            |                ✅                |             ✅              |
+| **Enhanced Command Format**       |            ✅            |                ✅                |             ✅              |
+| **Terminal Length/Width Setup**   |            ✅            |                ✅                |             ✅              |
+| **Full Hostname Preservation**    |            ✅            |                ✅                |             ✅              |
+| **Progress Bar Tracking**         |            ✅            |                ❌                |             ❌              |
+| **Colored Logging (✓/✗)**         |            ✅            |                ✅                |             ✅              |
+| **Complete Timestamps**           |            ✅            |                ✅                |             ✅              |
+| **Output Coordination (Tee)**     |            ✅            |                ✅                |             ✅              |
+| **Manual Error Table Widths**     |            ❌            |                ✅                |             ✅              |
+| **Detailed Error Values**         |            ❌            |                ✅                |             ✅              |
+| **Execution Time Tracking**       |            ✅            |                ✅                |             ✅              |
+| **Final Summary Tables**          |            ✅            |                ✅                |             ✅              |
+| **Center-Aligned Test Numbers**   |            ✅            |                ✅                |             ✅              |
+| **Color-Coded Status**            |            ✅            |                ✅                |             ✅              |
+| **Fail-Fast Error Handling**      |            ❌            |                ❌                |             ✅              |
+| **Global Error Tracking**         |            ❌            |                ✅                |             ✅              |
+| **Python 3.7+ Compatibility**     |            ✅            |                ✅                |             ✅              |
+| **Fabric/NPU Health Checks**      |            ✅            |                ❌                |             ❌              |
+| **Field Notice Compliance**       |            ✅            |                ❌                |             ❌              |
+| **Baseline Comparison**           |            ✅            |                ❌                |             ❌              |
+| **Link Degradation Analysis**     |            ❌            |                ✅                |             ✅              |
+| **Dataplane Monitoring**          |            ❌            |                ❌                |             ✅              |
+| **Show Tech Collection**          |            ❌            |                ❌                |             ✅              |
+| **ASIC Error Clearing**           |            ❌            |                ❌                |             ✅              |
+| **Concurrent Operations**         |            ❌            |                ❌                |             ✅              |
+| **Multi-Phase Execution**         |            ❌            |                ✅                |             ✅              |
 
 ### 📊 **Summary**
 - **Part I**: Comprehensive device health assessment with baseline establishment

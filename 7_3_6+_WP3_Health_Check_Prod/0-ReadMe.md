@@ -37,8 +37,19 @@ graph TD
     end
 
     subgraph Post-check Phases
-        K -- Yes --> L[🔄 Reload device twice<br>20 min wait each];
-        L --> M[✅ Run step_03_7_3_6+_post_checks_v2_0.py];
+        K -- Yes --> L[🔄 Perform first reload];
+        L --> L1[⏰ Wait 20 minutes];
+        L1 --> L2[🔍 Run CLI pre-check<br>verify optics/interfaces];
+        L2 --> L3{✅ Optics/interfaces OK?};
+        L3 -- No --> L3_Fix[🔧 Fix optics/interface issues];
+        L3_Fix --> L2;
+        L3 -- Yes --> M1[🔄 Perform second reload];
+        M1 --> M2[⏰ Wait 20 minutes];
+        M2 --> M3[🔍 Run CLI pre-check<br>verify optics/interfaces];
+        M3 --> M4{✅ Optics/interfaces OK?};
+        M4 -- No --> M4_Fix[🔧 Fix optics/interface issues];
+        M4_Fix --> M3;
+        M4 -- Yes --> M[✅ Run step_03_7_3_6+_post_checks_v2_0.py];
         M --> N{🎯 All checks passed?};
         N -- Yes --> P[🎉 Hand device to customer];
         N -- No --> O[🔧 Remediate problems];
@@ -54,8 +65,12 @@ graph TD
     style Q fill:#D4EDDA,stroke:#28A745,stroke-width:3px,color:#212529
     style B fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
     style K fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
+    style L3 fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
+    style M4 fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
     style N fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
     style P fill:#D1ECF1,stroke:#17A2B8,stroke-width:2px,color:#212529
+    style L3_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
+    style M4_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
 ```
 
 ## 🎯 Quick Start

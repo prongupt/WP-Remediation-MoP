@@ -58,4 +58,36 @@ graph TD
     style P fill:#D1ECF1,stroke:#17A2B8,stroke-width:2px,color:#212529
 ```
 
+## 🎯 Quick Start
 
+### Prerequisites
+- **Python 3.7+** (auto-setup included for dependencies)
+- **Network access** to target Cisco IOS-XR devices
+- **SSH credentials** for device access
+
+### Basic Usage
+
+1. **📤 Upload Files (if needed)**
+   ```
+   python3 step_04_degradation_detect_file_upload_v2_0.py --hosts router1.example.com --username admin
+
+2. **🔍 Run Pre-Check (Establishes Baseline)**
+    ```
+   python3 step_01_all_xr_health_check_script_v2_0.py
+
+3. **🐍 Validate Python Scripts**
+    ```
+    python3 step_02_all_XR_python_pre_check_v2_0.py
+   
+4. **✅ Post-Installation Verification**
+    ```
+    python3 step_03_7_3_6+_post_checks_v2_0.py
+   
+
+⏱️ Execution Times
+
+Script	Typical Duration	Purpose
+Pre-Check	10-15 minutes	Device health assessment
+Python Pre-Check	45-60 minutes	Script validation (includes 20min wait)
+Post-Check	2-3 hours	Comprehensive validation (includes dataplane monitoring)
+File Upload	2-5 minutes	File transfer utility

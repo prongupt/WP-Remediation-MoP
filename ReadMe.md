@@ -11,7 +11,7 @@
 1. [Overview](#-overview)
 2. [Structure at a Glance](#-structure-at-a-glance)
 3. [Installation & Setup](#-installation--setup)
-4. [Scripts functionality](#-scripts-functionality)
+4. [Summary of MoP Steps Between 7.3.5 and 7.3.6+](#-summary-of-mop-steps-between-735-and-736)
 
 ---
 

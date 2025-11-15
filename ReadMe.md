@@ -1,9 +1,9 @@
-# 🛰️ Cisco IOS-XR Automation Suite – Consistency Verification
+# 🛰️ Cisco IOS-XR Fabric Card Remediation MoP Automation
 
-![Python](https://img.shields.io/badge/Python-3.7%2B-blue)
-![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
-![Platform](https://img.shields.io/badge/Platform-Cross--Platform-lightgrey)
-![Cisco](https://img.shields.io/badge/Cisco-IOS--XR-orange)
+![Python](https://img.shields.io/badge/Python-3.7%20and%20above-blue)
+![Status](https://img.shields.io/badge/Status-Ready-brightgreen)
+![Platform](https://img.shields.io/badge/Platform-Cisco%208808%2F8818-lightgrey)
+![Cisco](https://img.shields.io/badge/Cisco-IOS--XR%207.3.5%20and%20above-orange)
 
 ---
 
@@ -18,7 +18,7 @@
 
 ## 🚀 Overview
 
-The **Cisco IOS-XR Automation Suite** provides the framework to install Fabric Cards and remediate any LC-FC link issues. This covers both 7.3.5 and 7.3.6_ IOS-XR versions. The structure and main functionality are provided below, the rough idea of the MoP can be found here:
+The **Cisco IOS-XR Fabric Card Remediation Suite** provides the framework to install Fabric Cards and remediate any LC-FC link issues. This covers both 7.3.5 and 7.3.6_ IOS-XR versions. The structure and main functionality are provided below, the rough idea of the MoP can be found here:
 [8808 / 8818 7.3.5 and 7.3.6+ MoP steps summary](https://cisco.sharepoint.com/:x:/r/sites/CX-MS-Azure-Acct/MSAzureAccount/88xx%20HW%20Program/Deployment/Phynet/USA/Phoenix%20-%20PHX/PHX%208818%20-%20Health%20Check%20%26%20LOE%20Data.xlsx?d=w7563dcce681d4884bd95a2d68f7446d0&csf=1&web=1&e=tLnbgl) 
 
 All parts operate together to form a **comprehensive automation and testing framework** for Fabric Card Link remediation.
@@ -199,3 +199,10 @@ $ python3 step_04_degradation_detect_file_upload_v2_0.py --hosts router1.example
 Uploading monitor scripts to router1.example.com:/misc/disk1/
 ✅ File upload completed successfully
 ```
+
+---
+
+### 📞 Author
+- **Author**: Pronoy Dasgupta (prongupt@cisco.com)
+- **Version**: 2.0.0
+- **Status**: Production Ready

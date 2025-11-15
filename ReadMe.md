@@ -62,22 +62,22 @@ https://github.com/prongupt/WP-Remediation-MoP.git
 
 #### **Step 3: Download Options**
 
-**Option A: GUI Download**
+   **Option A: GUI Download**
 
-1. **⬇️ Click the green "Code" button** on the repository main page
-2. **📦 Select "Download ZIP"** to get the complete automation suite
-3. **📁 Extract** the ZIP file to your working directory on SAW machine
+   1. **⬇️ Click the green "Code" button** on the repository main page
+   2. **📦 Select "Download ZIP"** to get the complete automation suite
+   3. **📁 Extract** the ZIP file to your working directory on SAW machine
 
-**Option B: CLI Clone (if GitHub CLI available)**
+   **Option B: CLI Clone (if GitHub CLI available)**
 ```bash
-gh repo clone prongupt/WP-Remediation-MoP
+   gh repo clone prongupt/WP-Remediation-MoP
 ```
 
-**Option C: Git Clone (standard)**
+   **Option C: Git Clone (standard)**
 
-I normally use PyCharm to modify code and upload to GitHub. In effect, it is doing the same thing with the command below:
+   I normally use PyCharm to modify code and upload to GitHub. In effect, it is doing the same thing with the command below:
 ```bash
-git clone github.com/prongupt/WP-Remediation-MoP.git
+   git clone github.com/prongupt/WP-Remediation-MoP.git
 ```
 
 #### **Step 4: Transfer to Jump Server**

@@ -33,15 +33,16 @@ All parts operate together to form a **comprehensive automation and testing fram
 ---
 
 ## 📦 Structure at a Glance
-| Part          | Script | Purpose |
-|:--------------|:--|:--|
-| **Part I**    | `step_01_all_xr_health_check_script_v2_0.py` | CLI pre-check (device health + baseline comparison) |
-| **Part II**   | `step_02_all_XR_python_pre_check_v2_0.py` | Python pre-check (two-phase script execution) |
-| **Part III**  | `step_03_7_3_6+_post_checks_v2_0.py` | Post-check with dataplane monitoring (IOS-XR 7.3.6+) |
+
+| Part&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Script | Purpose |
+|:-------------|:--|:--|
+| **Part I**   | `step_01_all_xr_health_check_script_v2_0.py` | CLI pre-check (device health + baseline comparison) |
+| **Part II**  | `step_02_all_XR_python_pre_check_v2_0.py` | Python pre-check (two-phase script execution) |
+| **Part III** | `step_03_7_3_6+_post_checks_v2_0.py` | Post-check with dataplane monitoring (IOS-XR 7.3.6+) |
 | **Part IIIa** | `step_03a_7_3_5_post_checks_phase_1_v2_0.py` | Post-check Phase 1 (IOS-XR 7.3.5) - Steps a-e |
 | **Part IIIb** | `step_03b_7_3_5_post_checks_phase_2_v2_0.py` | Post-check Phase 2 (IOS-XR 7.3.5) - Steps f-j |
 | **Part IIIc** | `step_03c_7_3_5_post_checks_phase_3_v2_0.py` | Post-check Phase 3 (IOS-XR 7.3.5) - Steps k-q |
-| **Part IV**   | `step_04_degradation_detect_file_upload_v2_0.py` | File upload utility (monitor scripts) |
+| **Part IV**  | `step_04_degradation_detect_file_upload_v2_0.py` | File upload utility (monitor scripts) |
 
 ---
 

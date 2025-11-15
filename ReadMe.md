@@ -107,7 +107,7 @@ For ease of use, organize into separate folders by IOS-XR version:
 ```
 ---
 
-## 📋 Summary of MoP Steps Between 7.3.5 and 7.3.6+
+## 📋 Scripts Functionality
 
 | **Script Name** | **Functionality** |
 |:----------------|:------------------|

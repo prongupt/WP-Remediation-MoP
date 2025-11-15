@@ -10,11 +10,7 @@
 ## 📑 Table of Contents
 1. [Overview](#-overview)
 2. [Structure at a Glance](#-structure-at-a-glance)
-3. [Feature Comparison](#-feature-comparison-collapsible-sections)
-   - [Architecture, SSH, and Execution](#architecture-ssh-and-execution)
-   - [Progress, Logging, and Output](#progress-logging-and-output)
-   - [Execution & Error Handling](#execution--error-handling)
-   - [Python Compatibility & Specialized Features](#python-compatibility--specialized-features)
+3. [Installation & Setup](#-installation--setup)
 4. [Consistency Score](#-consistency-score)
 5. [Deployment Status](#-deployment-status)
 6. [Code Examples](#-code-examples)
@@ -49,26 +45,103 @@ All four parts operate together to form a **comprehensive automation and testing
 
 ---
 
-## 📊 Feature Comparison (Collapsible Sections)
+## 📥 Installation & Setup
 
-Click below to expand each feature section 👇
+### **Downloading to Jump Server/SAW Machine**
+
+Follow these steps to get the automation suite onto your Jump Server or SAW machine:
+
+#### **Step 1: Access GitHub**
+1. **🌐 Login to GitHub** from your Jump Server/SAW machine
+2. **✅ Verify access** - GitHub is accessible and works correctly on SAW machines
+
+#### **Step 2: Navigate to Repository**
+1. **🔗 Open Internet Explorer** or your preferred browser
+2. **🌍 Navigate via HTTPS/GUI** to the repository:
+https://github.com/prongupt/WP-Remediation-MoP.git
+
+#### **Step 3: Download Options**
+
+**Option A: GUI Download**
+1. **⬇️ Click the green "Code" button** on the repository main page
+2. **📦 Select "Download ZIP"** to get the complete automation suite
+3. **📁 Extract** the ZIP file to your working directory on SAW machine
+
+**Option B: CLI Clone (if GitHub CLI available)**
+```bash
+gh repo clone prongupt/WP-Remediation-MoP
+```
+
+**Option C: Git Clone (standard)**
+```bash
+git clone github.com/prongupt/WP-Remediation-MoP.git
+```
+
+#### **Step 4: Transfer to Jump Server**
+1. **🖥️ Open SSH session to jump host (e.g., netjb-westus2-1 - 10.20.39.42)
+2. **🔧 Configure SFTP options using SecureCRT
+3. **📚 Reference guide: SecureCRT SFTP Setup Tutorial
+4. **📡 Connect to SFTP session through the Jump Server
+5. **📤 Upload the files to the Jump Server
+
+#### **Step 4: Organize Files**
+For ease of use, organize into separate folders by IOS-XR version:
+```bash
+/your-working-directory/
+├── 7_3_5/          # For IOS-XR 7.3.5 devices
+└── 7_3_6+/         # For IOS-XR 7.3.6+ devices
+    ├── step_01_all_xr_health_check_script_v2_0.py
+    ├── step_02_all_XR_python_pre_check_v2_0.py
+    ├── step_03_7_3_6+_post_checks_v2_0.py
+    └── step_04_degradation_detect_file_upload_v2_0.py
+```
+
+## 🧠 Consistency Score
+
+> **✅ 100% CONSISTENCY VERIFIED**
+
+### **Checklist**
+- ✅ Enhanced SSH connection handling (All Parts)  
+- ✅ Unified command execution format  
+- ✅ Hostname + file naming consistency  
+- ✅ Execution time tracking (HH:MM:SS)  
+- ✅ Formatted summary tables  
+- ✅ Color-coded status and logging  
+- ✅ Enhanced error reporting  
+- ✅ Python 3.7+ compatibility  
+- ✅ Robust exception handling  
+- ✅ Cross-platform support (auto venv setup)
 
 ---
 
-<details>
-<summary><b>🔧 Architecture, SSH, and Execution</b></summary>
-<a id="architecture-ssh-and-execution"></a>
+## 🚀 Deployment Status
 
-| **Feature** | **Part I** | **Part II** | **Part III** | **Part IV** |
-|:--|:--|:--|:--|:--|
-| **Architecture Setup** | ✅ Auto venv setup | ✅ Auto venv setup | ✅ Auto venv setup | ✅ Auto venv setup |
-| **SSH Connection** | ✅ Enhanced retry (3x), delays | ✅ Enhanced retry (3x), delays | ✅ Enhanced retry (3x), delays | ✅ Enhanced retry (3x), delays |
-| **Command Execution Format** | ✅ `"Sending 'desc' ('actual_cmd')..."` | ✅ Same format | ✅ Same format | ❌ File transfer only |
-| **Terminal Setup** | ✅ `terminal length 0`, `terminal width 511` | ✅ Same | ✅ Same | ❌ Not applicable |
-| **Hostname Handling** | ✅ Full hostname (replaces dots with dashes) | ✅ Same | ✅ Same | ❌ Not applicable |
-| **File Naming Convention** | `{hostname}_combined_{type}_{timestamp}.txt` | `{hostname}_python_pre_check_{type}_{timestamp}.txt` | `{hostname}_7_3_6+_post-checks_{type}_{timestamp}.txt` | ❌ Upload only |
+**Production Ready**
 
-</details>
+### **Workflow Summary**
+- **Part I:** Device health assessment and baseline establishment  
+- **Part II:** Python script execution and validation  
+- **Part III:** Comprehensive post-checks with dataplane monitoring
+- **Part IV:** Monitor script file upload utility  
+
+> Together, they form a **complete automation suite** for Cisco IOS-XR testing and validation.
+
+---
+
+## 💻 Code Examples
+
+### CLI Sample
+```bash
+# Example from Part I (CLI Pre-Check)
+$ python3 step_01_all_xr_health_check_script_v2_0.py
+
+Sending 'show platform' ('show platform')...
+Sending 'show controllers npu all' ('show controllers npu all')...  
+Sending 'show environment all' ('show environment all')...
+Sending 'show version' ('show version')...
+✅ CLI health check completed successfully
+```
+
 
 ---
 
@@ -118,48 +191,3 @@ Click below to expand each feature section 👇
 </details>
 
 ---
-
-## 🧠 Consistency Score
-
-> **✅ 100% CONSISTENCY VERIFIED**
-
-### **Checklist**
-- ✅ Enhanced SSH connection handling (All Parts)  
-- ✅ Unified command execution format  
-- ✅ Hostname + file naming consistency  
-- ✅ Execution time tracking (HH:MM:SS)  
-- ✅ Formatted summary tables  
-- ✅ Color-coded status and logging  
-- ✅ Enhanced error reporting  
-- ✅ Python 3.7+ compatibility  
-- ✅ Robust exception handling  
-- ✅ Cross-platform support (auto venv setup)
-
----
-
-## 🚀 Deployment Status
-
-**Production Ready**
-
-### **Workflow Summary**
-- **Part I:** Device health assessment and baseline establishment  
-- **Part II:** Python script execution and validation  
-- **Part III:** Comprehensive post-checks with dataplane monitoring
-- **Part IV:** Monitor script file upload utility  
-
-> Together, they form a **complete automation suite** for Cisco IOS-XR testing and validation.
-
----
-
-## 💻 Code Examples
-
-### CLI Sample
-```bash
-# Example from Part I (CLI Pre-Check)
-$ python3 step_01_all_xr_health_check_script_v2_0.py
-
-Sending 'show platform' ('show platform')...
-Sending 'show controllers npu all' ('show controllers npu all')...  
-Sending 'show environment all' ('show environment all')...
-Sending 'show version' ('show version')...
-✅ CLI health check completed successfully

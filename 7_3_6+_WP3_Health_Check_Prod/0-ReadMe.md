@@ -1,21 +1,18 @@
-# 🔧 Cisco 8000 IOS-XR Fabric Health Remediation Automation Suite
+# 🔧 Steps for IOS-XR version 7.3.6 and aove
 
-A comprehensive Python automation toolkit for remediating Cisco IOS-XR devices (8804, 8808, 8812, 8818) fabric link problems. This suite performs health checks, baseline establishment, script validation, and comprehensive post-commissioning verification.
+Use the following sequence of steps for any Cisco 8818 and 8808 running IOS-XR version 7.3.6 and above
 
-## 🚀 Quick Overview
+---
+### 📋 Scripts Functionality
 
-This automation suite guides you through the complete device commissioning process with **4 simple scripts** that run in sequence:
-
-### 📋 What Each Script Does
-
-| **Script**                                               | **Purpose**                          | **What It Does**                                                                                                                                                      |
-|----------------------------------------------------------|--------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **1** - `step_01_all_xr_health_check_script_v2_0.py`     | 🔍 **CLI Pre-Check**                 | • Performs comprehensive device health checks<br>• Captures baseline for optics/FPD/serial numbers<br>• **First run creates the baseline for all future comparisons** |
-| **2** - `step_02_all_XR_python_pre_check_v2_0.py`        | 🐍 **Python Script Validation**      | • Provides baseline of degraded links<br>• Validates Python script execution capability<br>• Two-phase dummy script testing                                           |
-| **3** - `step_03_7_3_6+_post_checks_v2_0.py`             | ✅ **Post-Installation Verification** | • Monitors dummy scripts and dataplane health<br>• Performs comprehensive 8-step validation workflow<br>• Captures show tech and clears ASIC counters                 |
-| **4** - `step_04_degradation_detect_file_upload_v2_0.py` | 📤 **File Upload Utility**           | • Uploads monitor scripts to device hard disk<br>• **Run this first if monitor files don't exist on device**                                                          |
-
-## 📊 Process Flow
+| **Script Name** | **Functionality** |
+|:----------------|:------------------|
+| **step_01** | **CLI Health Checks**<br>• Platform status and serial numbers verification<br>• Fabric reachability assessment<br>• NPU link information and statistics check<br>• ASIC errors detection<br>• Interface status monitoring<br>• Active alarms verification<br>• Fan tray status and field notice compliance<br>• Environment monitoring (temperature, voltage, power)<br>• Baseline comparison for optics/hardware changes |
+| **step_02** | **Python Pre-Checks**<br>• Phase 1: Execute dummy scripts with '--dummy' yes<br>• 20-minute countdown timer<br>• Phase 2: Execute dummy scripts with '--dummy' no<br>• Link degradation analysis and baseline establishment<br>• Error detection and reporting for faulty links |
+| **step_03** | **Post-Checks for 7.3.6+ (8-Step Workflow)**<br>• Step 1: Execute dummy scripts '--dummy' yes<br>• Step 2: First dataplane monitor (polling mode)<br>• Step 3: 15-minute countdown<br>• Step 4: Execute dummy scripts '--dummy' no (Phase 2)<br>• Step 5: Second dataplane monitor<br>• Step 6: Concurrent countdown + show tech collection<br>• Step 7: Execute dummy scripts '--dummy' no (Phase 3)<br>• Step 8: ASIC error clearing |
+| **step_04** | **Upload Python Monitor Files to IOS-XR DUT**<br>• SFTP file transfer to device hard disk (/misc/disk1/)<br>• Multi-host support for bulk uploads<br>• Automatic directory navigation<br>• Upload verification and status reporting |                                                       |
+---
+### 📊 Process Flow and 🚀 Steps to Follow
 ```mermaid
 graph TD
     subgraph Pre-Checks
@@ -69,34 +66,58 @@ graph TD
     style L3_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
     style M4_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
 ```
-
-## 🎯 Quick Start
-
-### Prerequisites
-- **Python 3.7+** (auto-setup included for dependencies)
-- **Network access** to target Cisco IOS-XR devices
-- **SSH credentials** for device access
-
+---
 ### Basic Usage
 
-1. **📤 Upload Files (if needed)**
-   ```
-   python3 step_04_degradation_detect_file_upload_v2_0.py --hosts router1.example.com --username admin
+## 💻 CLI Samples for All Scripts
 
-2. **🔍 Run Pre-Check (Establishes Baseline)**
-    ```
-   python3 step_01_all_xr_health_check_script_v2_0.py
+1. **Upload files (if needed)**
+```bash
+# Example from Part IV (File Upload)
+# Type 'step_04_degradation_detect_file_upload_v2_0.py' for help
+$ python3 step_04_degradation_detect_file_upload_v2_0.py --hosts router1.example.com --username admin
 
-3. **🐍 Validate Python Scripts**
-    ```
-    python3 step_02_all_XR_python_pre_check_v2_0.py
-   
-4. **✅ Post-Installation Verification**
-    ```
-    python3 step_03_7_3_6+_post_checks_v2_0.py
-   
+Uploading monitor scripts to router1.example.com:/misc/disk1/
+✅ File upload completed successfully
+```
 
-## ⏱️ Execution Times
+2. **Run CLI Pre-Check (step01)**
+```bash
+# Example from Part I (CLI Pre-Check)
+$ python3 step_01_all_xr_health_check_script_v2_0.py
+
+Sending 'show platform' ('show platform')...
+Sending 'show controllers npu all' ('show controllers npu all')...  
+Sending 'show environment all' ('show environment all')...
+Sending 'show version' ('show version')...
+✅ CLI health check completed successfully
+```
+
+3. **Run Python Pre-Checl (step02)**
+```bash
+# Example from Part II (Python Pre-Check)
+$ python3 step_02_all_XR_python_pre_check_v2_0.py
+
+Phase 1: Execute dummy scripts with '--dummy' yes
+Phase 2: Execute dummy scripts with '--dummy' no
+✅ Python script validation completed successfully
+```
+
+4. **Run Post-Checks (step03)**
+```bash
+# Example from Part III (Post-Check 7.3.6+)
+$ python3 step_03_7_3_6+_post_checks_v2_0.py
+
+Step 1: Phase 1 - Execute dummy scripts '--dummy' yes
+Step 2: First Dataplane Monitor (7.3.6+ polling mode)
+Step 3: Sequential 15-minute countdown
+Step 4: Phase 2 - Execute dummy scripts '--dummy' no
+✅ 8-step post-check workflow completed successfully
+```
+
+---   
+
+### ⏱️ Execution Times
 
 | Script           | Typical Duration  | Purpose                                                  |
 |------------------|-------------------|----------------------------------------------------------|
@@ -105,79 +126,12 @@ graph TD
 | Post-Check       | **2-3 hours**     | Comprehensive validation (includes dataplane monitoring) |
 | File Upload      | **2-5 minutes**   | File transfer utility                                    |
 
-## 🎨 Features
-
-### ✨ **Smart & Reliable**
-- 🔄 **Auto-retry SSH connections** for problematic devices
-- 🌐 **Cross-platform compatibility** with automatic environment setup
-- 📊 **Progress tracking** with real-time status updates
-- 🎯 **Detailed error analysis** with intuitive reporting
-
-### 📁 **Organized Output**
-- 📂 **Hostname-based directories** for organized file storage
-- 📝 **Session logs** for troubleshooting and audit trails
-- 📄 **Raw output files** with complete command responses
-- ⏰ **Execution time tracking** for performance monitoring
-
-### 🛡️ **Production Ready**
-- 🔧 **Graceful error handling** with informative messages
-- 🎨 **Color-coded status indicators** for quick visual feedback
-- 📊 **Comprehensive final summaries** with execution statistics
-- 🔍 **Detailed consistency verification** across all components
-
-## 📖 Getting Help
-
-### 🆘 Common Issues
-- **SSH Connection Problems**: Scripts include automatic retry with progressive delays
-- **Missing Dependencies**: Auto-setup creates isolated environments when possible
-- **Permission Issues**: Clear error messages with specific solution commands
+---
 
 ### 📞 Support
 - **Author**: Pronoy Dasgupta (prongupt@cisco.com)
 - **Version**: 2.0.0
 - **Status**: Production Ready
-
-## 🔍 Feature Compatibility Matrix
-
-| **Feature**                       | **Part I<br>Pre-Check** | **Part II<br>Python Pre-Check** | **Part III<br>Post-Check** |
-|-----------------------------------|:-----------------------:|:-------------------------------:|:--------------------------:|
-| **Cross-Platform Venv Setup**     |            ✅            |                ✅                |             ✅              |
-| **Enhanced SSH Retry (3x)**       |            ✅            |                ✅                |             ✅              |
-| **Progressive Connection Delays** |            ✅            |                ✅                |             ✅              |
-| **Problem Router Support**        |            ✅            |                ✅                |             ✅              |
-| **Enhanced Command Format**       |            ✅            |                ✅                |             ✅              |
-| **Terminal Length/Width Setup**   |            ✅            |                ✅                |             ✅              |
-| **Full Hostname Preservation**    |            ✅            |                ✅                |             ✅              |
-| **Progress Bar Tracking**         |            ✅            |                ❌                |             ❌              |
-| **Colored Logging (✓/✗)**         |            ✅            |                ✅                |             ✅              |
-| **Complete Timestamps**           |            ✅            |                ✅                |             ✅              |
-| **Output Coordination (Tee)**     |            ✅            |                ✅                |             ✅              |
-| **Manual Error Table Widths**     |            ❌            |                ✅                |             ✅              |
-| **Detailed Error Values**         |            ❌            |                ✅                |             ✅              |
-| **Execution Time Tracking**       |            ✅            |                ✅                |             ✅              |
-| **Final Summary Tables**          |            ✅            |                ✅                |             ✅              |
-| **Center-Aligned Test Numbers**   |            ✅            |                ✅                |             ✅              |
-| **Color-Coded Status**            |            ✅            |                ✅                |             ✅              |
-| **Fail-Fast Error Handling**      |            ❌            |                ❌                |             ✅              |
-| **Global Error Tracking**         |            ❌            |                ✅                |             ✅              |
-| **Python 3.7+ Compatibility**     |            ✅            |                ✅                |             ✅              |
-| **Fabric/NPU Health Checks**      |            ✅            |                ❌                |             ❌              |
-| **Field Notice Compliance**       |            ✅            |                ❌                |             ❌              |
-| **Baseline Comparison**           |            ✅            |                ❌                |             ❌              |
-| **Link Degradation Analysis**     |            ❌            |                ✅                |             ✅              |
-| **Dataplane Monitoring**          |            ❌            |                ❌                |             ✅              |
-| **Show Tech Collection**          |            ❌            |                ❌                |             ✅              |
-| **ASIC Error Clearing**           |            ❌            |                ❌                |             ✅              |
-| **Concurrent Operations**         |            ❌            |                ❌                |             ✅              |
-| **Multi-Phase Execution**         |            ❌            |                ✅                |             ✅              |
-
-### 📊 **Summary**
-- **Part I**: Comprehensive device health assessment with baseline establishment
-- **Part II**: Two-phase Python script validation with error tracking  
-- **Part III**: 8-step post-commissioning workflow with advanced monitoring
-
-
-<sub> Total Compatibility Score: 100% - All parts implement appropriate features for their specific purposes while maintaining consistent patterns for shared functionality. </sub>
 
 ---
 

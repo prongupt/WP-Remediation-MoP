@@ -26,6 +26,10 @@ All parts operate together to form a **comprehensive automation and testing fram
 
 ## 📦 Structure at a Glance
 
+**Parts I, II and IV - Common across all IOS-XR**
+**Parts IIIa, IIIb, IIIc - Specific for 7.3.5 post checks**
+**Part III - Specific for 7.3.6 post checks**
+
 | Part&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Script | Purpose |
 |:-------------|:--|:--|
 | **Part I**   | `step_01_all_xr_health_check_script_v2_0.py` | CLI pre-check (device health + baseline comparison) |

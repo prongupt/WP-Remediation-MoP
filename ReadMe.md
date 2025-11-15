@@ -11,7 +11,8 @@
 1. [Overview](#-overview)
 2. [Structure at a Glance](#-structure-at-a-glance)
 3. [Installation & Setup](#-installation--setup)
-4. [Summary of MoP Steps Between 7.3.5 and 7.3.6+](#-summary-of-mop-steps-between-735-and-736)
+4. [Scripts Functionality](#-scripts-functionality)
+5. [CLI Samples for All Scripts](#-cli-samples-for-all-scripts)
 
 ---
 
@@ -119,3 +120,82 @@ For ease of use, organize into separate folders by IOS-XR version:
 | **step_04** | **Upload Python Monitor Files to IOS-XR DUT**<br>• SFTP file transfer to device hard disk (/misc/disk1/)<br>• Multi-host support for bulk uploads<br>• Automatic directory navigation<br>• Upload verification and status reporting |
 
 ---
+
+## 💻 CLI Samples for All Scripts
+
+```bash
+# Example from Part I (CLI Pre-Check)
+$ python3 step_01_all_xr_health_check_script_v2_0.py
+
+Sending 'show platform' ('show platform')...
+Sending 'show controllers npu all' ('show controllers npu all')...  
+Sending 'show environment all' ('show environment all')...
+Sending 'show version' ('show version')...
+✅ CLI health check completed successfully
+```
+
+```bash
+# Example from Part II (Python Pre-Check)
+$ python3 step_02_all_XR_python_pre_check_v2_0.py
+
+Phase 1: Execute dummy scripts with '--dummy' yes
+Phase 2: Execute dummy scripts with '--dummy' no
+✅ Python script validation completed successfully
+```
+
+```bash
+# Example from Part III (Post-Check 7.3.6+)
+$ python3 step_03_7_3_6+_post_checks_v2_0.py
+
+Step 1: Phase 1 - Execute dummy scripts '--dummy' yes
+Step 2: First Dataplane Monitor (7.3.6+ polling mode)
+Step 3: Sequential 15-minute countdown
+Step 4: Phase 2 - Execute dummy scripts '--dummy' no
+✅ 8-step post-check workflow completed successfully
+```
+
+```bash
+# Example from Part IIIa (Post-Check 7.3.5 Phase 1)
+$ python3 step_03a_7_3_5_post_checks_phase_1_v2_0.py
+
+Step a: Execute dummy scripts '--dummy' yes
+Step b: First dataplane monitor (foreground mode)
+Step c: 20-minute wait time
+Step d: Execute dummy scripts '--dummy' no
+Step e: Manual intervention (reload instructions)
+✅ Phase 1 post-check completed successfully
+```
+
+```bash
+# Example from Part IIIb (Post-Check 7.3.5 Phase 2)
+$ python3 step_03b_7_3_5_post_checks_phase_2_v2_0.py
+
+Step f: Second dataplane monitor
+Step g: 20-minute wait time  
+Step h: Third dataplane monitor
+Step i: Show tech collection
+Step j: Clear ASIC counters
+✅ Phase 2 post-check completed successfully
+```
+
+```bash
+# Example from Part IIIc (Post-Check 7.3.5 Phase 3)
+$ python3 step_03c_7_3_5_post_checks_phase_3_v2_0.py
+
+Step k: Execute dummy scripts '--dummy' yes (Part 3)
+Step l: Fourth dataplane monitor
+Step m: 20-minute wait time
+Step n: Execute dummy scripts '--dummy' no (First time)
+Step o: Fifth dataplane monitor  
+Step p: 20-minute wait time
+Step q: Execute dummy scripts '--dummy' no (Second time)
+✅ Phase 3 post-check completed successfully
+```
+
+```bash
+# Example from Part IV (File Upload)
+$ python3 step_04_degradation_detect_file_upload_v2_0.py --hosts router1.example.com --username admin
+
+Uploading monitor scripts to router1.example.com:/misc/disk1/
+✅ File upload completed successfully
+```

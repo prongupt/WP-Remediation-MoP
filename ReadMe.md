@@ -26,9 +26,9 @@ All parts operate together to form a **comprehensive automation and testing fram
 
 ## 📦 Structure at a Glance
 
-**Parts I, II and IV - Common across all IOS-XR**
-**Parts IIIa, IIIb, IIIc - Specific for 7.3.5 post checks**
-**Part III - Specific for 7.3.6 post checks**
+1. **Parts I, II and IV - Common across all IOS-XR**
+2. **Parts IIIa, IIIb, IIIc - Specific for 7.3.5 post checks**
+3. **Part III - Specific for 7.3.6 post checks**
 
 | Part&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Script | Purpose |
 |:-------------|:--|:--|

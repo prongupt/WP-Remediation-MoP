@@ -112,6 +112,10 @@ Step 1: Phase 1 - Execute dummy scripts '--dummy' yes
 Step 2: First Dataplane Monitor (7.3.6+ polling mode)
 Step 3: Sequential 15-minute countdown
 Step 4: Phase 2 - Execute dummy scripts '--dummy' no
+Step 5: Second Dataplane Monitor (7.3.6+ polling mode)
+Step 6: Concurrent countdown + show tech collection
+Step 7: Phase 3 - Execute dummy scripts '--dummy' no
+Step 8: ASIC Error Clearing Command
 ✅ 8-step post-check workflow completed successfully
 ```
 

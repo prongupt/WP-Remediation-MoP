@@ -1,6 +1,14 @@
 # 🔧 Steps for IOS-XR version 7.3.6 and aove
 
-Use the following sequence of steps for any Cisco 8818 and 8808 running IOS-XR version 7.3.6 and above
+Use the following sequence of steps for any Cisco 8818 and 8808 running IOS-XR version 7.3.6 and above.
+
+## 📑 Table of Contents
+1. [Scripts Functionality](#-scripts-functionality)
+2. [Process Flow and Steps to Follow](#-process-flow-and--steps-to-follow)
+3. [Basic Usage](#basic-usage)
+4. [CLI Samples for All Scripts](#-cli-samples-for-all-scripts)
+5. [Execution Times](#️-execution-times)
+6. [Support](#-support)
 
 ---
 ### 📋 Scripts Functionality

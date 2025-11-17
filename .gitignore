@@ -1,3 +1,4 @@
+# Python
 .DS_Store
 .idea/.gitignore
 .idea/Command_Collection_Infra.iml
@@ -8,9 +9,6 @@
 .idea/misc.xml
 .idea/modules.xml
 .idea/vcs.xml
-
-#Python
-# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -1015,3 +1013,5 @@ venv/
 /7_3_6+_WP3_Health_Check_Prod/.venv_arm64/lib/python3.10/site-packages/pycparser/ply/ygen.py
 /7_3_6+_WP3_Health_Check_Prod/.venv_arm64/lib/python3.10/site-packages/wcwidth-0.2.14.dist-info/zip-safe
 /7_3_6+_WP3_Health_Check_Prod/.venv_arm64/lib/python3.10/site-packages/invoke/completion/zsh.completion
+/7_3_6+_WP3_Health_Check_Prod/8818_SJC24_O40_SYS_07/8818_SJC24_O40_SYS_07_combined_cli_output_20251116_224017.txt
+/7_3_6+_WP3_Health_Check_Prod/8818_SJC24_O40_SYS_07/8818_SJC24_O40_SYS_07_combined_session_log_20251116_224017.txt

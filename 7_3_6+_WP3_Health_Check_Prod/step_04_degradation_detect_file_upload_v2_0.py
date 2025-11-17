@@ -141,7 +141,7 @@ usage: step_04_degradation_detect_file_upload_v2_0.py
 REMOTE_PATH = '/misc/disk1/'
 
 # Static local file pattern to upload
-LOCAL_FILE_PATTERN = os.path.expanduser('~/Downloads/monitor*')
+LOCAL_FILE_PATTERN = os.path.expanduser('~/monitor*')
 
 
 def sftp_upload_files(hosts, username, password=None, timeout=30, max_workers=5):

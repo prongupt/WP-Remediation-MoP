@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def ensure_compatible_environment():
-    """Smart environment setup for file upload script - only paramiko needed."""
+    """Smart environment setup - only creates venv when dependencies are missing or incompatible."""
 
     # First, check if we already have working dependencies in the current environment
     def check_dependencies():
@@ -23,7 +23,15 @@ def ensure_compatible_environment():
             # Paramiko available but might have issues
             print(f"⚠️  paramiko available but may have compatibility issues: {e}")
 
-        # Part IV doesn't need prettytable, so don't check for it
+        try:
+            import prettytable
+            # Quick functionality test
+            prettytable.PrettyTable()  # Test if prettytable works
+        except ImportError:
+            missing_deps.append("prettytable")
+        except Exception as e:
+            print(f"⚠️  prettytable available but may have compatibility issues: {e}")
+
         return missing_deps
 
     # Check current environment first
@@ -49,7 +57,8 @@ def ensure_compatible_environment():
     if venv_python.exists():
         try:
             result = subprocess.run(
-                [str(venv_python), "-c", "import paramiko; paramiko.SSHClient()"],
+                [str(venv_python), "-c",
+                 "import paramiko, prettytable; paramiko.SSHClient(); prettytable.PrettyTable()"],
                 capture_output=True,
                 timeout=10
             )
@@ -71,13 +80,13 @@ def ensure_compatible_environment():
         venv.create(venv_path, with_pip=True)
         print("✅ Virtual environment created successfully")
 
-        # Install dependencies (only paramiko for Part IV)
+        # Install dependencies
         pip_path = venv_path / "bin" / "pip"
 
         print("📦 Installing dependencies...")
         subprocess.run([str(pip_path), "install", "--upgrade", "pip"],
                        check=True, capture_output=True, timeout=60)
-        subprocess.run([str(pip_path), "install", "paramiko"],  # Only paramiko needed
+        subprocess.run([str(pip_path), "install", "paramiko", "prettytable"],
                        check=True, capture_output=True, timeout=120)
 
         print("✅ Dependencies installed successfully")

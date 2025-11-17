@@ -6,9 +6,44 @@ import subprocess
 from pathlib import Path
 
 
-# Architecture detection and re-execution logic
 def ensure_compatible_environment():
-    """Ensure script runs with architecture-compatible dependencies (with optional venv setup)."""
+    """Smart environment setup - only creates venv when dependencies are missing or incompatible."""
+
+    # First, check if we already have working dependencies in the current environment
+    def check_dependencies():
+        """Check if required dependencies are available and working."""
+        missing_deps = []
+        try:
+            import paramiko
+            # Quick functionality test
+            paramiko.SSHClient()  # Test if paramiko works
+        except ImportError:
+            missing_deps.append("paramiko")
+        except Exception as e:
+            # Paramiko available but might have issues
+            print(f"⚠️  paramiko available but may have compatibility issues: {e}")
+
+        try:
+            import prettytable
+            # Quick functionality test
+            prettytable.PrettyTable()  # Test if prettytable works
+        except ImportError:
+            missing_deps.append("prettytable")
+        except Exception as e:
+            print(f"⚠️  prettytable available but may have compatibility issues: {e}")
+
+        return missing_deps
+
+    # Check current environment first
+    missing_deps = check_dependencies()
+
+    if not missing_deps:
+        print("✅ All required dependencies are available in current environment")
+        return  # Everything works, no need for venv
+
+    print(f"📦 Missing dependencies: {', '.join(missing_deps)}")
+    print("🔄 Attempting to set up isolated environment...")
+
     arch = platform.machine()
     script_dir = Path(__file__).parent
     venv_path = script_dir / f".venv_{arch}"
@@ -18,70 +53,76 @@ def ensure_compatible_environment():
     if sys.prefix == str(venv_path):
         return  # Already in correct environment
 
-    # Check if venv exists and has dependencies
+    # Check if venv exists and has working dependencies
     if venv_python.exists():
         try:
             result = subprocess.run(
-                [str(venv_python), "-c", "import paramiko"],
+                [str(venv_python), "-c",
+                 "import paramiko, prettytable; paramiko.SSHClient(); prettytable.PrettyTable()"],
                 capture_output=True,
-                timeout=5
+                timeout=10
             )
             if result.returncode == 0:
+                print("✅ Found existing compatible virtual environment")
                 # Re-execute script with venv Python
                 os.execv(str(venv_python), [str(venv_python)] + sys.argv)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️  Existing venv test failed: {e}")
 
-    # Try to create venv, but fall back gracefully if it fails
+    # Only try to create venv if dependencies are missing and system supports it
+    print(f"🔧 Creating virtual environment for {arch} architecture...")
+
     try:
-        print(f"Setting up {arch}-compatible environment...")
-        print(f"This is a one-time setup and may take a minute...\n")
-
-        # Create venv
+        # Test if system supports venv creation
         import venv
+
+        # Create venv with error handling
         venv.create(venv_path, with_pip=True)
+        print("✅ Virtual environment created successfully")
 
         # Install dependencies
         pip_path = venv_path / "bin" / "pip"
-        subprocess.run([str(pip_path), "install", "--upgrade", "pip"],
-                       check=True, capture_output=True)
-        subprocess.run([str(pip_path), "install", "paramiko", "prettytable"],
-                       check=True, capture_output=True)
 
-        print("✓ Environment setup complete\n")
+        print("📦 Installing dependencies...")
+        subprocess.run([str(pip_path), "install", "--upgrade", "pip"],
+                       check=True, capture_output=True, timeout=60)
+        subprocess.run([str(pip_path), "install", "paramiko", "prettytable"],
+                       check=True, capture_output=True, timeout=120)
+
+        print("✅ Dependencies installed successfully")
+        print("🔄 Restarting script with virtual environment...\n")
 
         # Re-execute with new venv
         os.execv(str(venv_python), [str(venv_python)] + sys.argv)
 
-    except Exception as e:
-        print(f"⚠️  Virtual environment setup failed: {e}")
-        print("📋 This might be due to missing system packages (e.g., python3-venv on Ubuntu/Debian)")
+    except ImportError:
+        print("❌ Virtual environment module not available on this system")
+        print("💡 Install with: sudo apt-get install python3-venv")
         print("🔄 Continuing with system Python...")
-        print("💡 Note: You can install missing packages with: sudo apt-get install python3-venv python3-pip")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Virtual environment setup failed: {e}")
+        print("💡 This might be due to missing system packages:")
+        print("   - Ubuntu/Debian: sudo apt-get install python3-venv python3-pip")
+        print("   - CentOS/RHEL: sudo yum install python3-venv python3-pip")
+        print("🔄 Continuing with system Python...")
+    except Exception as e:
+        print(f"❌ Virtual environment setup failed: {e}")
+        print("🔄 Continuing with system Python...")
 
-        # Check if required dependencies are available in system Python
-        missing_deps = []
-        try:
-            import paramiko
-        except ImportError:
-            missing_deps.append("paramiko")
+    # Final dependency check before proceeding
+    final_missing = check_dependencies()
+    if final_missing:
+        print(f"\n❌ Still missing dependencies: {', '.join(final_missing)}")
+        print(f"📦 Install with: pip3 install {' '.join(final_missing)}")
+        print(f"   or: python3 -m pip install {' '.join(final_missing)}")
 
-        try:
-            import prettytable
-        except ImportError:
-            missing_deps.append("prettytable")
-
-        if missing_deps:
-            print(f"❌ Missing required dependencies: {', '.join(missing_deps)}")
-            print(f"📦 Install with: pip3 install {' '.join(missing_deps)}")
-            print(f"   or: python3 -m pip install {' '.join(missing_deps)}")
-            user_choice = input("Continue anyway? (y/N): ").lower()
-            if user_choice not in ['y', 'yes']:
-                print("Script execution cancelled.")
-                sys.exit(1)
-
-        print("✅ Proceeding with system Python...\n")
-        # Continue with system Python as fallback
+        user_choice = input("Continue anyway? This may cause script failures. (y/N): ").lower()
+        if user_choice not in ['y', 'yes']:
+            print("Script execution cancelled.")
+            sys.exit(1)
+        print("⚠️  Proceeding with missing dependencies - expect potential failures...\n")
+    else:
+        print("✅ All dependencies now available. Continuing...\n")
 
 
 # Run environment check before any other imports

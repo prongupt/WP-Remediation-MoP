@@ -2447,10 +2447,6 @@ def main():
                                shell, cli_output_file)
             pbar.update(1)
 
-            _run_section_check("IOS-XR Version Check", check_ios_xr_version, section_statuses, overall_script_failed,
-                               shell,
-                               cli_output_file)
-            pbar.update(1)
 
             _run_section_check("Platform Status & Serial Numbers", check_platform_and_serial_numbers, section_statuses,
                                overall_script_failed, shell, all_card_inventory_info, all_cpu_locations_from_platform,

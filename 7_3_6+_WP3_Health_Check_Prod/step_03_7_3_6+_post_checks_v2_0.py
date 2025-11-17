@@ -279,7 +279,7 @@ def countdown_timer(seconds, console_stream):
 
 def colorful_countdown_timer(seconds: int):
     """Displays a countdown timer on the console."""
-    logging.info(f'Colorful Countdown Timer: Starting for {seconds // 60:02d}:{seconds % 60:02d}.')
+    logging.info(f'Countdown Timer: Starting for {seconds // 60:02d}:{seconds % 60:02d}.')
 
     while seconds:
         mins, secs = divmod(seconds, 60)

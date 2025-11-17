@@ -15,12 +15,11 @@ Use the following sequence of steps for any Cisco 8818 and 8808 running IOS-XR v
 
 | **Script Name** | **Functionality** |
 |:----------------|:------------------|
-| **step_01** | **CLI Health Checks**<br>• Platform status and serial numbers verification<br>• Fabric reachability assessment<br>• NPU link information and statistics check<br>• ASIC errors detection<br>• Interface status monitoring<br>• Active alarms verification<br>• Fan tray status and field notice compliance<br>• Environment monitoring (temperature, voltage, power)<br>• Baseline comparison for optics/hardware changes |
+| **step_01** | **CLI Health Checks + File Upload**<br>• **Automatic monitor file upload** (checks if files exist first)<br>• Platform status and serial numbers verification<br>• Fabric reachability assessment<br>• NPU link information and statistics check<br>• ASIC errors detection<br>• Interface status monitoring<br>• Active alarms verification<br>• Fan tray status and field notice compliance<br>• Environment monitoring (temperature, voltage, power)<br>• Baseline comparison for optics/hardware changes |
 | **step_02** | **Python Pre-Checks**<br>• Phase 1: Execute dummy scripts with '--dummy' yes<br>• 20-minute countdown timer<br>• Phase 2: Execute dummy scripts with '--dummy' no<br>• Link degradation analysis and baseline establishment<br>• Error detection and reporting for faulty links |
 | **step_03a** | **Post-Checks Phase 1 for 7.3.5 (Steps a-e)**<br>• Step a: Execute dummy scripts '--dummy' yes<br>• Step b: First dataplane monitor (foreground mode)<br>• Step c: 20-minute wait time<br>• Step d: Execute dummy scripts '--dummy' no<br>• Step e: Manual intervention (reload instructions) |
 | **step_03b** | **Post-Checks Phase 2 for 7.3.5 (Steps f-j)**<br>• Step f: Second dataplane monitor<br>• Step g: 20-minute wait time<br>• Step h: Third dataplane monitor<br>• Step i: Show tech collection<br>• Step j: Clear ASIC counters |
 | **step_03c** | **Post-Checks Phase 3 for 7.3.5 (Steps k-q)**<br>• Step k: Execute dummy scripts '--dummy' yes (Part 3)<br>• Step l: Fourth dataplane monitor<br>• Step m: 20-minute wait time<br>• Step n: Execute dummy scripts '--dummy' no (First time)<br>• Step o: Fifth dataplane monitor<br>• Step p: 20-minute wait time<br>• Step q: Execute dummy scripts '--dummy' no (Second time) |
-| **step_04** | **Upload Python Monitor Files to IOS-XR DUT**<br>• SFTP file transfer to device hard disk (/misc/disk1/)<br>• Multi-host support for bulk uploads<br>• Automatic directory navigation<br>• Upload verification and status reporting |
 
 ---
 
@@ -29,10 +28,7 @@ Use the following sequence of steps for any Cisco 8818 and 8808 running IOS-XR v
 ```mermaid
 graph TD
     subgraph Pre-Checks
-        A[🏁 Start] --> B{📁 Check if .py files exist on device?};
-        B -- No --> C[📤 Run step_04_degradation_detect_file_upload_v2_0.py];
-        C --> D[🔍 Run step_01_all_xr_health_check_script_v2_0.py];
-        B -- Yes --> D;
+        A[🏁 Start] --> D[🔍 Run step_01_all_xr_health_check_script_v2_0.py<br>📤 Includes automatic file upload + health checks];
         D --> E[🐍 Run step_02_all_XR_python_pre_check_v2_0.py - gather baseline];
     end
 
@@ -77,7 +73,6 @@ graph TD
 
     style A fill:#D4EDDA,stroke:#28A745,stroke-width:3px,color:#212529
     style Q fill:#D4EDDA,stroke:#28A745,stroke-width:3px,color:#212529
-    style B fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
     style K fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
     style L3 fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
     style M4 fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
@@ -95,29 +90,19 @@ graph TD
 
 ### 💻 CLI Samples for All Scripts
 
-1. **Upload files (if needed)**
+1. **Run CLI Pre-Check + File Upload (if needed)**
 ```bash
-# Example from Part IV (File Upload)
-# Type 'step_04_degradation_detect_file_upload_v2_0.py' for help
-$ python3 step_04_degradation_detect_file_upload_v2_0.py --hosts router1.example.com --username admin
-
-Uploading monitor scripts to router1.example.com:/misc/disk1/
-✅ File upload completed successfully
-```
-
-2. **Run CLI Pre-Check (step01)**
-```bash
-# Example from Part I (CLI Pre-Check)
+# Example from Part I (CLI Pre-Check + Automatic File Upload)
 $ python3 step_01_all_xr_health_check_script_v2_0.py
 
+📁 Monitor files detected on device: group0.py, group1.py, group2.py, group3.py
+✅ Files already on hard drive...skipping upload
 Sending 'show platform' ('show platform')...
 Sending 'show controllers npu all' ('show controllers npu all')...  
-Sending 'show environment all' ('show environment all')...
-Sending 'show version' ('show version')...
-✅ CLI health check completed successfully
+✅ CLI health check with integrated file upload completed successfully
 ```
 
-3. **Run Python Pre-Check (step02)**
+2. **Run Python Pre-Check (step02)**
 ```bash
 # Example from Part II (Python Pre-Check)
 $ python3 step_02_all_XR_python_pre_check_v2_0.py
@@ -127,7 +112,7 @@ Phase 2: Execute dummy scripts with '--dummy' no
 ✅ Python script validation completed successfully
 ```
 
-4. **Run Post-Checks Phase 1 (step03a)**
+3. **Run Post-Checks Phase 1 (step03a)**
 ```bash
 # Example from Part 3a (Post-Check 7.3.5 Phase 1)
 $ python3 step_03a_7_3_5_post_checks_phase_1_v2_0.py
@@ -140,7 +125,7 @@ Step e: Manual intervention (reload instructions)
 ✅ Phase 1 post-check completed successfully
 ```
 
-5. **Run Post-Checks Phase 2 (step03b)**
+4. **Run Post-Checks Phase 2 (step03b)**
 ```bash
 # Example from Part 3b (Post-Check 7.3.5 Phase 2)
 $ python3 step_03b_7_3_5_post_checks_phase_2_v2_0.py
@@ -153,7 +138,7 @@ Step j: Clear ASIC counters
 ✅ Phase 2 post-check completed successfully
 ```
 
-6. **Run Post-Checks Phase 3 (step03c)**
+5. **Run Post-Checks Phase 3 (step03c)**
 ```bash
 # Example from Part 3c (Post-Check 7.3.5 Phase 3)
 $ python3 step_03c_7_3_5_post_checks_phase_3_v2_0.py
@@ -171,14 +156,13 @@ Step q: Execute dummy scripts '--dummy' no (Second time)
 
 ### ⏱️ Execution Times
 
-| Script                        | Typical Duration   | Purpose                                                  |
-|-------------------------------|:------------------:|----------------------------------------------------------|
-| Pre-Check (step01)            | **10-15 minutes**  | Device health assessment                                 |
-| Python Pre-Check (step02)     | **45-60 minutes**  | Script validation (includes 20min wait)                 |
-| Post-Check Phase 1 (step03a)  | **45-60 minutes**  | Phase 1 workflow (includes 20min wait)                  |
-| Post-Check Phase 2 (step03b)  | **60-90 minutes**  | Phase 2 workflow (includes dataplane + show tech)      |
-| Post-Check Phase 3 (step03c)  | **90-120 minutes** | Phase 3 workflow (includes dual dummy no phases)       |
-| File Upload (step04)          | **2-5 minutes**    | File transfer utility                                    |
+| Script                        | Typical Duration   | Purpose                                            |
+|-------------------------------|:------------------:|----------------------------------------------------|
+| Pre-Check (step01)            | **10-15 minutes**  | Device health assessment + monitor file management |
+| Python Pre-Check (step02)     | **45-60 minutes**  | Script validation (includes 20min wait)            |
+| Post-Check Phase 1 (step03a)  | **45-60 minutes**  | Phase 1 workflow (includes 20min wait)             |
+| Post-Check Phase 2 (step03b)  | **60-90 minutes**  | Phase 2 workflow (includes dataplane + show tech)  |
+| Post-Check Phase 3 (step03c)  | **90-120 minutes** | Phase 3 workflow (includes dual dummy no phases)   |
 
 ---
 

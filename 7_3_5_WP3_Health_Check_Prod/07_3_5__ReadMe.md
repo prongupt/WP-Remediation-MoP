@@ -75,7 +75,6 @@ graph TD
         P --> Q[🏁 End];
     end
 
-    %% Styling
     style A fill:#D4EDDA,stroke:#28A745,stroke-width:3px,color:#212529
     style Q fill:#D4EDDA,stroke:#28A745,stroke-width:3px,color:#212529
     style B fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
@@ -92,6 +91,8 @@ graph TD
     style P2_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
     style P3_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
 ```
+---
+
 ### 💻 CLI Samples for All Scripts
 
 1. **Upload files (if needed)**

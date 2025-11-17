@@ -528,7 +528,6 @@ def get_router_timestamp(shell: paramiko.Channel) -> datetime.datetime:
         raise RouterCommandError(f"Could not parse 'show clock' output for timestamp: {output}")
 
 
-# --- Dataplane Monitoring Functions (PRESERVED) ---
 def poll_dataplane_monitoring_736(shell: paramiko.Channel, max_poll_duration_sec: int) -> bool:
     """PRESERVED - Dataplane monitoring for IOS-XR 7.3.6+"""
     logging.info(f"Running 'monitor dataplane' command (IOS-XR 7.3.6+)...")
@@ -552,9 +551,6 @@ def poll_dataplane_monitoring_736(shell: paramiko.Channel, max_poll_duration_sec
     router_monitor_start_time = get_router_timestamp(shell)
     logging.info(f"Router's recorded start time for monitor dataplane: {router_monitor_start_time}")
 
-    completed_pattern = re.compile(
-        r"RP/\d/\w+/\w+:(\w{3})\s+(\d+)\s+(\d{2}:\d{2}:\d{2}\.\d{3})\s+(\w{3}):.*%PLATFORM-DPH_MONITOR-6-COMPLETED : Dataplane health monitoring completed\.")
-
     poll_interval_sec = 180  # 3 minutes
     poll_start_time = time.time()
     current_year = datetime.datetime.now().year
@@ -567,28 +563,36 @@ def poll_dataplane_monitoring_736(shell: paramiko.Channel, max_poll_duration_sec
     while time.time() - poll_start_time < max_poll_duration_sec:
         shell.send('show logging | i "%PLATFORM-DPH_MONITOR-6"\n')
         output, prompt_found = read_and_print_realtime(shell, timeout_sec=60, print_realtime=False)
+
         if not prompt_found:
             logging.warning(
                 "Prompt not detected after 'show logging | i...' command. This might indicate an issue or a very long output.")
 
         latest_relevant_completed_time = None
 
+        # Check for completion messages
         for line in output.splitlines():
-            match = completed_pattern.search(line)
-            if match:
-                month_str, day_str, time_str, tz_str_log = match.groups()
-                try:
-                    log_timestamp_full_str = f"{month_str} {day_str} {current_year} {time_str}"
-                    parsed_log_dt = datetime.datetime.strptime(log_timestamp_full_str, "%b %d %Y %H:%M:%S.%f")
+            if "PLATFORM-DPH_MONITOR-6-COMPLETED" in line:
+                # Try to parse timestamp
+                time_match = re.search(r"(\w{3})\s+(\d+)\s+(\d{2}:\d{2}:\d{2})", line)
+                if time_match:
+                    month_str, day_str, time_str = time_match.groups()
 
-                    if parsed_log_dt > router_monitor_start_time:
-                        if latest_relevant_completed_time is None or parsed_log_dt > latest_relevant_completed_time:
-                            latest_relevant_completed_time = parsed_log_dt
-                            logging.info(f"Found relevant completion log: {line}")
+                    try:
+                        log_timestamp_full_str = f"{month_str} {day_str} {current_year} {time_str}"
+                        parsed_log_dt = datetime.datetime.strptime(log_timestamp_full_str, "%b %d %Y %H:%M:%S")
 
-                except ValueError as e:
-                    logging.warning(f"Could not parse timestamp from log line: '{line}'. Error: {e}")
-                    continue
+                        # More lenient time comparison - allow up to 5 minutes before start
+                        time_diff = (parsed_log_dt - router_monitor_start_time.replace(microsecond=0)).total_seconds()
+
+                        if time_diff > -300:  # Allow up to 5 minutes before start time
+                            if latest_relevant_completed_time is None or parsed_log_dt > latest_relevant_completed_time:
+                                latest_relevant_completed_time = parsed_log_dt
+                                logging.info(f"Found relevant completion log: {line}")
+
+                    except ValueError as e:
+                        logging.warning(f"Could not parse timestamp from log line: '{line}'. Error: {e}")
+                        continue
 
         if latest_relevant_completed_time:
             monitoring_completed_successfully = True

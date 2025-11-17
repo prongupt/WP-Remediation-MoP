@@ -66,11 +66,11 @@ graph TD
         P1_Check -- Yes --> P2[✅ Run step_03b_7_3_5_post_checks_phase_2_v2_0.py];
         P2 --> P2_Check{🎯 Step 03b passed?};
         P2_Check -- No --> P2_Fix[🔧 Remediate step 03b issues];
-        P2_Fix --> P1;  %% Re-run from step 03a
+        P2_Fix --> P1;
         P2_Check -- Yes --> P3[✅ Run step_03c_7_3_5_post_checks_phase_3_v2_0.py];
         P3 --> P3_Check{🎯 Step 03c passed?};
         P3_Check -- No --> P3_Fix[🔧 Remediate step 03c issues];
-        P3_Fix --> P3;  %% Re-run only step 03c
+        P3_Fix --> P3;
         P3_Check -- Yes --> P[🎉 Hand device to customer];
         P --> Q[🏁 End];
     end

@@ -160,7 +160,7 @@ Step q: Execute dummy scripts '--dummy' no (Second time)
 ### ⏱️ Execution Times
 
 | Script                        | Typical Duration   | Purpose                                                  |
-|:-----------------------------:|:------------------:|----------------------------------------------------------|
+|-------------------------------|:------------------:|----------------------------------------------------------|
 | Pre-Check (step01)            | **10-15 minutes**  | Device health assessment                                 |
 | Python Pre-Check (step02)     | **45-60 minutes**  | Script validation (includes 20min wait)                 |
 | Post-Check Phase 1 (step03a)  | **45-60 minutes**  | Phase 1 workflow (includes 20min wait)                  |

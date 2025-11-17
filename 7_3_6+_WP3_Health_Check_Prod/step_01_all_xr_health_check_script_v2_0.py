@@ -187,7 +187,7 @@ PROMPT_PATTERNS = [
 
 # File upload configuration - ADD THESE LINES
 REMOTE_PATH = '/misc/disk1/'
-LOCAL_FILE_PATTERN = os.path.expanduser('~/Downloads/monitor*')
+LOCAL_FILE_PATTERN = os.path.expanduser('~/monitor*')
 
 FAN_IMPACTED_VERSIONS = {
     "8804-FAN": {"Not Impacted": ["V03"], "Impacted": ["V01", "V02"]},

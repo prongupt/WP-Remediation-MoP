@@ -2,7 +2,7 @@
 
 Use the following sequence of steps for any Cisco 8818 and 8808 running IOS-XR version 7.3.6 and above.
 
-## 📑 Table of Contents
+### 📑 Table of Contents
 1. [Scripts Functionality](#-scripts-functionality)
 2. [Process Flow and Steps to Follow](#-process-flow-and--steps-to-follow)
 3. [CLI Samples for All Scripts](#-cli-samples-for-all-scripts)
@@ -74,9 +74,9 @@ graph TD
     style M4_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
 ```
 ---
-### Basic Usage
 
-## 💻 CLI Samples for All Scripts
+
+### 💻 CLI Samples for All Scripts
 
 1. **Upload files (if needed)**
 ```bash
@@ -100,7 +100,7 @@ Sending 'show version' ('show version')...
 ✅ CLI health check completed successfully
 ```
 
-3. **Run Python Pre-Checl (step02)**
+3. **Run Python Pre-Check (step02)**
 ```bash
 # Example from Part II (Python Pre-Check)
 $ python3 step_02_all_XR_python_pre_check_v2_0.py

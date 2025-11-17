@@ -1,84 +1,180 @@
-# Process Flowchart
+# 🔧 Steps for IOS-XR version 7.3.5
 
-This document outlines the steps and scripts involved in the device commissioning process.
+Use the following sequence of steps for any Cisco 8818 and 8808 running IOS-XR version 7.3.5.
 
-# Process Flowchart
+## 📑 Table of Contents
+1. [Scripts Functionality](#-scripts-functionality)
+2. [Process Flow and Steps to Follow](#-process-flow-and--steps-to-follow)
+3. [CLI Samples for All Scripts](#-cli-samples-for-all-scripts)
+4. [Execution Times](#️-execution-times)
+5. [Support](#-support)
 
-This document outlines the steps and scripts involved in the device commissioning process.
+---
 
-## Script Descriptions
+### 📋 Scripts Functionality
 
-| Script Name                             | Description                                                                                                                                                                                                        |
-|:----------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `1-all_XR_pre_check_and_comparison.py`  | <ol type="a"><li>Performs CLI pre-check commands.</li><li>Captures baseline for optics / FPD / Serial Number change and comparison after bootup.</li><li>First file captures is considered the baseline.</li></ol> |
-| `2-all_XR_python_pre_check.py`          | Provides a baseline of degraded links.                                                                                                                                                                             |
-| `3a_7_3_5_phase_1.py`                   | <ol type="a"><li>Monitor dummy yes.</li><li>Monitor dataplane.</li><li>Wait 20 minutes.</li><li>Monitor dummy no.</li><li>Asks to perform the two reloads at the end.</li></ol>                                    |
-| `3b_7_3_5_phase_2.py`                   | <ol type="a"><li>Monitoring dataplane.</li><li>Wait 20 minutes.</li><li>Monitor dataplane.</li><li>Wait 20 minutes.</li><li>Show tech file.</li><li>ASIC counters clearing.</li></ol>                              |
-| `3c_7_3_5_phase_3.py`                   | <ol type="a"><li>Monitor dummy yes.</li><li>Monitor dataplane.</li><li>Wait 20 minutes.</li><li>Monitor dummy no.</li><li>Monitor dataplane.</li><li>Wait 20 minutes.</li><li>Monitor dummy no.</li></ol>          |
-| `4-file_upload.py`                      | Uploads the monitorxx.xx.py files to the device's hard disk.                                                                                                                                                       |
+| **Script Name** | **Functionality** |
+|:----------------|:------------------|
+| **step_01** | **CLI Health Checks**<br>• Platform status and serial numbers verification<br>• Fabric reachability assessment<br>• NPU link information and statistics check<br>• ASIC errors detection<br>• Interface status monitoring<br>• Active alarms verification<br>• Fan tray status and field notice compliance<br>• Environment monitoring (temperature, voltage, power)<br>• Baseline comparison for optics/hardware changes |
+| **step_02** | **Python Pre-Checks**<br>• Phase 1: Execute dummy scripts with '--dummy' yes<br>• 20-minute countdown timer<br>• Phase 2: Execute dummy scripts with '--dummy' no<br>• Link degradation analysis and baseline establishment<br>• Error detection and reporting for faulty links |
+| **step_03a** | **Post-Checks Phase 1 for 7.3.5 (Steps a-e)**<br>• Step a: Execute dummy scripts '--dummy' yes<br>• Step b: First dataplane monitor (foreground mode)<br>• Step c: 20-minute wait time<br>• Step d: Execute dummy scripts '--dummy' no<br>• Step e: Manual intervention (reload instructions) |
+| **step_03b** | **Post-Checks Phase 2 for 7.3.5 (Steps f-j)**<br>• Step f: Second dataplane monitor<br>• Step g: 20-minute wait time<br>• Step h: Third dataplane monitor<br>• Step i: Show tech collection<br>• Step j: Clear ASIC counters |
+| **step_03c** | **Post-Checks Phase 3 for 7.3.5 (Steps k-q)**<br>• Step k: Execute dummy scripts '--dummy' yes (Part 3)<br>• Step l: Fourth dataplane monitor<br>• Step m: 20-minute wait time<br>• Step n: Execute dummy scripts '--dummy' no (First time)<br>• Step o: Fifth dataplane monitor<br>• Step p: 20-minute wait time<br>• Step q: Execute dummy scripts '--dummy' no (Second time) |
+| **step_04** | **Upload Python Monitor Files to IOS-XR DUT**<br>• SFTP file transfer to device hard disk (/misc/disk1/)<br>• Multi-host support for bulk uploads<br>• Automatic directory navigation<br>• Upload verification and status reporting |
 
-## Process Flow
+---
+
+### 📊 Process Flow and 🚀 Steps to Follow
+
 ```mermaid
 graph TD
-    subgraph Initialization
-        A[Start] --> B{Check for dummy yes/no scripts?};
-        B -- No --> C[Run 4-file_upload.py <br> Upload files to hard disk];
-        
-    end
-
-    subgraph Pre-Checks and Remediation
-        C --> D[Run 1-all_XR_pre_check_and_comparison.py];
+    subgraph Pre-Checks
+        A[🏁 Start] --> B{📁 Check if .py files exist on device?};
+        B -- No --> C[📤 Run step_04_degradation_detect_file_upload_v2_0.py];
+        C --> D[🔍 Run step_01_all_xr_health_check_script_v2_0.py];
         B -- Yes --> D;
-        D --> E[Run 2-all_XR_python_pre_check.py <br> Provides baseline of degraded links];
-        E --> F[Get baseline for faulty / degraded links];
-        F --> G[Perform installation on the chassis / <br> remediation of fabric cards];
-        G --> H[Device powered back on]
+        D --> E[🐍 Run step_02_all_XR_python_pre_check_v2_0.py - gather baseline];
     end
 
-    subgraph Post-check Phases
-        H --> I[Run 1-all_XR_pre_check_and_comparison.py <br> compares optics/interfaces, FPD, serial numbers];
-        I --> J[Run 3a_7_3_5_phase_1.py <br> Asks for manual reloads at end];
-        J --> K{Errors in Phase 1?};
-        K -- Yes --> L[Remediate Phase 1 errors];
-        L --> J;
-        K -- No --> M[Perform 2 reloads <br> 30 minutes wait after each];
-
-        M --> N[Run 3b_7_3_5_phase_2.py <br> Monitor dataplanes, show tech, clear ASIC counters];
-        N --> O{Errors in Phase 2?};
-        O -- Yes --> P[Remediate Phase 2 errors];
-        P --> N;
-        O -- No --> Q[Run 3c_7_3_5_phase_3.py <br> Last round of dummy yes/no, monitor dataplanes];
-
-        Q --> R{Errors in Phase 3?};
-        R -- Yes --> S[Remediate Phase 3 errors];
-        S --> Q;
+    subgraph Remediation
+        E --> F[⚡ Power off device];
+        F --> G[🔧 Installation];
+        G --> H[⚡ Power on device];
     end
 
-    subgraph Finalization
-        R -- No --> T[Clean up and handoff to MSFT];
-        T --> U[End];
+    subgraph Post-Checks
+        H --> J_node[🔍 Run step_01_all_xr_health_check_script_v2_0.py];
+        J_node --> K{✅ Post-install status OK?};
+        K -- No --> K_Remediate_Step[🔧 Remediate issues];
+        K_Remediate_Step --> J_node;
+        K -- Yes --> L[🔄 Perform first reload];
+        L --> L1[⏰ Wait 20 minutes];
+        L1 --> L2[🔍 Run CLI pre-check<br>verify optics/interfaces];
+        L2 --> L3{✅ Optics/interfaces OK?};
+        L3 -- No --> L3_Fix[🔧 Fix optics/interface issues];
+        L3_Fix --> L2;
+        L3 -- Yes --> M1[🔄 Perform second reload];
+        M1 --> M2[⏰ Wait 20 minutes];
+        M2 --> M3[🔍 Run CLI pre-check<br>verify optics/interfaces];
+        M3 --> M4{✅ Optics/interfaces OK?};
+        M4 -- No --> M4_Fix[🔧 Fix optics/interface issues];
+        M4_Fix --> M3;
+        M4 -- Yes --> P1[✅ Run step_03a_7_3_5_post_checks_phase_1_v2_0.py];
+        P1 --> P2[✅ Run step_03b_7_3_5_post_checks_phase_2_v2_0.py];
+        P2 --> P3[✅ Run step_03c_7_3_5_post_checks_phase_3_v2_0.py];
+        P3 --> N{🎯 All checks passed?};
+        N -- Yes --> P[🎉 Hand device to customer];
+        N -- No --> O[🔧 Remediate problems];
+        O --> P1;
+        P --> Q[🏁 End];
     end
 
-    %% Styling for better readability
-    style A fill:#D4EDDA,stroke:#28A745,stroke-width:2px,color:#212529
-    style U fill:#D4EDDA,stroke:#28A745,stroke-width:2px,color:#212529
+    %% Styling
+    style A fill:#D4EDDA,stroke:#28A745,stroke-width:3px,color:#212529
+    style Q fill:#D4EDDA,stroke:#28A745,stroke-width:3px,color:#212529
     style B fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
     style K fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
-    style O fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
-    style R fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
-    style C fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style D fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style E fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style F fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style G fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style H fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style I fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style J fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style M fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style N fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style Q fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style T fill:#E0F7FA,stroke:#17A2B8,stroke-width:1px,color:#212529
-    style L fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
-    style P fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
-    style S fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
+    style L3 fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
+    style M4 fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
+    style N fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
+    style P fill:#D1ECF1,stroke:#17A2B8,stroke-width:2px,color:#212529
+    style L3_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
+    style M4_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
 ```
+### 💻 CLI Samples for All Scripts
+
+1. **Upload files (if needed)**
+```bash
+# Example from Part IV (File Upload)
+# Type 'step_04_degradation_detect_file_upload_v2_0.py' for help
+$ python3 step_04_degradation_detect_file_upload_v2_0.py --hosts router1.example.com --username admin
+
+Uploading monitor scripts to router1.example.com:/misc/disk1/
+✅ File upload completed successfully
+```
+
+2. **Run CLI Pre-Check (step01)**
+```bash
+# Example from Part I (CLI Pre-Check)
+$ python3 step_01_all_xr_health_check_script_v2_0.py
+
+Sending 'show platform' ('show platform')...
+Sending 'show controllers npu all' ('show controllers npu all')...  
+Sending 'show environment all' ('show environment all')...
+Sending 'show version' ('show version')...
+✅ CLI health check completed successfully
+```
+
+3. **Run Python Pre-Check (step02)**
+```bash
+# Example from Part II (Python Pre-Check)
+$ python3 step_02_all_XR_python_pre_check_v2_0.py
+
+Phase 1: Execute dummy scripts with '--dummy' yes
+Phase 2: Execute dummy scripts with '--dummy' no
+✅ Python script validation completed successfully
+```
+
+4. **Run Post-Checks Phase 1 (step03a)**
+```bash
+# Example from Part 3a (Post-Check 7.3.5 Phase 1)
+$ python3 step_03a_7_3_5_post_checks_phase_1_v2_0.py
+
+Step a: Execute dummy scripts '--dummy' yes
+Step b: First dataplane monitor (foreground mode)
+Step c: 20-minute wait time
+Step d: Execute dummy scripts '--dummy' no
+Step e: Manual intervention (reload instructions)
+✅ Phase 1 post-check completed successfully
+```
+
+5. **Run Post-Checks Phase 2 (step03b)**
+```bash
+# Example from Part 3b (Post-Check 7.3.5 Phase 2)
+$ python3 step_03b_7_3_5_post_checks_phase_2_v2_0.py
+
+Step f: Second dataplane monitor
+Step g: 20-minute wait time
+Step h: Third dataplane monitor
+Step i: Show tech collection
+Step j: Clear ASIC counters
+✅ Phase 2 post-check completed successfully
+```
+
+6. **Run Post-Checks Phase 3 (step03c)**
+```bash
+# Example from Part 3c (Post-Check 7.3.5 Phase 3)
+$ python3 step_03c_7_3_5_post_checks_phase_3_v2_0.py
+
+Step k: Execute dummy scripts '--dummy' yes (Part 3)
+Step l: Fourth dataplane monitor
+Step m: 20-minute wait time
+Step n: Execute dummy scripts '--dummy' no (First time)
+Step o: Fifth dataplane monitor
+Step p: 20-minute wait time
+Step q: Execute dummy scripts '--dummy' no (Second time)
+✅ Phase 3 post-check completed successfully
+```
+---
+
+### ⏱️ Execution Times
+
+| Script                        | Typical Duration   | Purpose                                                  |
+|:-----------------------------:|:------------------:|----------------------------------------------------------|
+| Pre-Check (step01)            | **10-15 minutes**  | Device health assessment                                 |
+| Python Pre-Check (step02)     | **45-60 minutes**  | Script validation (includes 20min wait)                 |
+| Post-Check Phase 1 (step03a)  | **45-60 minutes**  | Phase 1 workflow (includes 20min wait)                  |
+| Post-Check Phase 2 (step03b)  | **60-90 minutes**  | Phase 2 workflow (includes dataplane + show tech)      |
+| Post-Check Phase 3 (step03c)  | **90-120 minutes** | Phase 3 workflow (includes dual dummy no phases)       |
+| File Upload (step04)          | **2-5 minutes**    | File transfer utility                                    |
+
+---
+
+### 📞 Support
+- **Author**: Pronoy Dasgupta (prongupt@cisco.com)
+- **Version**: 2.0.0
+- **Status**: Production Ready
+
+---
+
+**🚀 Ready to automate your Cisco IOS-XR device commissioning process!**

@@ -121,14 +121,14 @@ __email__ = "prongupt@cisco.com"
 __status__ = "production"
 
 import paramiko
+import glob
+from prettytable import PrettyTable
 import time
 import getpass
 import re
 import logging
 from prettytable import PrettyTable
 import datetime
-import os
-import sys
 from typing import List, Tuple, Dict, Any, Optional, Callable
 from functools import wraps
 from io import StringIO
@@ -144,6 +144,10 @@ PROMPT_PATTERNS = [
     r'\)\s*$'
 ]
 
+# File upload configuration - ADD THESE LINES
+REMOTE_PATH = '/misc/disk1/'
+LOCAL_FILE_PATTERN = os.path.expanduser('~/Downloads/monitor*')
+
 FAN_IMPACTED_VERSIONS = {
     "8804-FAN": {"Not Impacted": ["V03"], "Impacted": ["V01", "V02"]},
     "8808-FAN": {"Not Impacted": ["V03"], "Impacted": ["V01", "V02"]},
@@ -155,6 +159,11 @@ FAN_IMPACTED_VERSIONS = {
 # === CUSTOM EXCEPTIONS ===
 class DeviceError(Exception):
     """Base exception for device errors"""
+    pass
+
+
+class FileUploadError(Exception):
+    """Custom exception for file upload failures."""
     pass
 
 
@@ -572,6 +581,103 @@ def get_chassis_model(shell: paramiko.Channel, cli_output_file=None) -> str:
     return "unknown_chassis"
 
 
+def upload_monitor_files_to_router(existing_client: paramiko.SSHClient, router_ip: str) -> bool:
+    """Upload monitor Python files using the existing SSH client connection"""
+    try:
+        logging.info("--- Starting Monitor File Upload ---")
+        print(f"📤 Uploading monitor scripts to {router_ip}...")
+
+        # Use the existing client's transport for SFTP
+        transport = existing_client.get_transport()
+        if not transport or not transport.is_active():
+            raise FileUploadError("Existing SSH connection is not active")
+
+        sftp = paramiko.SFTPClient.from_transport(transport)
+
+        # Change to remote directory
+        try:
+            sftp.chdir(REMOTE_PATH)
+            logging.info(f"Successfully accessed remote directory: {REMOTE_PATH}")
+        except IOError:
+            logging.error(f"Remote path {REMOTE_PATH} not accessible on {router_ip}")
+            raise FileUploadError(f"Cannot access remote directory {REMOTE_PATH}")
+
+        # Find and upload monitor files
+        files_to_upload = glob.glob(LOCAL_FILE_PATTERN)
+
+        if not files_to_upload:
+            logging.warning(f"No monitor files found matching pattern: {LOCAL_FILE_PATTERN}")
+            raise FileUploadError(f"No monitor files found in {os.path.dirname(LOCAL_FILE_PATTERN)}")
+
+        uploaded_count = 0
+        for file_path in files_to_upload:
+            filename = os.path.basename(file_path)
+            try:
+                logging.info(f"Uploading {filename}...")
+                sftp.put(file_path, filename)
+                logging.info(f"✅ Uploaded {filename} successfully")
+                uploaded_count += 1
+            except Exception as e:
+                logging.error(f"Failed to upload {filename}: {e}")
+
+        sftp.close()  # Only close SFTP, not the main SSH connection
+
+        if uploaded_count > 0:
+            logging.info(f"✅ Successfully uploaded {uploaded_count} monitor files")
+            return True
+        else:
+            raise FileUploadError("No files were uploaded successfully")
+
+    except Exception as e:
+        logging.error(f"File upload operation failed: {e}")
+        raise FileUploadError(f"Monitor file upload failed: {e}")
+
+
+def check_and_upload_monitor_files(shell: paramiko.Channel, router_ip: str, username: str, password: str,
+                                   cli_output_file=None, existing_client=None) -> bool:
+    """Check for monitor files on router using existing connection and upload only if needed"""
+    try:
+        logging.info("--- Checking Monitor Files on Router ---")
+
+        # Use existing shell connection to check for files
+        logging.info("Checking for existing monitor files on device...")
+        output = execute_command_in_shell(shell, "dir harddisk: | i .py", "check for monitor files",
+                                          timeout=30, print_real_time_output=False, cli_output_file=cli_output_file)
+
+        # Check if monitor files exist
+        required_files = [
+            "monitor_8800_system_v2_3_msft_bash_group0.py",
+            "monitor_8800_system_v2_3_msft_bash_group1.py",
+            "monitor_8800_system_v2_3_msft_bash_group2.py",
+            "monitor_8800_system_v2_3_msft_bash_group3.py"
+        ]
+
+        files_found = []
+        for required_file in required_files:
+            if required_file in output:
+                files_found.append(required_file)
+
+        files_exist = len(files_found) >= 4  # All 4 monitor files found
+
+        if files_exist:
+            logging.info("✅ Files already on hard drive...skipping upload")
+            files_display = ", ".join(
+                [f.replace("monitor_8800_system_v2_3_msft_bash_group", "group") for f in files_found])
+            print(f"📁 Monitor files detected on device: {files_display}")
+            return True
+        else:
+            logging.info("📤 Files not available...uploading to HD first")
+            if files_found:
+                logging.info(f"Found {len(files_found)} of 4 required files, uploading missing files")
+
+            # Upload files using existing SSH client
+            return upload_monitor_files_to_router(existing_client, router_ip)
+
+    except Exception as e:
+        logging.error(f"Error during file check: {e}. Attempting upload...")
+        return upload_monitor_files_to_router(existing_client, router_ip)
+
+
 # === PARSING UTILITIES ===
 def parse_inventory_for_serial_numbers(inventory_output: str) -> Dict[str, Dict[str, str]]:
     card_info = {}
@@ -734,7 +840,7 @@ def _run_section_check(section_name: str, check_func: callable, section_statuses
         logger.info(f"\033[1;92m✓ {section_name} passed\033[0m")
         section_statuses[section_name] = "Good"
         return result if result is not None else ""
-    except (RouterCommandError, PlatformStatusError, FabricReachabilityError,
+    except (RouterCommandError, FileUploadError, PlatformStatusError, FabricReachabilityError,
             FabricLinkDownError, NpuLinkError, NpuStatsError, NpuDriverError,
             FabricPlaneStatsError, AsicErrorsError, InterfaceStatusError,
             AlarmError, LcAsicErrorsError, FanTrayError, EnvironmentError, FpdStatusError) as e:
@@ -2216,6 +2322,7 @@ def main():
     current_run_parsed_interface_statuses = {}
 
     all_section_names = [
+        "Monitor Files Check & Upload",  # NEW: Added as first step
         "IOS-XR Version Check",
         "Platform Status & Serial Numbers",
         "Fabric Reachability Check",
@@ -2284,9 +2391,21 @@ def main():
 
         print(f"\n--- Device Information Report (Pre-checks) ---")
 
-        total_steps = 16
+        total_steps = 17
         with SimpleProgressBar(total=total_steps, original_console_stream=true_original_stdout,
                                description="Overall Device Checks", color_code='\033[92m') as pbar:
+
+            # NEW: First step - Check and upload monitor files if needed
+            _run_section_check("Monitor Files Check & Upload", check_and_upload_monitor_files,
+                               section_statuses, overall_script_failed, shell, router_ip, username, password,
+                               cli_output_file, client)  # ← Add client parameter
+            pbar.update(1)
+
+            # Continue with existing health checks...
+            _run_section_check("IOS-XR Version Check", check_ios_xr_version, section_statuses, overall_script_failed,
+                               shell, cli_output_file)
+            pbar.update(1)
+
             _run_section_check("IOS-XR Version Check", check_ios_xr_version, section_statuses, overall_script_failed,
                                shell,
                                cli_output_file)

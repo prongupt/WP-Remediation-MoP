@@ -60,12 +60,18 @@ graph TD
         M4 -- No --> M4_Fix[🔧 Fix optics/interface issues];
         M4_Fix --> M3;
         M4 -- Yes --> P1[✅ Run step_03a_7_3_5_post_checks_phase_1_v2_0.py];
-        P1 --> P2[✅ Run step_03b_7_3_5_post_checks_phase_2_v2_0.py];
-        P2 --> P3[✅ Run step_03c_7_3_5_post_checks_phase_3_v2_0.py];
-        P3 --> N{🎯 All checks passed?};
-        N -- Yes --> P[🎉 Hand device to customer];
-        N -- No --> O[🔧 Remediate problems];
-        O --> P1;
+        P1 --> P1_Check{🎯 Step 03a passed?};
+        P1_Check -- No --> P1_Fix[🔧 Remediate step 03a issues];
+        P1_Fix --> P1;
+        P1_Check -- Yes --> P2[✅ Run step_03b_7_3_5_post_checks_phase_2_v2_0.py];
+        P2 --> P2_Check{🎯 Step 03b passed?};
+        P2_Check -- No --> P2_Fix[🔧 Remediate step 03b issues];
+        P2_Fix --> P1;  %% Re-run from step 03a
+        P2_Check -- Yes --> P3[✅ Run step_03c_7_3_5_post_checks_phase_3_v2_0.py];
+        P3 --> P3_Check{🎯 Step 03c passed?};
+        P3_Check -- No --> P3_Fix[🔧 Remediate step 03c issues];
+        P3_Fix --> P3;  %% Re-run only step 03c
+        P3_Check -- Yes --> P[🎉 Hand device to customer];
         P --> Q[🏁 End];
     end
 
@@ -76,10 +82,15 @@ graph TD
     style K fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
     style L3 fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
     style M4 fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
-    style N fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
+    style P1_Check fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
+    style P2_Check fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
+    style P3_Check fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
     style P fill:#D1ECF1,stroke:#17A2B8,stroke-width:2px,color:#212529
     style L3_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
     style M4_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
+    style P1_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
+    style P2_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
+    style P3_Fix fill:#F8D7DA,stroke:#DC3545,stroke-width:1px,color:#212529
 ```
 ### 💻 CLI Samples for All Scripts
 

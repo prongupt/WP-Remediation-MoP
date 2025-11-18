@@ -1,3 +1,11 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+.Python
+
 # Python
 .DS_Store
 .idea/.gitignore

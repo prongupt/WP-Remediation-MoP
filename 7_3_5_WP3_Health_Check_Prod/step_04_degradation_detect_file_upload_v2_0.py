@@ -129,7 +129,6 @@ def ensure_compatible_environment():
 ensure_compatible_environment()
 
 
-import os
 import glob
 import getpass
 import paramiko

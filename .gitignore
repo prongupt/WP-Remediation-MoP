@@ -1,5 +1,34 @@
 # Python cache files
 __pycache__/
+*.pyc
+*.pyo
+*.py[cod]
+*$py.class
+.Python
+
+# Timestamp-based folders (adjust patterns to match your naming)
+# Match folders with timestamps (e.g., 8818_SJC24_R34_SYS03)
+*_SYS*/
+*_SYS[0-9]*/
+
+# Or if your folders follow specific patterns:
+# YYYY-MM-DD format folders
+[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*/
+
+# Timestamp format folders (e.g., 20231118_103045)
+[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9][0-9][0-9]*/
+
+# General output/logs folders (if applicable)
+output*/
+logs*/
+temp*/
+tmp*/
+
+# Specific folder you mentioned
+8818_SJC24_R34_SYS03/
+
+# Python cache files
+__pycache__/
 *.py[cod]
 *$py.class
 *.pyc
@@ -3712,3 +3741,4 @@ venv/
 /7_3_5_WP3_Health_Check_Prod/8818_SJC24_P34_SYS-06/8818_SJC24_P34_SYS-06_7_3_5_post-checks_session_log_phase_1_20251117_150508.txt
 /7_3_5_WP3_Health_Check_Prod/8818_SJC24_P34_SYS-06/8818_SJC24_P34_SYS-06_7_3_5_post-checks_session_log_phase_2_20251117_154758.txt
 /7_3_5_WP3_Health_Check_Prod/8818_SJC24_P34_SYS-06/8818_SJC24_P34_SYS-06_7_3_5_post-checks_session_log_phase_3_20251117_191021.txt
+8818_SJC24_R34_SYS03/

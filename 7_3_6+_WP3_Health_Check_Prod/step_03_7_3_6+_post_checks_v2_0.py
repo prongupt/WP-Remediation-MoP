@@ -624,12 +624,19 @@ def poll_dataplane_monitoring_736(shell: paramiko.Channel, max_poll_duration_sec
                         parsed_log_dt = datetime.datetime.strptime(log_timestamp_full_str, "%b %d %Y %H:%M:%S")
 
                         # More lenient time comparison - allow up to 5 minutes before start
+                        # FIXED: Only accept completion logs AFTER the current dataplane start
                         time_diff = (parsed_log_dt - router_monitor_start_time.replace(microsecond=0)).total_seconds()
 
-                        if time_diff > -300:  # Allow up to 5 minutes before start time
+                        # Only accept completions that happened AFTER we started monitoring
+                        if time_diff > 0:  # Must be AFTER our start time
                             if latest_relevant_completed_time is None or parsed_log_dt > latest_relevant_completed_time:
                                 latest_relevant_completed_time = parsed_log_dt
                                 logging.info(f"Found relevant completion log: {line}")
+                                logging.info(
+                                    f"Completion time: {parsed_log_dt}, Start time: {router_monitor_start_time}")
+                        else:
+                            logging.debug(f"Ignoring old completion log (before our start): {line}")
+                            logging.debug(f"Completion: {parsed_log_dt}, Our start: {router_monitor_start_time}")
 
                     except ValueError as e:
                         logging.warning(f"Could not parse timestamp from log line: '{line}'. Error: {e}")

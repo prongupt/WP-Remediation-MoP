@@ -316,44 +316,46 @@ class InteractiveFrameworkManager:
             logging.error(f"Could not open global session log files: {e}")
 
     def display_main_menu(self):
-        """Display interactive main menu"""
+        """Display main menu with SecureCRT compatible formatting"""
         print(f"\n{'=' * 80}")
-        print(f"{'🚀 IOS-XR 7.3.5 Post-Check Interactive Framework v2.0':^80}")
+        print(f"{'IOS-XR 7.3.5 Post-Check Interactive Framework v2.0':^80}")
         print(f"{'=' * 80}")
 
-        print(f"\n🏷️  Connected to: {self.hostname} ({self.router_ip})")
-        print(f"📅 Session Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"\nRouter: {self.hostname} ({self.router_ip})")
+        print(f"Session Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-        print(f"\n📋 PHASE EXECUTION OPTIONS:")
-        print(f"   1️⃣  Execute Phase 1 Only (Steps a-e) - ~60 min")
-        print(f"   2️⃣  Execute Phase 2 Only (Steps f-j) - ~90 min")
-        print(f"   3️⃣  Execute Phase 3 Only (Steps k-q) - ~120 min")
-        print(f"   🔄 Execute All Phases Sequentially - ~270 min")
+        print(f"\nPHASE EXECUTION OPTIONS:")
+        print(f"   [1] Execute Phase 1 Only (Steps a-e) - ~60 min")
+        print(f"   [2] Execute Phase 2 Only (Steps f-j) - ~90 min")
+        print(f"   [3] Execute Phase 3 Only (Steps k-q) - ~120 min")
+        print(f"   [4] Execute All Phases Sequentially - ~270 min")
 
-        print(f"\n🔍 INDIVIDUAL OPERATIONS:")
-        print(f"   5️⃣  Run Dataplane Monitor Only")
-        print(f"   6️⃣  Run Dummy Scripts Only")
-        print(f"   7️⃣  Show Tech Collection Only")
-        print(f"   8️⃣  Clear ASIC Counters Only")
+        print(f"\nINDIVIDUAL OPERATIONS:")
+        print(f"   [5] Run Dataplane Monitor Only")
+        print(f"   [6] Run Dummy Scripts Only")
+        print(f"   [7] Show Tech Collection Only")
+        print(f"   [8] Clear ASIC Counters Only")
 
-        print(f"\n🛠️  UTILITIES:")
-        print(f"   📊 View Previous Results (status)")
-        print(f"   ❓ Help & Documentation (help)")
-        print(f"   🚪 Exit (exit)")
+        print(f"\nUTILITIES:")
+        print(f"   [status] View Previous Results")
+        print(f"   [help]   Help & Documentation")
+        print(f"   [exit]   Exit")
 
         print(f"\n{'=' * 80}")
+
 
     def get_user_choice(self):
         """Get and validate user menu choice"""
         while True:
-            choice = input(f"👉 Select option: ").strip().lower()
+            choice = input(f"Select option: ").strip().lower()
 
             valid_choices = ["1", "2", "3", "4", "5", "6", "7", "8", "status", "help", "exit", "quit", "q"]
 
             if choice in valid_choices:
                 return choice
             else:
-                print(f"❌ Invalid choice '{choice}'. Please try again.")
+                print(f"Invalid choice '{choice}'. Please try again.")
+
 
     def confirm_action(self, message: str, default_yes: bool = False) -> bool:
         """Interactive confirmation with clear defaults"""
@@ -1553,7 +1555,7 @@ def main():
 
     print(f"{'=' * 80}")
     print(f"{'🚀 IOS-XR 7.3.5 Fabric Card Remediation Framework':^80}")
-    print(f"{'Combined Interactive Post-Check Automation v2.0':^80}")
+    print(f"{'Combined Interactive Post-Check Automation v3.0':^80}")
     print(f"{'=' * 80}")
 
     framework = InteractiveFrameworkManager()

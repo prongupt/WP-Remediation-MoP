@@ -109,7 +109,7 @@ ensure_compatible_environment()
 __author__ = "Pronoy Dasgupta"
 __copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
 __credits__ = "Pronoy Dasgupta"
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 __maintainer__ = "Pronoy Dasgupta"
 __email__ = "prongupt@cisco.com"
 __status__ = "production"
@@ -2195,7 +2195,6 @@ class InteractivePreCheckManager:
 
     def initialize(self):
         """Initialize framework exactly like Part I"""
-        print(f"--- Cisco IOS-XR Device Status Report & Comparison ---")
         self.router_ip = input(f"Enter Router IP address or Hostname: ")
         self.username = input(f"Enter SSH Username: ")
         self.password = getpass.getpass(f"Enter SSH Password for {self.username}@{self.router_ip}: ")
@@ -2203,7 +2202,7 @@ class InteractivePreCheckManager:
     def display_main_menu(self):
         """Display main menu with SecureCRT compatible formatting"""
         print(f"\n{'=' * 80}")
-        print(f"{'IOS-XR Universal Pre-Check Interactive Framework v2.0':^80}")
+        print(f"{'IOS-XR Universal Pre-Check Interactive Framework v3.0':^80}")
         print(f"{'=' * 80}")
 
         print(f"\nRouter: {self.hostname} ({self.router_ip})")
@@ -3360,6 +3359,11 @@ class InteractivePreCheckManager:
 
 def main():
     """Main function"""
+    # --- ADD BANNER HERE ---
+    print(f"{'=' * 80}")
+    print(f"{'IOS-XR Universal Pre-Check Interactive Framework v3.0':^80}")
+    print(f"{'=' * 80}")
+    # --- END OF BANNER ---
     framework = InteractivePreCheckManager()
 
     try:

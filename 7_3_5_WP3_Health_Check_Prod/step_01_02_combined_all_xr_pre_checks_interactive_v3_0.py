@@ -109,7 +109,7 @@ ensure_compatible_environment()
 __author__ = "Pronoy Dasgupta"
 __copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
 __credits__ = "Pronoy Dasgupta"
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 __maintainer__ = "Pronoy Dasgupta"
 __email__ = "prongupt@cisco.com"
 __status__ = "production"

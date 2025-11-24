@@ -138,7 +138,6 @@ import datetime
 import logging
 import json
 import glob
-import concurrent.futures
 from typing import Optional, List, Tuple, Dict, Any
 
 # === ENHANCED CONSTANTS ===
@@ -248,56 +247,9 @@ class Tee:
         self.file_object.flush()
 
 
-# === FRAMEWORK CONSOLIDATION ===
-def detect_ios_xr_version_quick(router_ip=None, username=None, password=None):
-    """Quick IOS-XR version detection for script recommendation"""
-    if not all([router_ip, username, password]):
-        return "7.3.6+"  # Default assumption
-
-    try:
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(router_ip, username=username, password=password, timeout=10)
-
-        stdin, stdout, stderr = client.exec_command("show version | i Version", timeout=30)
-        output = stdout.read().decode('utf-8', errors='ignore')
-
-        match = re.search(r"Version (\d+\.\d+\.\d+)", output)
-        if match:
-            version = match.group(1)
-            client.close()
-            return version
-    except:
-        pass
-
-    return "7.3.6+"  # Default if detection fails
-
-
-def recommend_scripts_for_version(router_ip=None, username=None, password=None):
-    """Auto-detect IOS-XR version and recommend appropriate script sequence"""
-    print("🔍 Detecting optimal script sequence for your environment...")
-
-    version = detect_ios_xr_version_quick(router_ip, username, password)
-
-    if version.startswith("7.3.5"):
-        print("📋 Recommended sequence for IOS-XR 7.3.5:")
-        print("  1. step_01_all_xr_health_check_script_v2_0.py")
-        print("  2. step_02_all_XR_python_pre_check_v2_0.py")
-        print("  3. step_03a_7_3_5_post_checks_phase_1_v2_0.py")
-        print("  4. step_03b_7_3_5_post_checks_phase_2_v2_0.py")
-        print("  5. step_03c_7_3_5_post_checks_phase_3_v2_0.py")
-        return "7.3.5"
-    else:
-        print("📋 Recommended sequence for IOS-XR 7.3.6+:")
-        print("  1. step_01_all_xr_health_check_script_v2_0.py")
-        print("  2. step_02_all_XR_python_pre_check_v2_0.py")
-        print("  3. step_03_7_3_6+_post_checks_v2_0.py")
-        return "7.3.6+"
-
-
-# === STATE MANAGEMENT ===
+# === STATE MANAGEMENT (SIMPLIFIED) ===
 class WorkflowState:
-    """Manages state across multiple script executions"""
+    """Simplified workflow state management"""
 
     def __init__(self, hostname):
         self.hostname = hostname
@@ -305,35 +257,24 @@ class WorkflowState:
         self.state_file = os.path.join(self.state_dir, f"{hostname}_workflow_state.json")
         self.state = {
             'hostname': hostname,
-            'started_at': None,
-            'version_detected': None,
+            'started_at': datetime.datetime.now().isoformat(),
             'completed_phases': {},
-            'current_phase': None,
-            'total_errors': 0,
-            'workflow_status': 'not_started'
+            'total_errors': 0
         }
-        self.load_state()
 
-    def load_state(self):
-        """Load existing workflow state"""
-        try:
-            if os.path.exists(self.state_file):
-                with open(self.state_file, 'r') as f:
-                    saved_state = json.load(f)
-                    self.state.update(saved_state)
-                logging.info(f"📊 Loaded workflow state from {self.state_file}")
-        except Exception as e:
-            logging.warning(f"Could not load workflow state: {e}")
+    # Add to WorkflowState class in utils
+    def get_workflow_summary(self):
+        """Get workflow summary statistics"""
+        total_phases = len(self.state.get('completed_phases', {}))
+        successful_phases = sum(1 for phase in self.state.get('completed_phases', {}).values()
+                                if phase.get('success', False))
 
-    def save_state(self):
-        """Save current workflow state"""
-        try:
-            os.makedirs(self.state_dir, exist_ok=True)
-            with open(self.state_file, 'w') as f:
-                json.dump(self.state, f, indent=2, default=str)
-            logging.debug(f"💾 Saved workflow state to {self.state_file}")
-        except Exception as e:
-            logging.warning(f"Could not save workflow state: {e}")
+        return {
+            'completion_rate': f"{(successful_phases / max(total_phases, 1) * 100):.1f}%",
+            'successful_phases': successful_phases,
+            'total_errors': self.state.get('total_errors', 0)
+        }
+
 
     def save_phase_completion(self, phase, results, errors=None):
         """Save phase completion status"""
@@ -343,45 +284,64 @@ class WorkflowState:
             'errors': errors or [],
             'success': len(errors or []) == 0
         }
-        self.state['current_phase'] = phase
         self.state['total_errors'] += len(errors or [])
-        self.save_state()
 
-        logging.info(f"📊 Phase {phase} completion saved to workflow state")
+        try:
+            os.makedirs(self.state_dir, exist_ok=True)
+            with open(self.state_file, 'w') as f:
+                json.dump(self.state, f, indent=2, default=str)
+            logging.debug(f"💾 Saved workflow state to {self.state_file}")
+        except Exception as e:
+            logging.warning(f"Could not save workflow state: {e}")
 
-    def get_next_recommended_phase(self):
-        """Recommend next phase based on current state"""
-        completed = list(self.state['completed_phases'].keys())
 
-        if not completed:
-            return "step_01"  # Always start with Part I
-        elif "step_01" in completed and "step_02" not in completed:
-            return "step_02"
-        elif "step_02" in completed:
-            if self.state.get('version_detected', '').startswith('7.3.5'):
-                if "step_03a" not in completed:
-                    return "step_03a"
-                elif "step_03b" not in completed:
-                    return "step_03b"
-                elif "step_03c" not in completed:
-                    return "step_03c"
-            else:
-                if "step_03" not in completed:
-                    return "step_03"
+class LiveWorkflowDashboard:
+    """Simplified live workflow progress tracking"""
 
-        return None  # Workflow complete
+    def __init__(self, total_phases=5):
+        self.total_phases = total_phases
+        self.current_phase = 0
+        self.phase_start_time = None
+        self.workflow_start_time = time.time()
 
-    def get_workflow_summary(self):
-        """Generate workflow summary"""
-        total_phases = len(self.state['completed_phases'])
-        successful_phases = sum(1 for p in self.state['completed_phases'].values() if p['success'])
+    def start_phase(self, phase_name):
+        """Mark start of new phase"""
+        self.current_phase += 1
+        self.phase_start_time = time.time()
 
-        return {
-            'total_phases': total_phases,
-            'successful_phases': successful_phases,
-            'total_errors': self.state['total_errors'],
-            'completion_rate': f"{(successful_phases / total_phases * 100):.1f}%" if total_phases > 0 else "0%"
-        }
+        elapsed_workflow = time.time() - self.workflow_start_time
+        progress = (self.current_phase - 1) / self.total_phases * 100
+
+        print(f"\n📊 Workflow Progress: {progress:5.1f}% | Phase {self.current_phase}/{self.total_phases}: {phase_name}")
+
+    def update_phase_progress(self, phase, step, total_steps, status):
+        """Update live dashboard"""
+        if self.phase_start_time:
+            step_progress = (step / total_steps) * 100
+            print(f"🎯 {phase} Step {step}/{total_steps} ({step_progress:4.1f}%) - {status}")
+
+    def complete_phase(self, phase_name, success=True, errors=None):
+        """Mark phase completion"""
+        if self.phase_start_time:
+            phase_time = time.time() - self.phase_start_time
+            status_icon = "✅" if success else "❌"
+
+            print(f"{status_icon} {phase_name} completed in {format_execution_time(phase_time)}")
+
+            if errors and len(errors) > 0:
+                print(f"⚠️  Errors encountered: {len(errors)}")
+
+
+def create_enhanced_workflow_manager(hostname):
+    """Factory function to create workflow manager"""
+
+    class EnhancedWorkflowManager:
+        def __init__(self, hostname):
+            self.hostname = hostname
+            self.state = WorkflowState(hostname)
+            self.dashboard = LiveWorkflowDashboard()
+
+    return EnhancedWorkflowManager(hostname)
 
 
 # === ENHANCED CONNECTION FUNCTIONS ===
@@ -417,596 +377,98 @@ def connect_with_retry(client, router_ip, username, password, max_retries=3):
     return False
 
 
-def smart_retry_with_context(func, max_retries=3, context="", *args, **kwargs):
-    """Enhanced retry that learns from previous failures"""
+def smart_retry_with_context(func, max_retries=3, context=""):
+    """FIXED - Enhanced retry that learns from previous failures"""
 
-    def calculate_smart_wait_time(error, attempt):
-        """Calculate wait time based on error type and attempt"""
-        base_wait = (attempt + 1) * 5
-
-        if "timeout" in str(error).lower():
-            return base_wait * 2  # Longer wait for timeout errors
-        elif "connection" in str(error).lower():
-            return base_wait * 1.5  # Moderate wait for connection errors
-        else:
-            return base_wait
-
-    def should_retry_based_on_error(error, attempt, context):
+    def should_retry_based_on_error(error, attempt):
         """Intelligent retry decision based on error type"""
         error_str = str(error).lower()
 
-        # Don't retry certain types of errors
+        # NEVER retry these error types
         no_retry_errors = ["authentication failed", "permission denied", "degraded links found"]
         if any(no_retry in error_str for no_retry in no_retry_errors):
+            logging.info(f"❌ Not retrying {context} - error type not suitable for retry")
             return False
 
         # Always retry connection issues
-        retry_errors = ["timeout", "connection refused", "network unreachable"]
+        retry_errors = ["timeout", "connection refused", "network unreachable", "ssh"]
         if any(retry_err in error_str for retry_err in retry_errors):
-            return True
+            return attempt < max_retries - 1
 
         return attempt < max_retries - 1
 
     for attempt in range(max_retries):
         try:
-            return func(*args, **kwargs)
+            return func()
         except Exception as e:
-            if should_retry_based_on_error(e, attempt, context):
-                wait_time = calculate_smart_wait_time(e, attempt)
+            if should_retry_based_on_error(e, attempt):
+                wait_time = (attempt + 1) * 5
                 logging.info(f"🔄 Smart retry {attempt + 1}/{max_retries} for {context} after {wait_time}s...")
                 time.sleep(wait_time)
             else:
-                logging.warning(f"❌ Not retrying {context} - error type: {type(e).__name__}")
+                # DON'T log as "not retrying" for expected errors like degraded links
+                if "degraded links found" not in str(e).lower():
+                    logging.debug(f"Not retrying {context} - error type: {type(e).__name__}")
                 raise e
 
     raise Exception(f"All {max_retries} smart retry attempts failed for {context}")
 
 
-# === RELIABILITY ENHANCEMENTS ===
+# === RELIABILITY ENHANCEMENTS (SIMPLIFIED) ===
 def pre_flight_check(router_ip, username, password, phase_name):
-    """Verify router is ready for next phase"""
+    """SIMPLIFIED - Basic router readiness check"""
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(router_ip, username=username, password=password, timeout=15)
 
-    def check_router_responsiveness():
-        """Quick responsiveness check"""
-        try:
-            client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            client.connect(router_ip, username=username, password=password, timeout=10)
+        # Basic responsiveness test
+        stdin, stdout, stderr = client.exec_command("show clock", timeout=15)
+        output = stdout.read().decode('utf-8', errors='ignore')
+        client.close()
 
-            stdin, stdout, stderr = client.exec_command("show clock", timeout=10)
-            output = stdout.read().decode('utf-8', errors='ignore')
-            client.close()
-
-            return len(output) > 0
-        except:
+        if len(output) > 10:  # Got reasonable output
+            logging.info(f"✅ Pre-flight check passed for {phase_name}")
+            return True
+        else:
+            logging.warning(f"⚠️ Pre-flight check questionable for {phase_name}")
             return False
 
-    def check_cpu_utilization():
-        """Check if CPU utilization is reasonable"""
-        try:
-            client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            client.connect(router_ip, username=username, password=password, timeout=10)
-
-            stdin, stdout, stderr = client.exec_command("show processes cpu | i CPU", timeout=15)
-            output = stdout.read().decode('utf-8', errors='ignore')
-            client.close()
-
-            # Look for high CPU usage patterns
-            if "99%" in output or "100%" in output:
-                logging.warning("⚠️ High CPU utilization detected")
-                return False
-            return True
-        except:
-            return True  # Assume OK if check fails
-
-    def check_memory_usage():
-        """Check memory usage"""
-        try:
-            client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            client.connect(router_ip, username=username, password=password, timeout=10)
-
-            stdin, stdout, stderr = client.exec_command("show memory summary", timeout=15)
-            output = stdout.read().decode('utf-8', errors='ignore')
-            client.close()
-
-            # Basic memory check - look for memory exhaustion indicators
-            if "failed" in output.lower() or "exhausted" in output.lower():
-                logging.warning("⚠️ Memory issues detected")
-                return False
-            return True
-        except:
-            return True  # Assume OK if check fails
-
-    def check_ongoing_processes():
-        """Check for ongoing critical processes"""
-        try:
-            client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            client.connect(router_ip, username=username, password=password, timeout=10)
-
-            stdin, stdout, stderr = client.exec_command("show processes | i install", timeout=15)
-            output = stdout.read().decode('utf-8', errors='ignore')
-            client.close()
-
-            # Check for ongoing installations
-            if "install" in output.lower() and "running" in output.lower():
-                logging.warning("⚠️ Installation process detected - wait for completion")
-                return False
-            return True
-        except:
-            return True  # Assume OK if check fails
-
-    # Run all pre-flight checks
-    checks = [
-        ("Router Responsiveness", check_router_responsiveness),
-        ("CPU Utilization", check_cpu_utilization),
-        ("Memory Usage", check_memory_usage),
-        ("Ongoing Processes", check_ongoing_processes)
-    ]
-
-    logging.info(f"🔍 Running pre-flight checks for {phase_name}...")
-
-    failed_checks = []
-    for check_name, check_func in checks:
-        try:
-            if not check_func():
-                failed_checks.append(check_name)
-                logging.warning(f"❌ Pre-flight check failed: {check_name}")
-            else:
-                logging.debug(f"✅ Pre-flight check passed: {check_name}")
-        except Exception as e:
-            logging.warning(f"⚠️ Pre-flight check error for {check_name}: {e}")
-
-    if failed_checks:
-        logging.warning(f"⚠️ Pre-flight checks failed for {phase_name}: {', '.join(failed_checks)}")
-        user_choice = input(f"Continue with {phase_name} despite pre-flight check failures? (y/N): ").lower()
-        return user_choice in ['y', 'yes']
-    else:
-        logging.info(f"✅ All pre-flight checks passed for {phase_name}")
-        return True
+    except Exception as e:
+        logging.warning(f"⚠️ Pre-flight check failed for {phase_name}: {e}")
+        return False
 
 
 def suggest_recovery_actions(error_type, phase, context=""):
-    """Provide specific recovery suggestions based on error patterns"""
-    suggestions = {
+    """SIMPLIFIED - Provide specific recovery suggestions"""
+    error_name = error_type.__name__ if hasattr(error_type, '__name__') else str(error_type)
+
+    if error_name == "ScriptExecutionError" and "degraded links" in context.lower():
+        # Don't provide suggestions - the calling script will handle degraded links
+        return
+
+    simple_suggestions = {
         'DataplaneError': [
             "🔍 Check fabric card status with 'show platform'",
-            "🔗 Verify LC-FC physical connections",
-            "🔄 Consider fabric card reload",
-            "📊 Check 'show controller fabric plane all' for statistics"
-        ],
-        'ScriptExecutionError': [
-            "📁 Verify monitor scripts exist in /misc/disk1/",
-            "🔐 Check directory permissions on /misc/disk1/",
-            "📤 Retry script upload from Part I",
-            "🐍 Verify Python3 is available on router"
+            "🔧 Verify LC-FC connections are secure"
         ],
         'SSHConnectionError': [
             "🌐 Check network connectivity to router",
-            "🔐 Verify SSH credentials are correct",
-            "🕒 Wait for router to fully boot up",
-            "🔄 Try connecting with different SSH client"
+            "🔐 Verify SSH credentials are correct"
         ],
         'ShowTechError': [
             "💾 Check available disk space on harddisk:",
-            "🕒 Wait for any ongoing show tech to complete",
-            "📁 Clean up old show tech files if needed",
-            "🔄 Retry show tech collection manually"
-        ],
-        'AsicErrorShowError': [
-            "⏰ Wait for router to stabilize after previous operations",
-            "🔧 Verify router is not in maintenance mode",
-            "📋 Check ASIC error clearing is supported on this version",
-            "🔄 Retry ASIC error clearing manually"
+            "🕒 Wait for any ongoing show tech to complete"
         ]
     }
 
-    error_name = error_type.__name__ if hasattr(error_type, '__name__') else str(error_type)
-
-    if error_name in suggestions:
-        print(f"💡 Recovery suggestions for {error_name} in {phase}:")
-        for suggestion in suggestions[error_name]:
+    if error_name in simple_suggestions:
+        print(f"💡 Recovery suggestions for {phase}:")
+        for suggestion in simple_suggestions[error_name]:
             print(f"   {suggestion}")
 
-        if context:
-            print(f"📝 Context: {context}")
-    else:
-        print(f"❓ No specific recovery suggestions available for {error_name}")
 
-
-# === CROSS-SCRIPT COMMUNICATION ===
-def correlate_errors_across_phases(hostname_dir):
-    """Analyze errors across all completed phases"""
-
-    def parse_errors_from_log(log_pattern):
-        """Extract errors from log files"""
-        errors = []
-        log_files = glob.glob(log_pattern)
-
-        for log_file in log_files:
-            try:
-                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-
-                # Look for error patterns
-                error_patterns = [
-                    r'✗.*?failed.*?:\s*(.+)',
-                    r'ERROR.*?-\s*(.+)',
-                    r'CRITICAL.*?-\s*(.+)',
-                    r'Degraded links found',
-                    r'Dataplane errors detected',
-                    r'ASIC errors detected'
-                ]
-
-                for pattern in error_patterns:
-                    matches = re.findall(pattern, content, re.IGNORECASE)
-                    errors.extend(matches)
-
-            except Exception as e:
-                logging.warning(f"Could not parse errors from {log_file}: {e}")
-
-        return errors
-
-    def find_common_patterns(phase1_errors, phase2_errors, phase3_errors):
-        """Identify recurring error patterns"""
-        all_errors = phase1_errors + phase2_errors + phase3_errors
-        error_counts = {}
-
-        for error in all_errors:
-            # Normalize error messages
-            normalized = re.sub(r'\d+', 'X', str(error).lower())  # Replace numbers with X
-            normalized = re.sub(r'0/\w+/\w+', '0/X/X', normalized)  # Replace locations
-
-            error_counts[normalized] = error_counts.get(normalized, 0) + 1
-
-        # Return errors that appear more than once
-        recurring = [error for error, count in error_counts.items() if count > 1]
-        return recurring
-
-    try:
-        phase_1_errors = parse_errors_from_log(os.path.join(hostname_dir, "*phase_1*.txt"))
-        phase_2_errors = parse_errors_from_log(os.path.join(hostname_dir, "*phase_2*.txt"))
-        phase_3_errors = parse_errors_from_log(os.path.join(hostname_dir, "*phase_3*.txt"))
-
-        recurring_issues = find_common_patterns(phase_1_errors, phase_2_errors, phase_3_errors)
-
-        if recurring_issues:
-            print("🔍 Recurring issues detected across phases:")
-            for issue in recurring_issues:
-                print(f"   • {issue}")
-
-            return recurring_issues
-        else:
-            logging.info("✅ No recurring error patterns detected across phases")
-            return []
-
-    except Exception as e:
-        logging.error(f"Error correlating errors across phases: {e}")
-        return []
-
-
-# === PERFORMANCE ANALYTICS ===
-def analyze_workflow_performance(hostname_dir):
-    """Analyze performance across all completed phases"""
-
-    def extract_execution_time(log_file):
-        """Extract execution time from log file"""
-        try:
-            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-
-            # Look for execution time patterns
-            time_match = re.search(r'Total script execution time:\s*([0-9h]+\s*[0-9m]+\s*[0-9s]+)', content)
-            if time_match:
-                time_str = time_match.group(1)
-                # Convert to seconds for comparison
-                return parse_time_string_to_seconds(time_str)
-
-        except Exception as e:
-            logging.warning(f"Could not extract execution time from {log_file}: {e}")
-
-        return 0
-
-    def parse_time_string_to_seconds(time_str):
-        """Parse time string like '1h 23m 45s' to seconds"""
-        total_seconds = 0
-
-        # Extract hours, minutes, seconds
-        hour_match = re.search(r'(\d+)h', time_str)
-        min_match = re.search(r'(\d+)m', time_str)
-        sec_match = re.search(r'(\d+)s', time_str)
-
-        if hour_match:
-            total_seconds += int(hour_match.group(1)) * 3600
-        if min_match:
-            total_seconds += int(min_match.group(1)) * 60
-        if sec_match:
-            total_seconds += int(sec_match.group(1))
-
-        return total_seconds
-
-    phase_times = {}
-    bottlenecks = []
-
-    # Analyze execution times from all log files
-    log_patterns = {
-        'Part I': f"{hostname_dir}/*combined_session_log*.txt",
-        'Part II': f"{hostname_dir}/*python_pre_check_session_log*.txt",
-        'Phase 1': f"{hostname_dir}/*phase_1*.txt",
-        'Phase 2': f"{hostname_dir}/*phase_2*.txt",
-        'Phase 3': f"{hostname_dir}/*phase_3*.txt"
-    }
-
-    for phase_name, pattern in log_patterns.items():
-        log_files = glob.glob(pattern)
-        if log_files:
-            # Get the most recent log file
-            most_recent = max(log_files, key=os.path.getmtime)
-            execution_time = extract_execution_time(most_recent)
-            if execution_time > 0:
-                phase_times[phase_name] = execution_time
-
-    # Identify potential bottlenecks
-    if phase_times.get('Part I', 0) > 1200:  # > 20 minutes
-        bottlenecks.append("Part I taking longer than expected - check health check commands")
-
-    if phase_times.get('Part II', 0) > 4200:  # > 70 minutes
-        bottlenecks.append("Part II exceeding normal time - check script execution")
-
-    if phase_times.get('Phase 1', 0) > 3900:  # > 65 minutes
-        bottlenecks.append("Phase 1 slow - dataplane monitoring may be taking too long")
-
-    if phase_times.get('Phase 2', 0) > 6000:  # > 100 minutes
-        bottlenecks.append("Phase 2 slow - show tech collection may be delayed")
-
-    if phase_times.get('Phase 3', 0) > 7200:  # > 120 minutes
-        bottlenecks.append("Phase 3 slow - dual dummy no phases taking excessive time")
-
-    # Generate performance report
-    if phase_times:
-        print("\n📊 Workflow Performance Analysis:")
-        for phase, time_sec in phase_times.items():
-            formatted_time = format_execution_time(time_sec)
-            print(f"   {phase}: {formatted_time}")
-
-    if bottlenecks:
-        print("\n⚠️ Performance Bottlenecks Identified:")
-        for bottleneck in bottlenecks:
-            print(f"   • {bottleneck}")
-
-    return phase_times, bottlenecks
-
-
-# === INTERACTIVE WORKFLOW MANAGEMENT ===
-def run_interactive_workflow():
-    """Interactive mode for step-by-step execution with user control"""
-
-    print("🎮 Interactive Workflow Management Mode")
-    print("=" * 50)
-
-    # Get basic connection info
-    router_ip = input("Enter Router IP address or Hostname: ")
-    username = input("Enter SSH Username: ")
-    password = getpass.getpass(f"Enter SSH Password for {username}@{router_ip}: ")
-
-    # Detect version and recommend workflow
-    version_type = recommend_scripts_for_version(router_ip, username, password)
-
-    # Define workflow steps
-    if version_type.startswith("7.3.5"):
-        workflow_steps = [
-            {
-                'name': 'Part I - Health Check + File Upload',
-                'script': 'step_01_all_xr_health_check_script_v2_0.py',
-                'description': 'Device health assessment and baseline establishment',
-                'estimated_time': '12-18 minutes',
-                'critical': True
-            },
-            {
-                'name': 'Part II - Python Pre-Check',
-                'script': 'step_02_all_XR_python_pre_check_v2_0.py',
-                'description': 'Two-phase Python script validation',
-                'estimated_time': '45-60 minutes',
-                'critical': True
-            },
-            {
-                'name': 'Part 3a - Phase 1',
-                'script': 'step_03a_7_3_5_post_checks_phase_1_v2_0.py',
-                'description': 'Post-check Phase 1 (Steps a-e) with manual reload',
-                'estimated_time': '45-60 minutes',
-                'critical': True
-            },
-            {
-                'name': 'Part 3b - Phase 2',
-                'script': 'step_03b_7_3_5_post_checks_phase_2_v2_0.py',
-                'description': 'Post-check Phase 2 (Steps f-j) with show tech',
-                'estimated_time': '60-90 minutes',
-                'critical': False
-            },
-            {
-                'name': 'Part 3c - Phase 3',
-                'script': 'step_03c_7_3_5_post_checks_phase_3_v2_0.py',
-                'description': 'Post-check Phase 3 (Steps k-q) with dual dummy no',
-                'estimated_time': '90-120 minutes',
-                'critical': True
-            }
-        ]
-    else:
-        workflow_steps = [
-            {
-                'name': 'Part I - Health Check + File Upload',
-                'script': 'step_01_all_xr_health_check_script_v2_0.py',
-                'description': 'Device health assessment and baseline establishment',
-                'estimated_time': '12-18 minutes',
-                'critical': True
-            },
-            {
-                'name': 'Part II - Python Pre-Check',
-                'script': 'step_02_all_XR_python_pre_check_v2_0.py',
-                'description': 'Two-phase Python script validation',
-                'estimated_time': '45-60 minutes',
-                'critical': True
-            },
-            {
-                'name': 'Part III - Post-Check',
-                'script': 'step_03_7_3_6+_post_checks_v2_0.py',
-                'description': '8-step comprehensive post-check workflow',
-                'estimated_time': '2-3 hours',
-                'critical': True
-            }
-        ]
-
-    # Interactive execution
-    for step in workflow_steps:
-        print(f"\n{'=' * 60}")
-        print(f"🚀 Next Step: {step['name']}")
-        print(f"📝 Description: {step['description']}")
-        print(f"⏱️  Estimated Time: {step['estimated_time']}")
-        print(f"🚨 Critical: {'Yes' if step['critical'] else 'No'}")
-
-        choices = "y/N/skip" if not step['critical'] else "y/N"
-        user_choice = input(f"Execute this step? ({choices}): ").lower()
-
-        if user_choice == 'y':
-            print(f"▶️  Executing: python3 {step['script']}")
-            print("   (Script will run independently - monitor progress in logs)")
-        elif user_choice == 'skip' and not step['critical']:
-            print(f"⏭️  Skipping: {step['name']}")
-            continue
-        else:
-            print("🛑 Workflow stopped by user")
-            break
-
-    print("\n🎯 Interactive workflow management completed")
-
-
-# === PARALLEL OPERATIONS ===
-def run_parallel_safe_operations(operations_list, max_workers=3):
-    """Run independent operations in parallel where safe"""
-
-    if not operations_list:
-        return {}
-
-    results = {}
-
-    # Separate parallel-safe from sequential operations
-    parallel_ops = [op for op in operations_list if op.get('parallel_safe', False)]
-    sequential_ops = [op for op in operations_list if not op.get('parallel_safe', True)]
-
-    # Run parallel operations first
-    if parallel_ops:
-        logging.info(f"🔄 Running {len(parallel_ops)} operations in parallel...")
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all parallel operations
-            future_to_operation = {
-                executor.submit(op['func'], *op.get('args', []), **op.get('kwargs', {})): op['name']
-                for op in parallel_ops
-            }
-
-            # Collect results as they complete
-            for future in concurrent.futures.as_completed(future_to_operation, timeout=300):
-                operation_name = future_to_operation[future]
-                try:
-                    result = future.result(timeout=30)
-                    results[operation_name] = {'success': True, 'result': result}
-                    logging.info(f"✅ Parallel operation '{operation_name}' completed successfully")
-                except Exception as e:
-                    results[operation_name] = {'success': False, 'error': str(e)}
-                    logging.error(f"❌ Parallel operation '{operation_name}' failed: {e}")
-
-    # Run sequential operations
-    for op in sequential_ops:
-        operation_name = op['name']
-        try:
-            logging.info(f"⏳ Running sequential operation: {operation_name}")
-            result = op['func'](*op.get('args', []), **op.get('kwargs', {}))
-            results[operation_name] = {'success': True, 'result': result}
-            logging.info(f"✅ Sequential operation '{operation_name}' completed")
-        except Exception as e:
-            results[operation_name] = {'success': False, 'error': str(e)}
-            logging.error(f"❌ Sequential operation '{operation_name}' failed: {e}")
-
-    return results
-
-
-# === LIVE MONITORING ===
-class LiveWorkflowDashboard:
-    """Real-time workflow progress tracking"""
-
-    def __init__(self, total_phases=5):
-        self.total_phases = total_phases
-        self.current_phase = 0
-        self.phase_start_time = None
-        self.workflow_start_time = time.time()
-
-    def start_phase(self, phase_name):
-        """Mark start of new phase"""
-        self.current_phase += 1
-        self.phase_start_time = time.time()
-
-        elapsed_workflow = time.time() - self.workflow_start_time
-        progress = (self.current_phase - 1) / self.total_phases * 100
-
-        print(f"\n📊 Workflow Progress: {progress:5.1f}% | Phase {self.current_phase}/{self.total_phases}: {phase_name}")
-        print(f"⏱️  Workflow Runtime: {format_execution_time(elapsed_workflow)}")
-
-    def update_phase_progress(self, phase, step, total_steps, status):
-        """Update live dashboard"""
-        if self.phase_start_time:
-            phase_elapsed = time.time() - self.phase_start_time
-            step_progress = (step / total_steps) * 100
-
-            print(f"\r🎯 {phase} Step {step}/{total_steps} ({step_progress:4.1f}%) | "
-                  f"Phase Time: {format_execution_time(phase_elapsed)} | "
-                  f"Status: {status:<30}", end='', flush=True)
-
-    def complete_phase(self, phase_name, success=True, errors=None):
-        """Mark phase completion"""
-        if self.phase_start_time:
-            phase_time = time.time() - self.phase_start_time
-            status_icon = "✅" if success else "❌"
-
-            print(f"\n{status_icon} {phase_name} completed in {format_execution_time(phase_time)}")
-
-            if errors:
-                print(f"⚠️  Errors encountered: {len(errors)}")
-                for error in errors[:3]:  # Show first 3 errors
-                    print(f"   • {error}")
-                if len(errors) > 3:
-                    print(f"   • ... and {len(errors) - 3} more errors")
-
-    def generate_final_report(self, all_phases_results):
-        """Generate comprehensive final report"""
-        total_workflow_time = time.time() - self.workflow_start_time
-        successful_phases = sum(1 for r in all_phases_results.values() if r.get('success', False))
-
-        print(f"\n{'=' * 60}")
-        print(f"🏁 WORKFLOW COMPLETION REPORT")
-        print(f"{'=' * 60}")
-        print(f"📊 Total Phases: {self.total_phases}")
-        print(f"✅ Successful: {successful_phases}")
-        print(f"❌ Failed: {self.total_phases - successful_phases}")
-        print(f"⏱️  Total Time: {format_execution_time(total_workflow_time)}")
-        print(f"🎯 Success Rate: {(successful_phases / self.total_phases * 100):.1f}%")
-
-        # Phase-by-phase breakdown
-        print(f"\n📋 Phase Breakdown:")
-        for phase_name, result in all_phases_results.items():
-            status = "✅ SUCCESS" if result.get('success', False) else "❌ FAILED"
-            phase_time = result.get('execution_time', 'Unknown')
-            print(f"   {phase_name:<20} | {status:<10} | {phase_time}")
-
-        print(f"{'=' * 60}")
-
-
-# === ORIGINAL UTILS FUNCTIONS (All existing functions remain unchanged) ===
-# [Include all the existing functions from the current utils file here]
-# This includes: countdown functions, SSH utilities, dataplane monitoring,
-# error parsing, show tech functions, etc.
-
+# === ENHANCED SSH UTILITIES ===
 def countdown_timer(seconds, console_stream):
     """Enhanced countdown timer matching other parts"""
     logging.info(f'Countdown Timer: Starting for {seconds // 60:02d}:{seconds % 60:02d}.')
@@ -1115,162 +577,6 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
     return True
 
 
-# [Continue with all the existing utils functions...]
-# Including: run_script_list_phase, parse_version_string, get_ios_xr_version,
-# get_hostname, get_hostname_from_router, get_router_timestamp,
-# poll_dataplane_monitoring_735, run_dataplane_monitor_phase, execute_script_phase,
-# run_show_tech_phase, run_show_tech_fabric, run_clear_asic_counters,
-# parse functions, error reporting functions, final summary functions, etc.
-
-# === EXECUTION TIME UTILITIES ===
-def format_execution_time(seconds):
-    """Format execution time in human-readable format"""
-    hours, remainder = divmod(int(seconds), 3600)
-    minutes, seconds = divmod(remainder, 60)
-
-    if hours > 0:
-        return f"{hours:02d}h {minutes:02d}m {seconds:02d}s"
-    elif minutes > 0:
-        return f"{minutes:02d}m {seconds:02d}s"
-    else:
-        return f"{seconds:02d}s"
-
-
-# [All other existing functions from the original utils file remain unchanged]
-
-# === ENHANCED FINAL SUMMARY ===
-def print_final_summary(results: Dict[str, str], total_execution_time: float = None):
-    """Enhanced final summary table with execution time and workflow context"""
-    print(f"\n--- Final Script Summary ---")
-
-    # Add execution time display if provided
-    if total_execution_time is not None:
-        formatted_time = format_execution_time(total_execution_time)
-        execution_time_text = f"Total time for execution: {formatted_time}"
-        time_table_width = max(len(execution_time_text) + 4, 60)
-
-        time_separator = "+" + "-" * (time_table_width - 2) + "+"
-        time_content = f"| {execution_time_text:<{time_table_width - 4}} |"
-
-        print(time_separator)
-        print(time_content)
-        print(time_separator)
-
-    # Enhanced summary table
-    summary_table = PrettyTable()
-    summary_table.field_names = ["Test #", "Section Name", "Status"]
-
-    # Center align Test number, left align others
-    summary_table.align["Test #"] = "c"
-    summary_table.align["Section Name"] = "l"
-    summary_table.align["Status"] = "l"
-
-    def colorize_status(status):
-        if "Success" in status:
-            return f"\033[1;92m{status}\033[0m"  # Bright Green
-        elif "Failed" in status:
-            return f"\033[1;91m{status}\033[0m"  # Bright Red
-        elif "Collection Only" in status or "Instructed User" in status:
-            return f"\033[1;94m{status}\033[0m"  # Bright Blue
-        else:
-            return status
-
-    test_number = 1
-    for step_num, result in results.items():
-        section_name = result.split(': ')[0] if ': ' in result else result
-        status_text = result.split(': ')[1] if ': ' in result else result
-        colored_status = colorize_status(status_text)
-        summary_table.add_row([str(test_number), section_name, colored_status])
-        test_number += 1
-
-    print(summary_table)
-    logging.info(f"--- End Final Script Summary ---")
-
-
-# === UTILITY HELPER FUNCTIONS ===
-def create_enhanced_workflow_manager(hostname):
-    """Factory function to create workflow manager with all enhancements"""
-
-    class EnhancedWorkflowManager:
-        def __init__(self, hostname):
-            self.hostname = hostname
-            self.state = WorkflowState(hostname)
-            self.dashboard = LiveWorkflowDashboard()
-            self.start_time = time.time()
-
-        def execute_phase_with_enhancements(self, phase_name, phase_func, *args, **kwargs):
-            """Execute phase with all enhancements enabled"""
-
-            # Pre-flight checks
-            if not pre_flight_check(kwargs.get('router_ip'), kwargs.get('username'),
-                                    kwargs.get('password'), phase_name):
-                raise WorkflowStateError(f"Pre-flight checks failed for {phase_name}")
-
-            # Start phase tracking
-            self.dashboard.start_phase(phase_name)
-
-            try:
-                # Execute phase with smart retry
-                result = smart_retry_with_context(
-                    phase_func,
-                    max_retries=2,
-                    context=phase_name,
-                    *args, **kwargs
-                )
-
-                # Mark success
-                self.state.save_phase_completion(phase_name, result)
-                self.dashboard.complete_phase(phase_name, success=True)
-
-                return result
-
-            except Exception as e:
-                # Handle failure
-                self.state.save_phase_completion(phase_name, None, [str(e)])
-                self.dashboard.complete_phase(phase_name, success=False, errors=[str(e)])
-
-                # Provide recovery suggestions
-                suggest_recovery_actions(type(e), phase_name, str(e))
-
-                raise e
-
-        def generate_comprehensive_report(self):
-            """Generate final comprehensive report"""
-            workflow_time = time.time() - self.start_time
-            summary = self.state.get_workflow_summary()
-
-            print(f"\n{'🎯 COMPREHENSIVE WORKFLOW REPORT':^60}")
-            print(f"{'=' * 60}")
-            print(f"📊 Total Runtime: {format_execution_time(workflow_time)}")
-            print(f"✅ Success Rate: {summary['completion_rate']}")
-            print(f"🔢 Total Phases: {summary['total_phases']}")
-            print(f"❌ Total Errors: {summary['total_errors']}")
-
-            # Analyze performance
-            performance_data, bottlenecks = analyze_workflow_performance(self.state.state_dir)
-
-            if bottlenecks:
-                print(f"\n⚠️  Performance Recommendations:")
-                for bottleneck in bottlenecks:
-                    print(f"   • {bottleneck}")
-
-            # Check for recurring issues
-            recurring_issues = correlate_errors_across_phases(self.state.state_dir)
-            if recurring_issues:
-                print(f"\n🔍 Recurring Issues Requiring Attention:")
-                for issue in recurring_issues:
-                    print(f"   • {issue}")
-
-            print(f"{'=' * 60}")
-
-    return EnhancedWorkflowManager(hostname)
-
-
-# [Include ALL existing functions from the original utils file here - they remain unchanged]
-# This includes all the dataplane monitoring, script execution, show tech, ASIC clearing,
-# error parsing, and other utility functions from the current utils_7_3_5_common.py
-
-# === EXISTING FUNCTIONS (Preserved from original utils) ===
 def run_script_list_phase(shell: paramiko.Channel, scripts_to_run: List[str], script_arg_option: str) -> List[
     Tuple[str, str]]:
     """Enhanced script execution with better logging"""
@@ -1306,8 +612,7 @@ def run_script_list_phase(shell: paramiko.Channel, scripts_to_run: List[str], sc
     return all_scripts_raw_output
 
 
-# [Continue with ALL other existing functions from the current utils file...]
-
+# === VERSION-SPECIFIC FUNCTIONS ===
 def parse_version_string(version_str: str) -> Tuple[int, ...]:
     """Parses a version string (e.g., "7.3.5") into a tuple of integers (e.g., (7, 3, 5))."""
     return tuple(map(int, version_str.split('.')))
@@ -1408,26 +713,6 @@ def get_hostname_from_router(router_ip, username, password):
             client.close()
             logging.info(f"Temporary SSH connection for hostname retrieval closed.")
 
-# [Continue with ALL remaining existing functions from the original utils file]
-# This ensures complete backward compatibility while adding enhancements
-
-# Additional existing functions to include:
-# - get_router_timestamp
-# - parse_dataplane_output_for_errors
-# - poll_dataplane_monitoring_735
-# - run_dataplane_monitor_phase
-# - execute_script_phase
-# - run_show_tech_phase
-# - run_show_tech_fabric
-# - run_clear_asic_counters
-# - get_group_number_from_script_name
-# - extract_link_components
-# - parse_script_output_for_errors
-# - format_and_print_error_report
-# - wait_for_prompt_after_ctrlc
-# - format_execution_time
-
-# All these functions remain exactly as they are in the current utils file
 
 def get_router_timestamp(shell: paramiko.Channel) -> datetime.datetime:
     """Gets the current timestamp from the router using 'show clock'."""
@@ -1452,7 +737,7 @@ def get_router_timestamp(shell: paramiko.Channel) -> datetime.datetime:
         raise RouterCommandError(f"Could not parse 'show clock' output for timestamp: {output}")
 
 
-# --- Execution Time Utilities ---
+# === EXECUTION TIME UTILITIES ===
 def format_execution_time(seconds):
     """Format execution time in human-readable format"""
     hours, remainder = divmod(int(seconds), 3600)
@@ -1466,7 +751,7 @@ def format_execution_time(seconds):
         return f"{seconds:02d}s"
 
 
-# --- Dataplane Monitoring Functions (7.3.5 Specific) ---
+# === 7.3.5 DATAPLANE MONITORING ===
 def parse_dataplane_output_for_errors(output_text: str) -> bool:
     """Enhanced dataplane error parsing with explicit failure detection"""
     errors_found = []
@@ -1542,7 +827,7 @@ def parse_dataplane_output_for_errors(output_text: str) -> bool:
 
 
 def poll_dataplane_monitoring_735(shell: paramiko.Channel, max_poll_duration_sec: int) -> bool:
-    """PRESERVED - Dataplane monitoring for IOS-XR 7.3.5 (foreground mode)"""
+    """7.3.5 specific dataplane monitoring (foreground mode)"""
     logging.info(f"Running 'monitor dataplane-health' command (IOS-XR 7.3.5 foreground mode)...")
     shell.send("monitor dataplane-health\n")
     time.sleep(2)
@@ -1562,7 +847,200 @@ def poll_dataplane_monitoring_735(shell: paramiko.Channel, max_poll_duration_sec
         raise DataplaneError("Dataplane monitoring completed but no valid results found in output")
 
 
-# --- Error Parsing Functions ---
+def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, monitor_description: str,
+                                ssh_timeout: int, dataplane_timeout: int) -> bool:
+    """7.3.5 dataplane monitoring phase with enhanced connection"""
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    shell = None
+    try:
+        logging.info(f"Connecting to {router_ip} for {monitor_description} dataplane monitor...")
+        connect_with_retry(client, router_ip, username, password)
+        logging.info(f"Successfully connected for {monitor_description} dataplane monitor.")
+
+        shell = client.invoke_shell()
+        time.sleep(1)
+        logging.info(f"--- Initial Shell Output ({monitor_description} Dataplane Monitor) ---")
+        read_and_print_realtime(shell, timeout_sec=2)
+        logging.info(f"--- End Initial Shell Output ---")
+
+        if not execute_command_in_shell(shell, "terminal length 0", "set terminal length to 0", timeout=5,
+                                        print_realtime_output=False):
+            raise RouterCommandError("Failed to set terminal length 0.")
+        if not execute_command_in_shell(shell, "terminal width 511", "set terminal width to 511", timeout=5,
+                                        print_realtime_output=False):
+            raise RouterCommandError("Failed to set terminal width 511.")
+
+        logging.info(f"Running 'monitor dataplane-health' for IOS-XR 7.3.5.")
+        dataplane_check_clean = poll_dataplane_monitoring_735(shell, dataplane_timeout)
+
+        if dataplane_check_clean:
+            logging.info(
+                f"\033[1;92m✓ {monitor_description} Dataplane monitoring completed and reported no errors.\033[0m")
+            return True
+        else:
+            logging.error(
+                f"\033[1;91m✗ {monitor_description} Dataplane monitoring completed, but errors were reported.\033[0m")
+            raise DataplaneError(f"Dataplane errors detected during {monitor_description} monitor.")
+
+    except paramiko.AuthenticationException as e:
+        raise SSHConnectionError(f"Authentication failed for {monitor_description} monitor: {e}")
+    except paramiko.SSHException as e:
+        raise SSHConnectionError(f"SSH error during {monitor_description} monitor: {e}")
+    except DataplaneError:
+        raise
+    except Exception as e:
+        raise SSHConnectionError(f"An unexpected error occurred during {monitor_description} dataplane monitor: {e}")
+    finally:
+        if shell:
+            logging.info(f"Exiting CLI session after {monitor_description} dataplane monitor.")
+            try:
+                shell.send("exit\n")
+                time.sleep(1)
+                while shell.recv_ready():
+                    shell.recv(65535).decode('utf-8', errors='ignore')
+            except Exception as e:
+                logging.warning(f"Error during graceful shell exit in {monitor_description} monitor: {e}")
+            finally:
+                try:
+                    shell.close()
+                except Exception as e:
+                    logging.warning(f"Error closing Paramiko shell channel in {monitor_description} monitor: {e}")
+        if client:
+            try:
+                client.close()
+            except Exception as e:
+                logging.warning(f"Error closing Paramiko SSH client in {monitor_description} monitor: {e}")
+        logging.info(f"SSH connection for {monitor_description} monitor closed.")
+
+
+def suggest_dataplane_recovery_actions(part: object, step: object, monitor_description: object) -> None:
+    """Enhanced dataplane-specific recovery guidance
+    :rtype: None
+    """
+    restart_instructions = {
+        '3a': {
+            'step_b': "Re-run Part 3a from Step a (restart entire Phase 1)",
+        },
+        '3b': {
+            'step_f': "Re-run Part 3a from Step e (restart from Phase 1 manual reload step)",
+            'step_h': "Re-run Part 3a from Step e (restart from Phase 1 manual reload step)",
+        },
+        '3c': {
+            'step_l': "Re-run Part 3c from Step k (restart entire Phase 3)",
+            'step_o': "Re-run Part 3c from Step k (restart entire Phase 3)",
+        }
+    }
+
+    print(f"🚨 DATAPLANE MONITORING FAILURE - {step}")
+    print(f"📋 DATAPLANE ERROR RECOVERY PROCEDURE:")
+    print(f"   🔍 1. Review dataplane error details above")
+    print(f"   📊 2. Check system status: 'show platform'")
+    print(f"   🔧 3. Verify all fabric cards show OPERATIONAL status")
+    print(f"   🔗 4. Inspect LC-FC physical connections")
+    print(f"   ⚡ 5. Consider fabric card reload if errors persist")
+    print(f"   ⏰ 6. Wait for system stabilization (10-15 minutes)")
+
+    # Specific restart instruction based on part and step
+    restart_info = restart_instructions.get(part, {}).get(step, "Contact support for guidance")
+    print(f"   🔄 7. {restart_info}")
+    print(f"   ❌ 8. Do NOT proceed to next phase with dataplane errors")
+    print(f"   📞 9. Escalate to hardware team if issues persist after restart")
+
+
+def execute_script_phase(router_ip: str, username: str, password: str, scripts_to_run: List[str],
+                         script_arg_option: str, ssh_timeout: int, phase_name: str = "") -> bool:
+    """FIXED - 7.3.5 script phase execution with proper error handling"""
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    shell = None
+    try:
+        logging.info(f"Attempting to connect to {router_ip} for phase with option '{script_arg_option}'...")
+        connect_with_retry(client, router_ip, username, password)
+        logging.info(f"Successfully connected to {router_ip}.")
+
+        shell = client.invoke_shell()
+        time.sleep(1)
+        logging.info("--- Initial Shell Output ---")
+        initial_output, _ = read_and_print_realtime(shell, timeout_sec=2, print_realtime=False)
+        print(f"{initial_output}", end='')
+        print()
+        logging.info("--- End Initial Shell Output ---")
+
+        if not execute_command_in_shell(shell, "terminal length 0", "set terminal length to 0", timeout=5,
+                                        print_realtime_output=False):
+            raise RouterCommandError("Failed to set terminal length 0.")
+        if not execute_command_in_shell(shell, "terminal width 511", "set terminal width to 511", timeout=5,
+                                        print_realtime_output=False):
+            raise RouterCommandError("Failed to set terminal width 511.")
+
+        if not execute_command_in_shell(shell, "attach location 0/RP0/CPU0", "attach location 0/RP0/CPU0", timeout=30,
+                                        print_realtime_output=False):
+            raise RouterCommandError("Failed to establish bash prompt on router.")
+
+        if not execute_command_in_shell(shell, "cd /misc/disk1/", "change directory to /misc/disk1/", timeout=10,
+                                        print_realtime_output=False):
+            raise RouterCommandError("Failed to change directory on router.")
+
+        scripts_outputs = run_script_list_phase(shell, scripts_to_run, script_arg_option)
+
+        if script_arg_option == "'--dummy' no":
+            logging.info(f"\n{'=' * 70}\n### Analyzing 'dummy no' script outputs for errors ###\n{'=' * 70}\n")
+            errors_found_in_dummy_no = False
+            for s_name, s_output in scripts_outputs:
+                group_num = get_group_number_from_script_name(s_name)
+                detailed_errors = parse_script_output_for_errors(s_name, s_output)
+                format_and_print_error_report(s_name, group_num, detailed_errors, phase_name)
+                if detailed_errors:
+                    errors_found_in_dummy_no = True
+
+            # FIXED: Simply raise the error, don't double-handle
+            if errors_found_in_dummy_no:
+                raise ScriptExecutionError("Degraded links found")
+
+        return True
+
+    except paramiko.AuthenticationException as e:
+        raise SSHConnectionError(f"Authentication failed for script phase '{script_arg_option}': {e}")
+    except paramiko.SSHException as e:
+        raise SSHConnectionError(f"SSH error during script phase '{script_arg_option}': {e}")
+    except RouterCommandError as e:
+        raise RouterCommandError(f"Router command error during script phase '{script_arg_option}': {e}")
+    except ScriptExecutionError:
+        # FIXED: Just re-raise ScriptExecutionError as-is, don't modify
+        raise
+    except Exception as e:
+        raise ScriptExecutionError(f"An unexpected error occurred during script phase '{script_arg_option}': {e}")
+    finally:
+        if shell:
+            logging.info("Exiting bash prompt...")
+            try:
+                shell.send("exit\n")
+                time.sleep(1)
+                while shell.recv_ready():
+                    shell.recv(65535).decode('utf-8', errors='ignore')
+            except Exception as e:
+                logging.warning(f"Error during graceful shell exit in script phase: {e}")
+            finally:
+                try:
+                    shell.close()
+                except Exception as e:
+                    logging.warning(f"Error closing Paramiko shell channel in script phase: {e}")
+        if client:
+            try:
+                client.close()
+            except Exception as e:
+                logging.warning(f"Error closing Paramiko SSH client in script phase: {e}")
+        logging.info("SSH connection closed.")
+
+
+# [Continue with all other existing functions from the original utils...]
+
+# === ERROR PARSING FUNCTIONS ===
 def get_group_number_from_script_name(script_name: str) -> str:
     """Extracts the group number from the script name."""
     match = re.search(r'group(\d+)\.py', script_name)
@@ -1581,7 +1059,7 @@ def extract_link_components(part_string):
 
 
 def parse_script_output_for_errors(script_name: str, script_output: str) -> List[Dict[str, str]]:
-    """PRESERVED - Parses script output for faulty link details"""
+    """7.3.5 compatible script output parsing for faulty link details"""
     errors_found_details = []
 
     faulty_link_pattern = re.compile(
@@ -1646,7 +1124,7 @@ def parse_script_output_for_errors(script_name: str, script_output: str) -> List
 
 def format_and_print_error_report(script_name: str, group_number: str, error_details: List[Dict[str, str]],
                                   phase_name: str = ""):
-    """Enhanced error reporting with consistent table format matching Parts II/III"""
+    """7.3.5 compatible error reporting with consistent table format"""
     phase_identifier = f" ({phase_name})" if phase_name else ""
 
     # Use EXACT same table formatting as Parts II/III - manual column widths
@@ -1742,7 +1220,7 @@ def format_and_print_error_report(script_name: str, group_number: str, error_det
 
 
 def wait_for_prompt_after_ctrlc(shell: paramiko.Channel, timeout_sec: int = 60) -> bool:
-    """PRESERVED - Waits for shell prompt after Ctrl+C"""
+    """Waits for shell prompt after Ctrl+C"""
     logging.info(f"Waiting for bash prompt after Ctrl+C (timeout: {timeout_sec}s)...")
     start_time = time.time()
 
@@ -1764,8 +1242,9 @@ def wait_for_prompt_after_ctrlc(shell: paramiko.Channel, timeout_sec: int = 60) 
     return False
 
 
+# === SHOW TECH FUNCTIONS ===
 def run_show_tech_fabric(shell: paramiko.Channel, hostname: str) -> bool:
-    """PRESERVED - Show tech fabric collection"""
+    """7.3.5 show tech fabric collection"""
     global SHOW_TECH_START_TIMESTAMP_FROM_LOG, SHOW_TECH_END_TIMESTAMP_FROM_LOG
     SHOW_TECH_START_TIMESTAMP_FROM_LOG = None
     SHOW_TECH_END_TIMESTAMP_FROM_LOG = None
@@ -1889,168 +1368,8 @@ def run_show_tech_fabric(shell: paramiko.Channel, hostname: str) -> bool:
         return False
 
 
-# --- Phase Execution Functions ---
-def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, monitor_description: str,
-                                ssh_timeout: int, dataplane_timeout: int) -> bool:
-    """PRESERVED - Dataplane monitoring phase with enhanced connection"""
-    client = paramiko.SSHClient()
-    client.load_system_host_keys()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-    shell = None
-    try:
-        logging.info(f"Connecting to {router_ip} for {monitor_description} dataplane monitor...")
-        connect_with_retry(client, router_ip, username, password)
-        logging.info(f"Successfully connected for {monitor_description} dataplane monitor.")
-
-        shell = client.invoke_shell()
-        time.sleep(1)
-        logging.info(f"--- Initial Shell Output ({monitor_description} Dataplane Monitor) ---")
-        read_and_print_realtime(shell, timeout_sec=2)
-        logging.info(f"--- End Initial Shell Output ---")
-
-        if not execute_command_in_shell(shell, "terminal length 0", "set terminal length to 0", timeout=5,
-                                        print_realtime_output=False):
-            raise RouterCommandError("Failed to set terminal length 0.")
-        if not execute_command_in_shell(shell, "terminal width 511", "set terminal width to 511", timeout=5,
-                                        print_realtime_output=False):
-            raise RouterCommandError("Failed to set terminal width 511.")
-
-        logging.info(f"Running 'monitor dataplane-health' for IOS-XR 7.3.5.")
-        dataplane_check_clean = poll_dataplane_monitoring_735(shell, dataplane_timeout)
-
-        if dataplane_check_clean:
-            logging.info(
-                f"\033[1;92m✓ {monitor_description} Dataplane monitoring completed and reported no errors.\033[0m")
-            return True
-        else:
-            logging.error(
-                f"\033[1;91m✗ {monitor_description} Dataplane monitoring completed, but errors were reported.\033[0m")
-            raise DataplaneError(f"Dataplane errors detected during {monitor_description} monitor.")
-
-    except paramiko.AuthenticationException as e:
-        raise SSHConnectionError(f"Authentication failed for {monitor_description} monitor: {e}")
-    except paramiko.SSHException as e:
-        raise SSHConnectionError(f"SSH error during {monitor_description} monitor: {e}")
-    except DataplaneError:
-        raise
-    except Exception as e:
-        raise SSHConnectionError(f"An unexpected error occurred during {monitor_description} dataplane monitor: {e}")
-    finally:
-        if shell:
-            logging.info(f"Exiting CLI session after {monitor_description} dataplane monitor.")
-            try:
-                shell.send("exit\n")
-                time.sleep(1)
-                while shell.recv_ready():
-                    shell.recv(65535).decode('utf-8', errors='ignore')
-            except Exception as e:
-                logging.warning(f"Error during graceful shell exit in {monitor_description} monitor: {e}")
-            finally:
-                try:
-                    shell.close()
-                except Exception as e:
-                    logging.warning(f"Error closing Paramiko shell channel in {monitor_description} monitor: {e}")
-        if client:
-            try:
-                client.close()
-            except Exception as e:
-                logging.warning(f"Error closing Paramiko SSH client in {monitor_description} monitor: {e}")
-        logging.info(f"SSH connection for {monitor_description} monitor closed.")
-
-
-def execute_script_phase(router_ip: str, username: str, password: str, scripts_to_run: List[str],
-                         script_arg_option: str, ssh_timeout: int, phase_name: str = "") -> bool:
-    """Enhanced script phase execution with phase tracking"""
-    client = paramiko.SSHClient()
-    client.load_system_host_keys()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-    shell = None
-    try:
-        logging.info(f"Attempting to connect to {router_ip} for phase with option '{script_arg_option}'...")
-        connect_with_retry(client, router_ip, username, password)
-        logging.info(f"Successfully connected to {router_ip}.")
-
-        shell = client.invoke_shell()
-        time.sleep(1)
-        logging.info("--- Initial Shell Output ---")
-        initial_output, _ = read_and_print_realtime(shell, timeout_sec=2, print_realtime=False)
-        print(f"{initial_output}", end='')
-        print()
-        logging.info("--- End Initial Shell Output ---")
-
-        if not execute_command_in_shell(shell, "terminal length 0", "set terminal length to 0", timeout=5,
-                                        print_realtime_output=False):
-            raise RouterCommandError("Failed to set terminal length 0.")
-        if not execute_command_in_shell(shell, "terminal width 511", "set terminal width to 511", timeout=5,
-                                        print_realtime_output=False):
-            raise RouterCommandError("Failed to set terminal width 511.")
-
-        if not execute_command_in_shell(shell, "attach location 0/RP0/CPU0", "attach location 0/RP0/CPU0", timeout=30,
-                                        print_realtime_output=False):
-            raise RouterCommandError("Failed to establish bash prompt on router.")
-
-        if not execute_command_in_shell(shell, "cd /misc/disk1/", "change directory to /misc/disk1/", timeout=10,
-                                        print_realtime_output=False):
-            raise RouterCommandError("Failed to change directory on router.")
-
-        scripts_outputs = run_script_list_phase(shell, scripts_to_run, script_arg_option)
-
-        if script_arg_option == "'--dummy' no":
-            logging.info(f"\n{'=' * 70}\n### Analyzing 'dummy no' script outputs for errors ###\n{'=' * 70}\n")
-            errors_found_in_dummy_no = False
-            for s_name, s_output in scripts_outputs:
-                group_num = get_group_number_from_script_name(s_name)
-                detailed_errors = parse_script_output_for_errors(s_name, s_output)
-                format_and_print_error_report(s_name, group_num, detailed_errors, phase_name)
-                if detailed_errors:
-                    errors_found_in_dummy_no = True
-
-            if errors_found_in_dummy_no:
-                raise ScriptExecutionError("Degraded links found")
-
-        return True
-
-    except paramiko.AuthenticationException as e:
-        raise SSHConnectionError(f"Authentication failed for script phase '{script_arg_option}': {e}")
-    except paramiko.SSHException as e:
-        raise SSHConnectionError(f"SSH error during script phase '{script_arg_option}': {e}")
-    except RouterCommandError as e:
-        raise RouterCommandError(f"Router command error during script phase '{script_arg_option}': {e}")
-    except Exception as e:
-        if script_arg_option == "'--dummy' no":
-            if "Degraded links found" in str(e):
-                raise ScriptExecutionError("Degraded links found")
-            else:
-                raise ScriptExecutionError(f"Script analysis failed during dummy no phase: {e}")
-        else:
-            raise ScriptExecutionError(f"An unexpected error occurred during script phase '{script_arg_option}': {e}")
-    finally:
-        if shell:
-            logging.info("Exiting bash prompt...")
-            try:
-                shell.send("exit\n")
-                time.sleep(1)
-                while shell.recv_ready():
-                    shell.recv(65535).decode('utf-8', errors='ignore')
-            except Exception as e:
-                logging.warning(f"Error during graceful shell exit in script phase: {e}")
-            finally:
-                try:
-                    shell.close()
-                except Exception as e:
-                    logging.warning(f"Error closing Paramiko shell channel in script phase: {e}")
-        if client:
-            try:
-                client.close()
-            except Exception as e:
-                logging.warning(f"Error closing Paramiko SSH client in script phase: {e}")
-        logging.info("SSH connection closed.")
-
-
 def run_show_tech_phase(router_ip: str, username: str, password: str, ssh_timeout: int) -> bool:
-    """Enhanced show tech phase with retry connection"""
+    """7.3.5 show tech phase with retry connection"""
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -2114,7 +1433,7 @@ def run_show_tech_phase(router_ip: str, username: str, password: str, ssh_timeou
 
 
 def run_clear_asic_counters(router_ip: str, username: str, password: str, ssh_timeout: int) -> bool:
-    """Enhanced ASIC counter clearing with retry connection"""
+    """7.3.5 ASIC counter clearing with retry connection"""
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -2197,8 +1516,9 @@ def run_clear_asic_counters(router_ip: str, username: str, password: str, ssh_ti
         logging.info("SSH connection closed.")
 
 
+# === FINAL SUMMARY FUNCTIONS ===
 def print_final_summary(results: Dict[str, str], total_execution_time: float = None):
-    """Enhanced final summary table with execution time and wrapped headers"""
+    """Enhanced final summary table with execution time"""
     print(f"\n--- Final Script Summary ---")
 
     # Add execution time display if provided
@@ -2243,3 +1563,18 @@ def print_final_summary(results: Dict[str, str], total_execution_time: float = N
 
     print(summary_table)
     logging.info(f"--- End Final Script Summary ---")
+
+
+# ADD these placeholder functions to utils (at the end):
+
+
+def correlate_errors_across_phases(hostname_dir):
+    """DISABLED - Placeholder to prevent import errors"""
+    logging.debug("Cross-phase error correlation disabled")
+    return []  # Return empty list
+
+
+def analyze_workflow_performance(hostname_dir):
+    """DISABLED - Placeholder to prevent import errors"""
+    logging.debug("Performance analysis disabled")
+    return {}, []  # Return empty dict and list

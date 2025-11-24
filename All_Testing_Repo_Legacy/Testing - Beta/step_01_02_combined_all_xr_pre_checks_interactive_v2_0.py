@@ -2535,6 +2535,9 @@ class InteractivePreCheckManager:
     def execute_cli_precheck_only(self, standalone=True):
         """Execute CLI pre-checks WITHOUT monitor file upload"""
 
+        # 1. DECLARE GLOBAL AT THE TOP OF THE FUNCTION
+        global CLI_PRECHECK_RESULTS
+
         # Setup logging to match Part I exactly
         logger = logging.getLogger()
         logger.setLevel(logging.INFO)
@@ -2594,7 +2597,6 @@ class InteractivePreCheckManager:
         current_fpd_raw = ""
         current_run_parsed_interface_statuses = {}
 
-        # CLI Pre-checks sections (WITHOUT Monitor Files Check)
         all_section_names = [
             "IOS-XR Version Check",
             "Platform Status & Serial Numbers",
@@ -2638,14 +2640,14 @@ class InteractivePreCheckManager:
 
             print(f"\n--- Device Information Report (Pre-checks) ---")
 
-            # Execute all health checks (passing framework instance for data storage)
             _run_section_check("IOS-XR Version Check", check_ios_xr_version, section_statuses, overall_script_failed,
                                shell, cli_output_file)
             _run_section_check("Platform Status & Serial Numbers", check_platform_and_serial_numbers, section_statuses,
                                overall_script_failed, shell, all_card_inventory_info, all_cpu_locations_from_platform,
                                ft_locations_from_platform, cli_output_file, self)
             _run_section_check("Fabric Reachability Check", check_fabric_reachability, section_statuses,
-                               overall_script_failed, shell, cli_output_file, chassis_model=self.chassis_model, framework_instance=self)
+                               overall_script_failed, shell, cli_output_file, chassis_model=self.chassis_model,
+                               framework_instance=self)
             _run_section_check("Fabric Link Down Status Check", check_fabric_link_down_status, section_statuses,
                                overall_script_failed, shell, cli_output_file, self)
             _run_section_check("NPU Link Information Check", check_npu_link_info, section_statuses,
@@ -2708,11 +2710,9 @@ class InteractivePreCheckManager:
             _run_section_check("Overall Environment Status Check", check_environment_status, section_statuses,
                                overall_script_failed, shell, cli_output_file)
 
-            # Interface down report
             initially_down_report, _ = get_initially_down_physical_interfaces(current_run_parsed_interface_statuses)
             print(initially_down_report)
 
-            # Baseline comparison exactly like Part I
             print("\n" + "=" * 80)
             print(f"{'INITIATING COMPARISON WITH PERMANENT BASELINE':^80}")
             print("=" * 80 + "\n")
@@ -2789,6 +2789,7 @@ class InteractivePreCheckManager:
             logging.critical(f"An unexpected error occurred during script execution: {e}", exc_info=True)
             overall_script_failed[0] = True
         finally:
+            # --- Universal Cleanup (runs in both modes) ---
             if shell:
                 logging.info("Exiting CLI session.")
                 try:
@@ -2803,30 +2804,40 @@ class InteractivePreCheckManager:
                 client.close()
             logging.info("SSH connection closed.")
 
+            # Store results for the parent function to use
+            CLI_PRECHECK_RESULTS = section_statuses.copy()
+
+            # Always close the dedicated CLI output file as it's not used by other steps
             if cli_output_file:
                 cli_output_file.close()
                 logging.info(f"CLI output saved to {cli_output_path}")
 
-                # Only print timing summary if running standalone
-                if standalone:
-                    total_execution_time = time.time() - self.session_start_time
-                    print_final_summary_table(section_statuses, total_execution_time)
+            # --- ALWAYS PRINT SUMMARY (Moved to run in both modes) ---
+            # The session_start_time is for the entire script run, which is the correct context here.
+            total_execution_time = time.time() - self.session_start_time
+            print_final_summary_table(section_statuses, total_execution_time)
 
-                    if overall_script_failed[0]:
-                        logging.critical(f"--- Script Execution Finished with ERRORS / DIFFERENCES DETECTED ---")
-                    else:
-                        logging.info(
-                            f"--- Script Execution Finished Successfully (No Errors or Differences Detected) ---")
+            if overall_script_failed[0]:
+                logging.critical(f"--- CLI Pre-Check Phase Finished with ERRORS / DIFFERENCES DETECTED ---")
+            else:
+                logging.info(f"--- CLI Pre-Check Phase Finished Successfully ---")
+            # --- END OF SUMMARY PRINTING ---
 
+            # --- Standalone-Only Resource Cleanup ---
+            if standalone:
+                logging.info("Running in standalone mode, performing full resource cleanup.")
+
+                # Close the session log and restore stdout ONLY in standalone mode.
                 if session_log_file_handle:
                     session_log_file_handle.flush()
                     session_log_file_handle.close()
+                    logging.info(f"Session log file closed: {session_log_path}")
 
-                if standalone:
-                    sys.stdout = self.true_original_stdout
-
-                global CLI_PRECHECK_RESULTS
-                CLI_PRECHECK_RESULTS = section_statuses.copy()
+                sys.stdout = self.true_original_stdout
+                logging.info("Standard output restored.")
+            else:
+                # This block runs when part of a sequence (standalone=False)
+                logging.info("Running in sequential mode, leaving session log open for the next step.")
 
 
     def execute_python_precheck_only(self,standalone=True):

@@ -262,20 +262,6 @@ class WorkflowState:
             'total_errors': 0
         }
 
-    # Add to WorkflowState class in utils
-    def get_workflow_summary(self):
-        """Get workflow summary statistics"""
-        total_phases = len(self.state.get('completed_phases', {}))
-        successful_phases = sum(1 for phase in self.state.get('completed_phases', {}).values()
-                                if phase.get('success', False))
-
-        return {
-            'completion_rate': f"{(successful_phases / max(total_phases, 1) * 100):.1f}%",
-            'successful_phases': successful_phases,
-            'total_errors': self.state.get('total_errors', 0)
-        }
-
-
     def save_phase_completion(self, phase, results, errors=None):
         """Save phase completion status"""
         self.state['completed_phases'][phase] = {
@@ -916,40 +902,6 @@ def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, mo
         logging.info(f"SSH connection for {monitor_description} monitor closed.")
 
 
-def suggest_dataplane_recovery_actions(part: object, step: object, monitor_description: object) -> None:
-    """Enhanced dataplane-specific recovery guidance
-    :rtype: None
-    """
-    restart_instructions = {
-        '3a': {
-            'step_b': "Re-run Part 3a from Step a (restart entire Phase 1)",
-        },
-        '3b': {
-            'step_f': "Re-run Part 3a from Step e (restart from Phase 1 manual reload step)",
-            'step_h': "Re-run Part 3a from Step e (restart from Phase 1 manual reload step)",
-        },
-        '3c': {
-            'step_l': "Re-run Part 3c from Step k (restart entire Phase 3)",
-            'step_o': "Re-run Part 3c from Step k (restart entire Phase 3)",
-        }
-    }
-
-    print(f"🚨 DATAPLANE MONITORING FAILURE - {step}")
-    print(f"📋 DATAPLANE ERROR RECOVERY PROCEDURE:")
-    print(f"   🔍 1. Review dataplane error details above")
-    print(f"   📊 2. Check system status: 'show platform'")
-    print(f"   🔧 3. Verify all fabric cards show OPERATIONAL status")
-    print(f"   🔗 4. Inspect LC-FC physical connections")
-    print(f"   ⚡ 5. Consider fabric card reload if errors persist")
-    print(f"   ⏰ 6. Wait for system stabilization (10-15 minutes)")
-
-    # Specific restart instruction based on part and step
-    restart_info = restart_instructions.get(part, {}).get(step, "Contact support for guidance")
-    print(f"   🔄 7. {restart_info}")
-    print(f"   ❌ 8. Do NOT proceed to next phase with dataplane errors")
-    print(f"   📞 9. Escalate to hardware team if issues persist after restart")
-
-
 def execute_script_phase(router_ip: str, username: str, password: str, scripts_to_run: List[str],
                          script_arg_option: str, ssh_timeout: int, phase_name: str = "") -> bool:
     """FIXED - 7.3.5 script phase execution with proper error handling"""
@@ -1564,17 +1516,3 @@ def print_final_summary(results: Dict[str, str], total_execution_time: float = N
     print(summary_table)
     logging.info(f"--- End Final Script Summary ---")
 
-
-# ADD these placeholder functions to utils (at the end):
-
-
-def correlate_errors_across_phases(hostname_dir):
-    """DISABLED - Placeholder to prevent import errors"""
-    logging.debug("Cross-phase error correlation disabled")
-    return []  # Return empty list
-
-
-def analyze_workflow_performance(hostname_dir):
-    """DISABLED - Placeholder to prevent import errors"""
-    logging.debug("Performance analysis disabled")
-    return {}, []  # Return empty dict and list

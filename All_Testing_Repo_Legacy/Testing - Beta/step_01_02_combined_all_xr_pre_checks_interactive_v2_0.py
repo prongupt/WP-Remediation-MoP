@@ -2533,7 +2533,7 @@ class InteractivePreCheckManager:
                 client.close()
             logging.info("File upload connection closed.")
 
-    def execute_cli_precheck_only(self):
+    def execute_cli_precheck_only(self, standalone=True):
         """Execute CLI pre-checks WITHOUT monitor file upload"""
 
         # Setup logging to match Part I exactly
@@ -2808,25 +2808,29 @@ class InteractivePreCheckManager:
                 cli_output_file.close()
                 logging.info(f"CLI output saved to {cli_output_path}")
 
-            total_execution_time = time.time() - self.session_start_time
-            print_final_summary_table(section_statuses, total_execution_time)
+                # Only print timing summary if running standalone
+                if standalone:
+                    total_execution_time = time.time() - self.session_start_time
+                    print_final_summary_table(section_statuses, total_execution_time)
 
-            if overall_script_failed[0]:
-                logging.critical(f"--- Script Execution Finished with ERRORS / DIFFERENCES DETECTED ---")
-            else:
-                logging.info(f"--- Script Execution Finished Successfully (No Errors or Differences Detected) ---")
+                    if overall_script_failed[0]:
+                        logging.critical(f"--- Script Execution Finished with ERRORS / DIFFERENCES DETECTED ---")
+                    else:
+                        logging.info(
+                            f"--- Script Execution Finished Successfully (No Errors or Differences Detected) ---")
 
-            if session_log_file_handle:
-                session_log_file_handle.flush()
-                session_log_file_handle.close()
+                if session_log_file_handle:
+                    session_log_file_handle.flush()
+                    session_log_file_handle.close()
 
-            sys.stdout = self.true_original_stdout
+                if standalone:
+                    sys.stdout = self.true_original_stdout
 
-            global CLI_PRECHECK_RESULTS
-            CLI_PRECHECK_RESULTS = section_statuses.copy()
+                global CLI_PRECHECK_RESULTS
+                CLI_PRECHECK_RESULTS = section_statuses.copy()
 
 
-    def execute_python_precheck_only(self):
+    def execute_python_precheck_only(self,standalone=True):
         """Execute Python pre-checks exactly like Part II"""
         global PYTHON_PHASE2_ERRORS_DETECTED
         PYTHON_PHASE2_ERRORS_DETECTED = False
@@ -2964,38 +2968,41 @@ class InteractivePreCheckManager:
                 client_phase2.close()
                 logging.info(f"SSH connection for Phase 2 closed.")
 
-        # Final summary exactly like Part II
-        total_execution_time = time.time() - self.session_start_time
+                # Only print timing summary if running standalone
+                if standalone:
+                    total_execution_time = time.time() - self.session_start_time
 
-        if script_aborted:
-            logging.info(f"--- Script Execution Aborted ---")
-        else:
-            logging.info(f"--- Script Execution Finished Successfully ---")
+                    if script_aborted:
+                        logging.info(f"--- Script Execution Aborted ---")
+                    else:
+                        logging.info(f"--- Script Execution Finished Successfully ---")
 
-        print_python_final_summary_table(phase_results, total_execution_time)
+                    print_python_final_summary_table(phase_results, total_execution_time)
 
-        # Store results
-        global PYTHON_PRECHECK_RESULTS
-        PYTHON_PRECHECK_RESULTS = phase_results.copy()
+                # Store results
+                global PYTHON_PRECHECK_RESULTS
+                PYTHON_PRECHECK_RESULTS = phase_results.copy()
 
-        # Cleanup
-        sys.stdout = self.true_original_stdout
+                # Cleanup (only if standalone)
+                if standalone:
+                    sys.stdout = self.true_original_stdout
 
-        if session_log_file_handler:
-            logging.root.removeHandler(session_log_file_handler)
-            session_log_file_handler.close()
-            print(f"\nInternal session log closed: {session_log_path}")
+                    if session_log_file_handler:
+                        logging.root.removeHandler(session_log_file_handler)
+                        session_log_file_handler.close()
+                        print(f"\nInternal session log closed: {session_log_path}")
 
-        if raw_output_file:
-            raw_output_file.close()
-            print(f"Raw output log closed: {raw_output_log_path}")
+                    if raw_output_file:
+                        raw_output_file.close()
+                        print(f"Raw output log closed: {raw_output_log_path}")
 
-        for handler in logging.root.handlers[:]:
-            if isinstance(handler, logging.StreamHandler) and handler.stream == self.true_original_stdout:
-                logging.root.removeHandler(handler)
-                break
+                    for handler in logging.root.handlers[:]:
+                        if isinstance(handler, logging.StreamHandler) and handler.stream == self.true_original_stdout:
+                            logging.root.removeHandler(handler)
+                            break
 
-        print(f"\nTotal script execution time: {format_execution_time(total_execution_time)}")
+                    total_execution_time = time.time() - self.session_start_time
+                    print(f"\nTotal script execution time: {format_execution_time(total_execution_time)}")
 
 
     def _execute_script_phase(self, shell, scripts_to_run, script_arg_option):
@@ -3107,7 +3114,7 @@ class InteractivePreCheckManager:
         print(f"\n{'Step 2/3: CLI Pre-Checks':=^80}")
         try:
             cli_start = time.time()
-            self.execute_cli_precheck_only()
+            self.execute_cli_precheck_only(standalone=False)
             cli_duration = time.time() - cli_start
 
             global CLI_PRECHECK_RESULTS
@@ -3129,7 +3136,7 @@ class InteractivePreCheckManager:
         print(f"\n{'Step 3/3: Python Pre-Checks':=^80}")
         try:
             python_start = time.time()
-            self.execute_python_precheck_only()
+            self.execute_python_precheck_only(standalone=False)
             python_duration = time.time() - python_start
 
             global PYTHON_PRECHECK_RESULTS, PYTHON_PHASE2_ERRORS_DETECTED

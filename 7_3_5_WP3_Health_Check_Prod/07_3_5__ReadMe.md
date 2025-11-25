@@ -79,7 +79,33 @@ $ python3 step_01_02_combined_all_xr_pre_checks_interactive_v3_0.py
            IOS-XR Universal Pre-Check Interactive Framework v3.0
 ================================================================================
 Enter Router IP address or Hostname: 10.0.0.1
-# ... Follow prompts and select option [4] to run all pre-checks
+Enter SSH Username: myuser
+Enter SSH Password for myuser@10.0.0.1: 
+
+# ... After connecting, the main menu appears ...
+
+================================================================================
+           IOS-XR Universal Pre-Check Interactive Framework v3.0
+================================================================================
+
+Router: my-router (10.0.0.1)
+Session Time: 2025-11-25 14:30:00
+
+PRE-CHECK OPERATIONS:
+   [1] File Upload Only (Monitor Scripts) - ~2 min
+   [2] CLI Pre-Checks Only (Health Assessment) - ~15 min
+   [3] Python Pre-Checks Only (Dummy Script Validation) - ~60 min
+   [4] Execute All Pre-Checks Sequentially - ~77 min
+
+UTILITIES:
+   [status] View Previous Results
+   [help]   Help & Documentation
+   [exit]   Exit
+
+================================================================================
+Select option: 4  # <-- Select option [4] as per the workflow
+
+# The script will now execute all pre-check steps automatically.
 ```
 
 2. **Run Post-Checks (Interactive Script for 7.3.5)**
@@ -88,10 +114,38 @@ $ python3 step_03_combined_7_3_5_interactive_v3_0.py
 
 ================================================================================
            IOS-XR 7.3.5 Fabric Card Remediation Framework
-         Combined Interactive Post-Check Automation v3.0
+         Combined Interactive Post-Check Automation v2.0
 ================================================================================
 Enter Router IP address or Hostname: 10.0.0.1
-# ... Follow prompts to execute Phase 1, 2, and 3 sequentially
+Enter SSH Username: myuser
+Enter SSH Password for myuser@10.0.0.1:
+
+# ... After connecting, the main menu appears ...
+
+================================================================================
+       IOS-XR 7.3.5 Post-Check Interactive Framework v2.0
+================================================================================
+
+Router: my-router (10.0.0.1)
+Session Time: 2025-11-25 16:00:00
+
+PHASE EXECUTION OPTIONS:
+   [1] Execute Phase 1 Only (Steps a-e) - ~60 min
+   [2] Execute Phase 2 Only (Steps f-j) - ~90 min
+   [3] Execute Phase 3 Only (Steps k-q) - ~120 min
+   [4] Execute All Phases Sequentially - ~270 min
+
+UTILITIES:
+   [status] View Previous Results
+   [help]   Help & Documentation
+   [exit]   Exit
+
+================================================================================
+Select option: 1  # <-- First, select [1] to run Phase 1.
+
+# After Phase 1 completes and you perform the manual reloads...
+# Run the script again and select option [2].
+# After Phase 2 completes, run the script a final time and select option [3].
 ```
 
 ---

@@ -195,7 +195,7 @@ Phase 2: Execute dummy scripts with '--dummy' no
 ### 7.3.6+ Post-Check (Part III)
 
 ```bash
-$ python3 step_03_7_3_6+_post_checks_v2_0.py
+$ python3 step_03_7_3_6+_post_checks_v3_0.py
 
 Step 1: Phase 1 - Execute dummy scripts '--dummy' yes
 Step 2: First Dataplane Monitor (7.3.6+ polling mode)

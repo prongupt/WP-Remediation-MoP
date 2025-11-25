@@ -274,9 +274,9 @@ class InteractiveFrameworkManager:
 
         timestamp_for_logs = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         session_log_path = os.path.join(hostname_dir,
-                                        f"{self.hostname}_combined_post_checks_session_{timestamp_for_logs}.txt")
+                                        f"{self.hostname}_7_3_5_combined_post_checks_session_{timestamp_for_logs}.txt")
         raw_output_log_path = os.path.join(hostname_dir,
-                                           f"{self.hostname}_combined_post_checks_output_{timestamp_for_logs}.txt")
+                                           f"{self.hostname}_7_3_5_combined_post_checks_output_{timestamp_for_logs}.txt")
 
         # Clear existing handlers
         for handler in logging.root.handlers[:]:

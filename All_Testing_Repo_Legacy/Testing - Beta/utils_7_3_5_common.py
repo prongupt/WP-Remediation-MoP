@@ -254,7 +254,7 @@ class WorkflowState:
     def __init__(self, hostname):
         self.hostname = hostname
         self.state_dir = os.path.join(os.getcwd(), hostname)
-        self.state_file = os.path.join(self.state_dir, f"{hostname}_workflow_state.json")
+        self.state_file = os.path.join(self.state_dir, f"{hostname}_7_3_5_workflow_state.json")
         self.state = {
             'hostname': hostname,
             'started_at': datetime.datetime.now().isoformat(),

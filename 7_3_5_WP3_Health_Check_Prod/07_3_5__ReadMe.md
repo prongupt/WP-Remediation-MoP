@@ -27,35 +27,45 @@ The workflow is now streamlined, with the post-check process managed by a single
 
 ```mermaid
 graph TD
-    subgraph "Phase 1: Pre-Checks"
-        A[🏁 Start] --> D[⚙️ Run step_01_02...py (Interactive)<br>Select 'Execute All Pre-Checks'];
+    subgraph "Pre-checks"
+        A["🏁 Start"] --> D["⚙️ Run step_01_02...py<br>Select 'Execute All Pre-Checks'"];
     end
 
-    subgraph "Phase 2: Remediation"
-        D --> F[⚡ Power off device];
-        F --> G[🛠️ Install new hardware];
-        G --> H[⚡ Power on device];
+    subgraph "Installation (Manual Actions)"
+        D --> F["⚡ Power off device"];
+        F --> G["🛠️ Install new hardware"];
+        G --> H["⚡ Power on device"];
     end
 
-    subgraph "Phase 3: Post-Checks"
-        H --> J_node[⚙️ Run step_01_02...py again<br>Select 'CLI Pre-Checks Only' to verify hardware];
-        J_node --> K{✅ Hardware & interfaces OK?};
-        K -- No --> K_Remediate_Step[🔧 Remediate issues];
-        K_Remediate_Step --> J_node;
-        K -- Yes --> M[⚙️ Run step_03_combined_7_3_5_interactive_v3_0.py<br>Follow interactive menu for all post-check phases];
-        M --> N{🏆 All phases passed?};
-        N -- Yes --> P[🎉 Hand device to customer];
-        N -- No --> O[🔧 Remediate problems based on phase failure];
-        O --> M;
-        P --> Q[🏁 End];
+    subgraph "Post-checks"
+        H --> P1["⚙️ Run Post-Check Script: Option 1 (Phase 1)"];
+        P1 --> P1_Check{"✅ Phase 1 OK?"};
+        P1_Check -- No --> P1_Fix["🔧 Diagnose & Fix<br>Re-run Phase 1"];
+        P1_Fix --> P1;
+        
+        P1_Check -- Yes --> R["🔄 Perform Two Reloads<br>Wait 30 mins after each"];
+        
+        R --> P2["⚙️ Run Post-Check Script: Option 2 (Phase 2)"];
+        P2 --> P2_Check{"✅ Phase 2 OK?"};
+        P2_Check -- No --> P2_Fix["🔧 Diagnose & Fix<br>Re-run Phase 2"];
+        P2_Fix --> P2;
+
+        P2_Check -- Yes --> P3["⚙️ Run Post-Check Script: Option 3 (Phase 3)"];
+        P3 --> P3_Check{"🏆 All Post-Checks OK?"};
+        P3_Check -- No --> P3_Fix["🔧 Diagnose & Fix<br>Re-run Phase 3"];
+        P3_Fix --> P3;
+
+        P3_Check -- Yes --> FHO["🎉 Clean up & Prepare Handoff"];
+        FHO --> Q["🏁 End"];
     end
 
     %% Styling
     style A fill:#D4EDDA,stroke:#28A745,stroke-width:3px,color:#212529
     style Q fill:#D4EDDA,stroke:#28A745,stroke-width:3px,color:#212529
-    style K fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
-    style N fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
-    style P fill:#D1ECF1,stroke:#17A2B8,stroke-width:2px,color:#212529
+    style P1_Check fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
+    style P2_Check fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
+    style P3_Check fill:#FFF3CD,stroke:#FFC107,stroke-width:2px,color:#212529
+    style FHO fill:#D1ECF1,stroke:#17A2B8,stroke-width:2px,color:#212529
 ```
 ---
 
@@ -78,7 +88,7 @@ $ python3 step_03_combined_7_3_5_interactive_v3_0.py
 
 ================================================================================
            IOS-XR 7.3.5 Fabric Card Remediation Framework
-         Combined Interactive Post-Check Automation v2.0
+         Combined Interactive Post-Check Automation v3.0
 ================================================================================
 Enter Router IP address or Hostname: 10.0.0.1
 # ... Follow prompts to execute Phase 1, 2, and 3 sequentially

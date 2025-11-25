@@ -501,24 +501,25 @@ def colorful_countdown_timer(seconds: int):
 
 def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 600, print_realtime: bool = True) -> Tuple[
     str, bool]:
-    """Enhanced version with proper dot handling and global file logging"""
+    """Enhanced version with a post-prompt soak period to capture trailing data."""
     full_output_buffer = ""
     start_time = time.time()
     prompt_found = False
     prompt_check_buffer = ""
 
+    # --- MODIFICATION START ---
+    # Main loop to capture data until prompt is found or timeout occurs
     while time.time() - start_time < timeout_sec:
         if shell_obj.recv_ready():
             try:
                 data = shell_obj.recv(65535).decode('utf-8', errors='ignore')
                 if data:
-                    # Write raw data to the dedicated raw output file
+                    # Write to log files and console as before
                     global session_log_file_raw_output
                     if session_log_file_raw_output:
                         session_log_file_raw_output.write(data)
                         session_log_file_raw_output.flush()
 
-                    # Write data to the console mirror file if printing real-time
                     global session_log_file_console_mirror
                     if print_realtime and session_log_file_console_mirror:
                         session_log_file_console_mirror.write(data)
@@ -526,6 +527,7 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 600,
 
                     if print_realtime:
                         print(f"{data}", end='')
+
                     full_output_buffer += data
                     prompt_check_buffer += data
 
@@ -538,17 +540,41 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 600,
                         for pattern in PROMPT_PATTERNS:
                             if re.search(pattern, last_line):
                                 prompt_found = True
-                                if print_realtime and not data.endswith('\n'):
-                                    print()
-                                return full_output_buffer, prompt_found
+                                # Instead of returning immediately, break the loop
+                                # to allow for a final "soak" period.
+                                break
+                if prompt_found:
+                    break
             except Exception as e:
                 logging.error(f"Error receiving data: {e}")
                 break
         else:
             time.sleep(0.1)
 
+        if prompt_found:
+            break
+
+    # --- NEW SOAKING PERIOD ---
+    # If a prompt was found, wait a short time to capture any trailing data that
+    # might be in the network buffer. This fixes the race condition.
+    if prompt_found:
+        logging.debug("Prompt found. Soaking for 1.5s to capture any trailing output...")
+        soak_start_time = time.time()
+        while time.time() - soak_start_time < 1.5:
+            if shell_obj.recv_ready():
+                final_data = shell_obj.recv(65535).decode('utf-8', errors='ignore')
+                if final_data:
+                    logging.debug(f"Captured {len(final_data)} bytes of trailing data during soak.")
+                    if print_realtime:
+                        print(f"{final_data}", end='')
+                    full_output_buffer += final_data
+            else:
+                time.sleep(0.05)
+    # --- MODIFICATION END ---
+
     if print_realtime and full_output_buffer and not full_output_buffer.endswith('\n'):
         print()
+
     return full_output_buffer, prompt_found
 
 

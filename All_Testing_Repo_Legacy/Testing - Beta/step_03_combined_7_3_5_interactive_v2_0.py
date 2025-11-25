@@ -980,11 +980,17 @@ class InteractiveFrameworkManager:
 
         # Final dual validation assessment
         step_n_success = not PHASE3_DUMMY_NO_1_ERRORS_DETECTED
-        step_q_success = not PHASE3_DUMMY_NO_2_ERRORS_DETECTED
+        # Step q is only successful if it ran (is in results_summary) AND it had no errors.
+        step_q_success = "Step q" in results_summary and not PHASE3_DUMMY_NO_2_ERRORS_DETECTED
 
         print(f"\n🔗 DUAL VALIDATION RESULTS:")
         print(f"   Step n (First): {'✅ PASSED' if step_n_success else '❌ FAILED'}")
-        print(f"   Step q (Second): {'✅ PASSED' if step_q_success else '❌ FAILED'}")
+
+        # Display a more accurate status for Step q
+        if "Step q" not in results_summary:
+            print(f"   Step q (Second): {'⚪ NOT RUN'}")
+        else:
+            print(f"   Step q (Second): {'✅ PASSED' if step_q_success else '❌ FAILED'}")
 
         dual_validation_success = step_n_success and step_q_success
 

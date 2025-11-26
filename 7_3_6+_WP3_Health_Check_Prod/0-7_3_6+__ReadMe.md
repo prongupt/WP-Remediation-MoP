@@ -101,11 +101,10 @@ Step h: ASIC Error Clearing Command
 
 ### ⏱️ Execution Times
 
-| Script           | Typical Duration  | Purpose                                                  |
-|------------------|-------------------|----------------------------------------------------------|
-| Pre-Check Script | **10-15 minutes** | Device health assessment + monitor file management       |
-| Python Pre-Check | **45-60 minutes** | Script validation (includes 20min wait)                  |
-| Post-Check       | **2-3 hours**     | Comprehensive validation (includes dataplane monitoring) |
+| Script                | Typical Duration | Purpose                                                  |
+|-----------------------|-----------------|----------------------------------------------------------|
+| **Pre-Check Script**  | **80 minutes**  | Device health assessment + monitor file management       |
+| **Post-Check Script** | **2 hours**     | Comprehensive validation (includes dataplane monitoring) |
 
 ### ⏱️ Execution Times
 

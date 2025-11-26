@@ -185,6 +185,28 @@ Select option: 1  # <-- First, select [1] to run Phase 1.
 # Run the script again and select option [2].
 # After Phase 2 completes, run the script a final time and select option [3].
 ```
+| Step | Phase | Action / Description | Key Operation | Est. Duration |
+| :--: | :---: | :--- | :--- | :--- |
+| a | 1 | Run dummy scripts to establish a baseline. | python3 ... '--dummy' yes | ~10 mins |
+| b | 1 | 🚨 Perform first dataplane health check. | monitor dataplane-health | ~15 mins |
+| c | 1 | Wait for the system to stabilize. | 20-minute Countdown | 20 mins |
+| d | 1 | 🚨 Run dummy scripts to detect initial link degradation. | python3 ... '--dummy' no | ~10 mins |
+| e | 1 | Instruct the user to perform two manual reloads. | Manual User Action | User Dependent |
+| --- | --- | --- | --- | --- |
+| f | 2 | 🚨 Perform second dataplane check (post-reloads). | monitor dataplane-health | ~15 mins |
+| g | 2 | Wait for system stabilization after the first check. | 20-minute Countdown | 20 mins |
+| h | 2 | 🚨 Perform third dataplane check to confirm stability. | monitor dataplane-health | ~15 mins |
+| i | 2 | Collect comprehensive diagnostic logs. | show tech-support fabric ... | ~20-30 mins |
+| j | 2 | Clear all ASIC error counters for a clean slate. | asic_errors_show ... -c | ~1 min |
+| --- | --- | --- | --- | --- |
+| k | 3 | Run dummy scripts to re-establish a baseline. | python3 ... '--dummy' yes | ~10 mins |
+| l | 3 | 🚨 Perform fourth dataplane health check. | monitor dataplane-health | ~15 mins |
+| m | 3 | Wait for the system to run under load. | 20-minute Countdown | 20 mins |
+| n | 3 | 🚨 CRITICAL (Validation #1): Final link validation. | python3 ... '--dummy' no | ~10 mins |
+| o | 3 | 🚨 Perform fifth and final dataplane health check. | monitor dataplane-health | ~15 mins |
+| p | 3 | Final wait period before the last confirmation check. | 20-minute Countdown | 20 mins |
+| q | 3 | 🚨 CRITICAL (Validation #2): Final link confirmation. | python3 ... '--dummy' no | ~10 mins |
+
 
 #### **For IOS-XR 7.3.6+**
 This script's primary function is to run the full 8-step workflow (Option [1]).
@@ -207,6 +229,17 @@ INDIVIDUAL OPERATIONS:
 # ...
 Select option: 1  # <-- Select [1] to run the official 8-step MoP workflow
 ```
+| Step | Action / Description | Key Operation | Est. Duration |
+| :--: | :--- | :--- | :--- |
+| a | Phase 1 Baseline | Run dummy scripts with --dummy yes. | ~10 mins |
+| b | Dataplane Check #1 | Run monitor dataplane (polling mode). | ~20 mins |
+| c | Stabilization Wait | Wait for the system to stabilize. | 15 mins |
+| d | Critical Validation #1 | 🚨 Run dummy scripts with --dummy no. | ~10 mins |
+| e | Dataplane Check #2 | Run monitor dataplane (polling mode) again. | ~20 mins |
+| f | Concurrent Diagnostics | Simultaneously run show tech-support and a countdown. | ~30 mins |
+| g | Critical Validation #2 | 🚨 Run dummy scripts with --dummy no a final time. | ~10 mins |
+| h | ASIC Error Clearing | Run the asic_errors_show command to clear counters. | ~1 min |
+
 
 ---
 

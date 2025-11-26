@@ -281,26 +281,20 @@ After extensive development and testing, the automation suite achieves a high de
 
 ## **Key Updates Made:**
 
-### ✅ **Enhanced Overview:**
-- **97% consistency verification** mentioned
-- **Version-specific optimizations** highlighted
-- **Framework benefits** clearly stated
+### ✅ **Unified User Experience**
+- All interactive scripts now share the same startup banner, menu format, and color-coded logging for a consistent feel.
+- Version-specific optimizations (e.g., dataplane monitoring) are handled automatically in the background, simplifying the user's task.
 
-### ✅ **Updated Structure:**
-- **Framework reduction** from 8 to 7 scripts
-- **Version-specific table** showing which scripts for which IOS-XR version
-- **Integrated file upload** clearly marked
+### ✅ **Streamlined Framework Structure**
+- The Pre-Check scripts (formerly Part I & II) have been merged into a **single, universal interactive script**.
+- The three separate 7.3.5 post-check scripts have been consolidated into **one powerful interactive framework**.
 
-### ✅ **Enhanced Features Section:**
-- **Smart file management** with intelligent checking
-- **Universal router support** (all chassis types)
-- **Production hardening** achievements
+### ✅ **Intelligent and Robust Functionality**
+- The 7.3.6+ script now includes **thread-safe, isolated execution** for concurrent operations, preventing hangs during `show tech` collection.
+- Post-check scripts now offer **standalone diagnostic options** for targeted troubleshooting without running the full workflow.
 
-### ✅ **Updated Platform Badge:**
-- **8804/8808/8812/8818** support instead of just 8808/8818
-
-### ✅ **Integration Verification Table:**
-- **Condensed version** showing key consistency achievements
-- **Framework benefits** summarizing improvements
+### ✅ **Clear and Consistent Reporting**
+- All `dummy no` error reports now use the same detailed, **6-column format** across all scripts, ensuring consistent analysis.
+- Final summary tables are standardized for a predictable and easy-to-read end-of-run overview.
 
 **This README now accurately reflects the mature, production-ready automation suite we've built together!** 🎯

@@ -138,81 +138,74 @@ Once uploaded to your Jump Server, the scripts are ready to run with automatic d
 
 ---
 
-## 💻 CLI Samples for All Scripts
+### 💻 CLI Samples for All Scripts
 
-### Integrated File Upload (Part I)
+#### 1. Run Pre-Checks (Universal Interactive Script)
+
+This single script handles all pre-check activities for **both 7.3.5 and 7.3.6+**. Select **Option [4]** to run the complete sequence.
 
 ```bash
-# Part I now includes automatic file management
-$ python3 step_01_all_xr_health_check_script_v2_0.py
+$ python3 step_01_02_combined_all_xr_pre_checks_interactive_v3_0.py
 
-📁 Monitor files detected on device: group0.py, group1.py, group2.py, group3.py
-✅ Files already on hard drive...skipping upload
-Sending 'show platform' ('show platform')...
-Sending 'show controllers npu all' ('show controllers npu all')...  
-✅ CLI health check with integrated file upload completed successfully
+================================================================================
+           IOS-XR Universal Pre-Check Interactive Framework v3.0
+================================================================================
+Enter Router IP address or Hostname: 10.0.0.1
+# ... Follow prompts and select option [4] to run all pre-checks ...
+
+# The script will now execute all pre-check steps automatically:
+#   - File Upload (if needed)
+#   - CLI Health Checks
+#   - Python Pre-Checks (with 20-min wait)
+✅ Complete pre-check workflow finished successfully.
 ```
 
-### Python Pre-Check (Part II)
+### 2. Run Post-Checks (Version-Specific)
+
+#### **For IOS-XR 7.3.5**
+This script guides you through the three distinct phases of the post-check process.
 
 ```bash
-$ python3 step_02_all_XR_python_pre_check_v2_0.py
+$ python3 step_03_combined_7_3_5_interactive_v3_0.py
 
-Phase 1: Execute dummy scripts with '--dummy' yes
-Phase 2: Execute dummy scripts with '--dummy' no
-✅ Python script validation completed successfully
+================================================================================
+           IOS-XR 7.3.5 Post-Check Interactive Framework v3.0
+================================================================================
+Enter Router IP address or Hostname: 10.0.0.1
+# ... After connecting, the main menu appears ...
+
+PHASE EXECUTION OPTIONS:
+   [1] Execute Phase 1 Only (Steps a-e) - ~60 min
+   [2] Execute Phase 2 Only (Steps f-j) - ~90 min
+   [3] Execute Phase 3 Only (Steps k-q) - ~120 min
+# ...
+Select option: 1  # <-- First, select [1] to run Phase 1.
+
+# After Phase 1 completes and you perform the manual reloads...
+# Run the script again and select option [2].
+# After Phase 2 completes, run the script a final time and select option [3].
 ```
 
-### 7.3.6+ Post-Check (Part III)
+#### **For IOS-XR 7.3.6+**
+This script's primary function is to run the full 8-step workflow (Option [1]).
 
 ```bash
-$ python3 step_03_7_3_6+_post_checks_v3_0.py
+$ python3 step_03_7_3_6+_interactive_v3_0.py
 
-Step 1: Phase 1 - Execute dummy scripts '--dummy' yes
-Step 2: First Dataplane Monitor (7.3.6+ polling mode)
-Step 3: Sequential 15-minute countdown
-Step 4: Phase 2 - Execute dummy scripts '--dummy' no
-Step 5: Second Dataplane Monitor (7.3.6+ polling mode)
-Step 6: Concurrent countdown + show tech collection
-Step 7: Phase 3 - Execute dummy scripts '--dummy' no
-Step 8: ASIC Error Clearing Command
-✅ 8-step post-check workflow completed successfully
-```
+================================================================================
+           IOS-XR 7.3.6+ Post-Check Interactive Framework v3.0
+================================================================================
+Enter Router IP address or Hostname: 10.0.0.1
+# ... After connecting, the main menu appears ...
 
-### 7.3.5 Post-Check Phases (Parts IIIa, IIIb, IIIc)
+MAIN WORKFLOW:
+   [1] Execute Full 8-Step Post-Check Workflow - ~3 hours
 
-```bash
-# Phase 1 (Part IIIa)
-$ python3 step_03a_7_3_5_post_checks_phase_1_v2_0.py
-
-Step a: Execute dummy scripts '--dummy' yes
-Step b: First dataplane monitor (foreground mode)
-Step c: 20-minute wait time
-Step d: Execute dummy scripts '--dummy' no
-Step e: Manual intervention (reload instructions)
-✅ Phase 1 post-check completed successfully
-
-# Phase 2 (Part IIIb) 
-$ python3 step_03b_7_3_5_post_checks_phase_2_v2_0.py
-
-Step f: Second dataplane monitor
-Step g: 20-minute wait time
-Step h: Third dataplane monitor
-Step i: Show tech collection
-Step j: Clear ASIC counters
-✅ Phase 2 post-check completed successfully
-
-# Phase 3 (Part IIIc)
-$ python3 step_03c_7_3_5_post_checks_phase_3_v2_0.py
-
-Step k: Execute dummy scripts '--dummy' yes (Part 3)
-Step l: Fourth dataplane monitor
-Step m: 20-minute wait time
-Step n: Execute dummy scripts '--dummy' no (First time)
-Step o: Fifth dataplane monitor
-Step p: 20-minute wait time  
-Step q: Execute dummy scripts '--dummy' no (Second time)
-✅ Phase 3 post-check completed successfully
+INDIVIDUAL OPERATIONS:
+   [2] Run Dataplane Monitor Only
+   [3] Run Dummy Scripts Only
+# ...
+Select option: 1  # <-- Select [1] to run the official 8-step MoP workflow
 ```
 
 ---

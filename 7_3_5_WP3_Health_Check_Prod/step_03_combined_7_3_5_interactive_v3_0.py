@@ -242,30 +242,34 @@ class InteractiveFrameworkManager:
         ]
 
     def initialize(self):
-        """Initialize framework with credentials and logging"""
+        """Initialize framework with banner, credentials, and logging, matching the 7.3.5 UI."""
+        # --- FIX: Standardized banner from 7.3.5 script ---
+        print(f"\n{'=' * 80}")
+        print(f"{'IOS-XR 7.3.6+ Post-Check Interactive Framework v3.0':^80}")
+        print(f"{'=' * 80}")
+
+        # --- FIX: Standardized initialization header from 7.3.5 script ---
         print(f"\n🔧 FRAMEWORK INITIALIZATION")
         print(f"{'─' * 50}")
 
-        # Get credentials
-        self.router_ip = input(f"Enter Router IP address or Hostname: ")
-        self.username = input(f"Enter SSH Username: ")
+        self.router_ip = input("Enter Router IP address or Hostname: ")
+        self.username = input("Enter SSH Username: ")
         self.password = getpass.getpass(f"Enter SSH Password for {self.username}@{self.router_ip}: ")
 
-        # Get hostname
         try:
             self.hostname = get_hostname_from_router(self.router_ip, self.username, self.password)
+            # --- FIX: Changed from logging.info() to print() to match 7.3.5 ---
             print(f"✅ Connected to router: {self.hostname}")
         except HostnameRetrievalError as e:
-            logging.error(f"Could not retrieve hostname: {e}. Using IP address.")
+            logging.error(f"Could not retrieve hostname: {e}. Using IP for logs.")
             self.hostname = self.router_ip.replace('.', '-')
 
-        # Setup workflow manager
         self.workflow_manager = create_enhanced_workflow_manager(self.hostname)
-
-        # Setup logging
         self._setup_logging()
 
+        # --- FIX: Changed from logging.info() to print() to match 7.3.5 ---
         print(f"✅ Framework initialization completed")
+
 
     def _setup_logging(self):
         """Setup comprehensive logging system"""

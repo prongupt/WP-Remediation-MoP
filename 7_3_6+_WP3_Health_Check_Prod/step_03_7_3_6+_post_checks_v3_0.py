@@ -87,6 +87,19 @@ def ensure_compatible_environment():
 
 ensure_compatible_environment()
 
+
+# This script connects to a Cisco IOS-XR device via SSH to execute a comprehensive post-check process.
+# It performs dataplane monitoring, script execution phases, show tech collection, and ASIC error clearing.
+# The script incorporates comprehensive logging to manage console output and file recording.
+#
+# It performs the following actions:
+# - Phase 1: Executes dummy scripts with '--dummy' yes
+# - Dataplane monitoring phases (pre and post)
+# - Phase 2 & 3: Executes dummy scripts with '--dummy' no (twice)
+# - Concurrent show tech collection with countdown timer
+# - ASIC error clearing operations
+# - Comprehensive error analysis and reporting
+
 __author__ = "Pronoy Dasgupta"
 __copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
 __credits__ = "Pronoy Dasgupta"
@@ -94,6 +107,7 @@ __version__ = "3.0.0"
 __maintainer__ = "Pronoy Dasgupta"
 __email__ = "prongupt@cisco.com"
 __status__ = "production"
+
 
 import paramiko
 import time
@@ -105,13 +119,13 @@ import datetime
 import logging
 import json
 from typing import Optional, List, Tuple, Dict
+from dataclasses import dataclass
 
 # --- Constants and Configuration ---
 SSH_TIMEOUT_SECONDS = 15
 DATAPLANE_MONITOR_TIMEOUT_SECONDS = 1500
 SHOW_TECH_MONITOR_TIMEOUT_SECONDS = 3600
 COUNTDOWN_DURATION_MINUTES = 15
-COMMAND_TIMEOUT_SECONDS = 30
 SCRIPT_EXECUTION_TIMEOUT_SECONDS = 600
 
 PHASE2_ERRORS_DETECTED = False
@@ -144,7 +158,7 @@ class AsicErrorShowError(Exception): pass
 class HostnameRetrievalError(Exception): pass
 
 
-# --- Logging & Output Classes (Consistent with 7.3.5) ---
+# --- Logging & Output Classes ---
 class CompactFormatter(logging.Formatter):
     def __init__(self):
         super().__init__(datefmt='%Y-%m-%d %H:%M:%S')
@@ -185,7 +199,7 @@ class Tee:
         self.file_object.flush()
 
 
-# --- Workflow State Management (Consistent with 7.3.5) ---
+# --- Workflow State Management ---
 class WorkflowState:
     def __init__(self, hostname):
         self.hostname = hostname
@@ -229,8 +243,7 @@ def create_enhanced_workflow_manager(hostname):
     return EnhancedWorkflowManager(hostname)
 
 
-# --- All utility functions are now included directly in this script ---
-# (This includes connect_with_retry, all parsing functions, etc.)
+# --- UTILITY FUNCTIONS (SELF-CONTAINED) ---
 
 def connect_with_retry(client, router_ip, username, password, max_retries=3):
     for attempt in range(max_retries):
@@ -263,7 +276,6 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 600,
     start_time = time.time()
     prompt_found = False
     prompt_check_buffer = ""
-
     while time.time() - start_time < timeout_sec:
         if shell_obj.recv_ready():
             try:
@@ -291,7 +303,6 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 600,
             time.sleep(0.1)
         if prompt_found:
             break
-
     if prompt_found:
         logging.debug("Prompt found. Soaking for 1.5s to capture any trailing output...")
         soak_start_time = time.time()
@@ -303,7 +314,6 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 600,
                     full_output_buffer += final_data
             else:
                 time.sleep(0.05)
-
     if print_realtime and full_output_buffer and not full_output_buffer.endswith('\n'):
         print()
     return full_output_buffer, prompt_found
@@ -448,37 +458,30 @@ def parse_dataplane_output_for_errors(output_text: str) -> bool:
     return not errors_found
 
 
-def run_script_list_phase(shell: paramiko.Channel, scripts_to_run: List[str], script_arg_option: str) -> List[Tuple[str, str]]:
-    """
-    Enhanced script execution with detailed logging identical to the 7.3.5 framework.
-    """
+def run_script_list_phase(shell: paramiko.Channel, scripts_to_run: List[str], script_arg_option: str) -> List[
+    Tuple[str, str]]:
     all_scripts_raw_output = []
-
     for script_name in scripts_to_run:
         group_match = re.search(r'group(\d+)\.py', script_name)
         group_number = group_match.group(1) if group_match else "Unknown"
-
         script_arg_for_log = script_arg_option.strip("'")
         padding_len = 15
-        logging.info(f"{'=' * padding_len}--- Running Group {group_number} with option {script_arg_for_log} ---{'=' * padding_len}")
-
+        logging.info(
+            f"{'=' * padding_len}--- Running Group {group_number} with option {script_arg_for_log} ---{'=' * padding_len}")
         command_to_execute = f"python3 {script_name} {script_arg_option}"
         logging.info(f"Sending 'python3 script execution' ('{command_to_execute}')...")
         shell.send(command_to_execute + "\n")
         time.sleep(0.3)
-
         logging.info(f"Waiting for '{script_name}' to finish (up to 10 minutes) and printing output in real-time...")
-        script_output, prompt_found = read_and_print_realtime(shell, timeout_sec=SCRIPT_EXECUTION_TIMEOUT_SECONDS, print_realtime=True)
-
+        script_output, prompt_found = read_and_print_realtime(shell, timeout_sec=SCRIPT_EXECUTION_TIMEOUT_SECONDS,
+                                                              print_realtime=True)
         all_scripts_raw_output.append((script_name, script_output))
-
         if not prompt_found:
-            logging.warning(f"Prompt not detected within {SCRIPT_EXECUTION_TIMEOUT_SECONDS} seconds after running '{script_name}'.")
+            logging.warning(
+                f"Prompt not detected within {SCRIPT_EXECUTION_TIMEOUT_SECONDS} seconds after running '{script_name}'.")
         else:
             logging.info(f"✅ Prompt detected, '{script_name}' execution assumed complete.")
-
         logging.info(f"{'=' * padding_len}--- Finished execution for: {script_name} ---{'=' * padding_len}")
-
     return all_scripts_raw_output
 
 
@@ -538,6 +541,7 @@ def format_and_print_error_report(script_name: str, group_number: str, error_det
                           f"{'':<{col_widths['Codewords']}}", f"{'':<{col_widths['FLR']}}",
                           f"{'':<{col_widths['BER']}}", f"{'':<{col_widths['Link_flap']}}"]
         print(f"| {' | '.join(blank_row_cols)} |")
+        print(separator_line)
         logging.info(f"✅ No errors detected for Group {group_number}{phase_identifier}.")
     else:
         if "Phase 2" in phase_name:
@@ -559,8 +563,8 @@ def format_and_print_error_report(script_name: str, group_number: str, error_det
                         f"{codewords_display:<{col_widths['Codewords']}}", f"{flr_display:<{col_widths['FLR']}}",
                         f"{ber_display:<{col_widths['BER']}}", f"{link_flap_display:<{col_widths['Link_flap']}}"]
             print(f"| {' | '.join(row_cols)} |")
+        print(separator_line)
         logging.error(f"❌ {len(error_details)} errors detected for Group {group_number}{phase_identifier}.")
-    print(separator_line)
 
 
 def run_show_tech_fabric_threaded(router_ip: str, username: str, password: str, hostname: str,
@@ -645,7 +649,7 @@ def run_show_tech_fabric_threaded(router_ip: str, username: str, password: str, 
 
 
 def print_final_summary(results_summary: Dict[str, str], total_execution_time: float):
-    print("\n--- Final Script Summary ---")
+    print(f"\n--- Final Script Summary ---")
     formatted_time = format_execution_time(total_execution_time)
     print(f"+{'Total time for execution: ' + formatted_time:-^60}+")
     table = PrettyTable()
@@ -654,17 +658,18 @@ def print_final_summary(results_summary: Dict[str, str], total_execution_time: f
     table.align["Section Name"] = "l"
     table.align["Status"] = "l"
     for i, (step_name, result) in enumerate(results_summary.items(), 1):
+        section_name = result.split(':')[0]
         status_text = "Successful"
         if "Failed" in result:
             status_message = result.split(': ')[-1]
             status_text = f"\033[1;91m{status_message}\033[0m"
         elif "Success" in result:
             status_text = f"\033[1;92mSuccessful\033[0m"
-        if "Dummy No" in step_name:
-            if (PHASE2_ERRORS_DETECTED and "Phase 2" in step_name) or (
-                    PHASE3_ERRORS_DETECTED and "Phase 3" in step_name):
+        if "Dummy No" in section_name:
+            if (PHASE2_ERRORS_DETECTED and "Phase 2" in section_name) or (
+                    PHASE3_ERRORS_DETECTED and "Phase 3" in section_name):
                 status_text = "\033[1;91mErrors Found\033[0m"
-        table.add_row([i, step_name.split(':')[0], status_text])
+        table.add_row([i, section_name, status_text])
     print(table)
 
 
@@ -675,16 +680,24 @@ def run_dataplane_monitor_phase(router_ip: str, username: str, password: str, mo
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     shell = None
     try:
+        logging.info(f"Connecting to {router_ip} for {monitor_description} dataplane monitor...")
         connect_with_retry(client, router_ip, username, password)
+        logging.info(f"Successfully connected for {monitor_description} dataplane monitor.")
         shell = client.invoke_shell()
+        time.sleep(1)
+        logging.info(f"--- Initial Shell Output ({monitor_description} Dataplane Monitor) ---")
         read_and_print_realtime(shell, timeout_sec=5, print_realtime=False)
+        logging.info(f"--- End Initial Shell Output ---")
         execute_command_in_shell(shell, "terminal length 0", "set terminal length", print_realtime_output=False)
+        execute_command_in_shell(shell, "terminal width 511", "set terminal width", print_realtime_output=False)
         if not poll_dataplane_monitoring_736(shell, dataplane_timeout):
             raise DataplaneError(f"{monitor_description} dataplane monitoring reported errors.")
+        logging.info(f"✅ {monitor_description} Dataplane monitoring completed and reported no errors.")
         return True
     finally:
         if shell: shell.close()
         if client: client.close()
+        logging.info(f"SSH connection for {monitor_description} monitor closed.")
 
 
 def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, password: str, ssh_timeout: int,
@@ -715,9 +728,6 @@ def run_concurrent_countdown_and_show_tech(router_ip: str, username: str, passwo
 
 def execute_script_phase(router_ip: str, username: str, password: str, scripts_to_run: List[str], script_arg: str,
                          ssh_timeout: int, phase_name: str = "") -> bool:
-    """
-    Executes a script phase with logging identical to the 7.3.5 framework.
-    """
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -726,23 +736,17 @@ def execute_script_phase(router_ip: str, username: str, password: str, scripts_t
         logging.info(f"Attempting to connect to {router_ip} for phase with option '{script_arg}'...")
         connect_with_retry(client, router_ip, username, password)
         logging.info(f"Successfully connected to {router_ip}.")
-
         shell = client.invoke_shell()
         time.sleep(1)
-
         logging.info("--- Initial Shell Output ---")
         initial_output, _ = read_and_print_realtime(shell, timeout_sec=5, print_realtime=False)
         print(f"{initial_output}", end='')
         logging.info("--- End Initial Shell Output ---")
-
         execute_command_in_shell(shell, "terminal length 0", "set terminal length to 0", print_realtime_output=False)
         execute_command_in_shell(shell, "terminal width 511", "set terminal width to 511", print_realtime_output=False)
-
         execute_command_in_shell(shell, "attach location 0/RP0/CPU0", "attach to RP0", print_realtime_output=False)
         execute_command_in_shell(shell, "cd /misc/disk1/", "cd to /misc/disk1", print_realtime_output=False)
-
         outputs = run_script_list_phase(shell, scripts_to_run, script_arg)
-
         if "'--dummy' no" in script_arg:
             errors_found = False
             for name, output in outputs:
@@ -754,11 +758,9 @@ def execute_script_phase(router_ip: str, username: str, password: str, scripts_t
                     errors_found = True
             if errors_found:
                 raise ScriptExecutionError("Degraded links found")
-
         logging.info(f"Exiting bash prompt...")
         shell.send("exit\n")
         read_and_print_realtime(shell, timeout_sec=5, print_realtime=False)
-
         return True
     finally:
         if shell: shell.close()
@@ -789,42 +791,30 @@ def run_asic_errors_show_command(router_ip: str, username: str, password: str, s
 # === INTERACTIVE FRAMEWORK MANAGER ===
 class InteractiveFrameworkManager:
     def __init__(self):
-        self.router_ip = None
-        self.username = None
-        self.password = None
-        self.hostname = "unknown_host"
+        self.router_ip, self.username, self.password, self.hostname = None, None, None, "unknown_host"
         self.session_start_time = time.time()
         self.true_original_stdout = sys.stdout
-        self.session_log_file_handler = None
-        self.raw_output_file = None
-        self.workflow_manager = None
-        self.scripts_to_run = [
-            "monitor_8800_system_v2_3_msft_bash_group0.py",
-            "monitor_8800_system_v2_3_msft_bash_group1.py",
-            "monitor_8800_system_v2_3_msft_bash_group2.py",
-            "monitor_8800_system_v2_3_msft_bash_group3.py"
-        ]
+        self.session_log_file_handler, self.raw_output_file, self.workflow_manager = None, None, None
+        self.scripts_to_run = ["monitor_8800_system_v2_3_msft_bash_group0.py",
+                               "monitor_8800_system_v2_3_msft_bash_group1.py",
+                               "monitor_8800_system_v2_3_msft_bash_group2.py",
+                               "monitor_8800_system_v2_3_msft_bash_group3.py"]
 
     def initialize(self):
-        print(f"{'=' * 80}")
-        print(f"{'IOS-XR 7.3.6+ Post-Check Interactive Framework v3.0':^80}")
-        print(f"{'=' * 80}")
-
-        print(f"\n{'FRAMEWORK INITIALIZATION':-^80}")
+        print(f"\n🔧 FRAMEWORK INITIALIZATION")
+        print(f"{'─' * 50}")
         self.router_ip = input("Enter Router IP address or Hostname: ")
         self.username = input("Enter SSH Username: ")
         self.password = getpass.getpass(f"Enter SSH Password for {self.username}@{self.router_ip}: ")
-
         try:
             self.hostname = get_hostname_from_router(self.router_ip, self.username, self.password)
-            logging.info(f"✅ Connected to router: {self.hostname}")
+            print(f"✅ Connected to router: {self.hostname}")
         except HostnameRetrievalError as e:
             logging.error(f"Could not retrieve hostname: {e}. Using IP for logs.")
             self.hostname = self.router_ip.replace('.', '-')
-
         self.workflow_manager = create_enhanced_workflow_manager(self.hostname)
         self._setup_logging()
-        logging.info("✅ Framework initialization completed")
+        print(f"✅ Framework initialization completed")
 
     def _setup_logging(self):
         hostname_dir = os.path.join(os.getcwd(), self.hostname)
@@ -832,17 +822,13 @@ class InteractiveFrameworkManager:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         session_log_path = os.path.join(hostname_dir, f"{self.hostname}_7_3_6+_interactive_session_{timestamp}.txt")
         raw_output_log_path = os.path.join(hostname_dir, f"{self.hostname}_7_3_6+_interactive_output_{timestamp}.txt")
-
         for handler in logging.root.handlers[:]:
             logging.root.removeHandler(handler)
-
         self.session_log_file_handler = logging.FileHandler(session_log_path)
         self.session_log_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         logging.root.addHandler(self.session_log_file_handler)
-
         self.raw_output_file = open(raw_output_log_path, 'w', encoding='utf-8')
         sys.stdout = Tee(self.true_original_stdout, self.raw_output_file)
-
         console_handler = logging.StreamHandler(self.true_original_stdout)
         console_handler.setFormatter(CompactFormatter())
         logging.root.addHandler(console_handler)
@@ -859,6 +845,8 @@ class InteractiveFrameworkManager:
         print("\nINDIVIDUAL OPERATIONS:")
         print("   [2] Run Dataplane Monitor Only")
         print("   [3] Run Dummy Scripts Only")
+        print("   [4] Show Tech Collection Only")
+        print("   [5] Clear ASIC Counters Only")
         print("\nUTILITIES:")
         print("   [status] View Previous Results")
         print("   [help]   Help & Documentation")
@@ -868,7 +856,7 @@ class InteractiveFrameworkManager:
     def get_user_choice(self):
         while True:
             choice = input("Select option: ").strip().lower()
-            if choice in ["1", "2", "3", "status", "help", "exit", "q", "quit"]:
+            if choice in ["1", "2", "3", "4", "5", "status", "help", "exit", "q", "quit"]:
                 return choice
             print(f"Invalid choice '{choice}'. Please try again.")
 
@@ -889,6 +877,10 @@ class InteractiveFrameworkManager:
                     self.run_dataplane_monitor_interactive()
                 elif choice == '3':
                     self.run_dummy_scripts_interactive()
+                elif choice == '4':
+                    self.run_show_tech_interactive()
+                elif choice == '5':
+                    self.clear_asic_counters_interactive()
                 elif choice == 'status':
                     self.show_execution_status()
                 elif choice == 'help':
@@ -907,12 +899,10 @@ class InteractiveFrameworkManager:
         if not self.confirm_action(
                 "This will run the full 8-step workflow (~3 hours) and abort on critical errors. Proceed?"):
             return
-
         workflow_start_time = time.time()
         results_summary: Dict[str, str] = {}
         script_aborted = False
         workflow_name = f"Full_Workflow_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
         try:
             self.workflow_manager.dashboard.update_progress(workflow_name, 1, "Starting Phase 1 - Dummy Yes")
             print(f"\n{'#' * 70}\n### Step 1: Phase 1 - Dummy Yes ###\n{'#' * 70}\n")
@@ -981,7 +971,7 @@ class InteractiveFrameworkManager:
             self._display_results(workflow_name, results_summary, total_time, script_aborted)
 
     def run_dataplane_monitor_interactive(self):
-        print("\n--- Standalone Dataplane Monitor ---")
+        print(f"\n{'#' * 70}\n### Standalone Dataplane Monitor ###\n{'#' * 70}\n")
         if not self.confirm_action("This will run a single dataplane health check. Proceed?"): return
         try:
             run_dataplane_monitor_phase(self.router_ip, self.username, self.password, "STANDALONE", SSH_TIMEOUT_SECONDS,
@@ -991,7 +981,7 @@ class InteractiveFrameworkManager:
             logging.error(f"❌ Standalone dataplane monitor failed: {e}")
 
     def run_dummy_scripts_interactive(self):
-        print("\n--- Standalone Dummy Script Execution ---")
+        print(f"\n{'#' * 70}\n### Standalone Dummy Script Execution ###\n{'#' * 70}\n")
         choice = input("Run with '--dummy yes' (safe) or '--dummy no' (critical)? [yes/no]: ").lower()
         if choice not in ['yes', 'no']:
             print("Invalid choice.")
@@ -1005,6 +995,26 @@ class InteractiveFrameworkManager:
         except Exception as e:
             logging.error(f"❌ Standalone dummy script execution failed: {e}")
 
+    def run_show_tech_interactive(self):
+        print(f"\n{'#' * 70}\n### Standalone Show Tech Collection ###\n{'#' * 70}\n")
+        if not self.confirm_action("This will collect show tech support fabric (~20-30 mins). Proceed?"): return
+        try:
+            if not run_concurrent_countdown_and_show_tech(self.router_ip, self.username, self.password,
+                                                          SSH_TIMEOUT_SECONDS, 0, SHOW_TECH_MONITOR_TIMEOUT_SECONDS):
+                raise ShowTechError("Standalone show tech collection failed.")
+            logging.info("✅ Standalone show tech collection completed successfully.")
+        except Exception as e:
+            logging.error(f"❌ Standalone show tech collection failed: {e}")
+
+    def clear_asic_counters_interactive(self):
+        print(f"\n{'#' * 70}\n### Standalone ASIC Counter Clearing ###\n{'#' * 70}\n")
+        if not self.confirm_action("This will clear ASIC error counters. This is non-disruptive. Proceed?"): return
+        try:
+            run_asic_errors_show_command(self.router_ip, self.username, self.password, SSH_TIMEOUT_SECONDS)
+            logging.info("✅ ASIC counters cleared successfully.")
+        except Exception as e:
+            logging.error(f"❌ ASIC counter clearing failed: {e}")
+
     def show_execution_status(self):
         print(f"\n{'EXECUTION STATUS DASHBOARD':-^80}")
         state = self.workflow_manager.state.state
@@ -1012,7 +1022,6 @@ class InteractiveFrameworkManager:
         if not completed_workflows:
             print("No workflow results found for this session.")
             return
-
         for name, data in completed_workflows.items():
             status_icon = "✅" if data.get('success') else "❌"
             print(f"\nWorkflow: {name} {status_icon}")
@@ -1031,6 +1040,10 @@ class InteractiveFrameworkManager:
         print("    Use this for a quick, standalone health check of the device's dataplane.")
         print("\n[3] Run Dummy Scripts Only:")
         print("    Use this to check for link degradation. '--dummy no' is a critical validation step.")
+        print("\n[4] Show Tech Collection Only:")
+        print("    Collects extensive diagnostic logs from the fabric.")
+        print("\n[5] Clear ASIC Counters Only:")
+        print("    Resets ASIC error counters for clean monitoring.")
         print("\n[status] View Previous Results:")
         print("    Displays a summary of completed workflows from the current session.")
         print("\nFor support, contact the author at prongupt@cisco.com.")
@@ -1062,6 +1075,11 @@ class InteractiveFrameworkManager:
 
 
 def main():
+    print(f"{'=' * 80}")
+    print(f"{'🚀 IOS-XR 7.3.6+ Fabric Card Remediation Framework':^80}")
+    print(f"{'Combined Interactive Post-Check Automation v3.0':^80}")
+    print(f"{'=' * 80}")
+
     framework = InteractiveFrameworkManager()
     try:
         framework.initialize()

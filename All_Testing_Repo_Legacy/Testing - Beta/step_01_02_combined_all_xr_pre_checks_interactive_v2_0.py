@@ -1740,7 +1740,8 @@ def compare_lcfc_inventory(current_lcfc: Dict[str, Dict[str, str]],
     comparison_table.field_names = ["LC / FC / RP / FT Location", "OLD SERIAL", "OLD AT", "NEW SN", "NEW AT", "PID"]
     comparison_table.align = "l"
 
-    all_locations = sorted(list(set(current_lcfc.keys()) | set(previous_lcfc.keys())))
+    # --- THIS IS THE CORRECTED LINE ---
+    all_locations = sorted(list(set(current_lcfc.keys()) | set(previous_lcfc.keys())), key=natural_sort_key)
 
     for location in all_locations:
         current_sn = current_lcfc.get(location, {}).get('SN', 'N/A')

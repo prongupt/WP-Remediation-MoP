@@ -1538,6 +1538,15 @@ def check_environment_status(shell: paramiko.Channel, cli_output_file=None):
 
 
 # === COMPARISON UTILITIES ===
+def natural_sort_key(s: str) -> list:
+    """
+    Create a key for natural sorting of network interface names.
+    e.g., "Gi0/1/0/11" becomes ["gi", 0, 1, 0, 11]
+    This ensures that Gi0/1/0/2 comes before Gi0/1/0/11.
+    """
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
+
+
 def extract_command_output_from_file(file_path: str, command_string: str) -> str:
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -1714,7 +1723,9 @@ def compare_interface_statuses(current_statuses: Dict[str, Dict[str, str]],
     comparison_table.field_names = ["Interface", "Change Type", "Previous Intf/LineP State", "Current Intf/LineP State"]
     comparison_table.align = "l"
 
-    all_interfaces = sorted(list(set(current_statuses.keys()) | set(previous_statuses.keys())))
+    # --- FIX: Use natural_sort_key for correct numerical sorting ---
+    all_interfaces = sorted(list(set(current_statuses.keys()) | set(previous_statuses.keys())), key=natural_sort_key)
+    # --- END OF FIX ---
 
     for intf in all_interfaces:
         physical_intf_pattern = re.compile(

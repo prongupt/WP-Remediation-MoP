@@ -87,6 +87,19 @@ def ensure_compatible_environment():
 
 ensure_compatible_environment()
 
+
+# This script connects to a Cisco IOS-XR device via SSH to execute a comprehensive post-check process.
+# It performs dataplane monitoring, script execution phases, show tech collection, and ASIC error clearing.
+# The script incorporates comprehensive logging to manage console output and file recording.
+#
+# It performs the following actions:
+# - Phase 1: Executes dummy scripts with '--dummy' yes
+# - Dataplane monitoring phases (pre and post)
+# - Phase 2 & 3: Executes dummy scripts with '--dummy' no (twice)
+# - Concurrent show tech collection with countdown timer
+# - ASIC error clearing operations
+# - Comprehensive error analysis and reporting
+
 __author__ = "Pronoy Dasgupta"
 __copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
 __credits__ = "Pronoy Dasgupta"
@@ -94,6 +107,7 @@ __version__ = "3.0.0"
 __maintainer__ = "Pronoy Dasgupta"
 __email__ = "prongupt@cisco.com"
 __status__ = "production"
+
 
 import paramiko
 import time
@@ -882,13 +896,22 @@ class InteractiveFrameworkManager:
         self.cleanup()
 
     def execute_full_workflow(self):
+        """Executes the complete, linear 8-step post-check workflow."""
         if not self.confirm_action(
                 "This will run the full 8-step workflow (~3 hours) and abort on critical errors. Proceed?"):
             return
+
+        # --- FIX: RESET ALL STATE-TRACKING VARIABLES AT THE START OF EACH RUN ---
+        global PHASE2_ERRORS_DETECTED, PHASE3_ERRORS_DETECTED
+        PHASE2_ERRORS_DETECTED = False
+        PHASE3_ERRORS_DETECTED = False
+
         workflow_start_time = time.time()
         results_summary: Dict[str, str] = {}
         script_aborted = False
         workflow_name = f"Full_Workflow_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # --- END OF FIX ---
+
         try:
             self.workflow_manager.dashboard.update_progress(workflow_name, 1, "Starting Phase 1 - Dummy Yes")
             print(f"\n{'#' * 70}\n### Step 1: Phase 1 - Dummy Yes ###\n{'#' * 70}\n")
@@ -944,8 +967,11 @@ class InteractiveFrameworkManager:
                 SSHConnectionError) as e:
             logging.critical(f"CRITICAL FAILURE: Workflow aborted due to: {e}")
             script_aborted = True
-            failed_step = next((f"Step {i}" for i in range(1, 9) if f"Step {i}" not in results_summary), "Unknown Step")
-            results_summary[failed_step] = f"{failed_step.split(':')[0]}: Failed - {e}"
+            # FIX: Standardize the failed step name
+            failed_step_key = f"Step {len(results_summary) + 1}"
+            failed_step_name = results_summary.get(failed_step_key, "Unknown Step").split(':')[0]
+            results_summary[failed_step_key] = f"{failed_step_name}: Failed - {e}"
+
         finally:
             total_time = time.time() - workflow_start_time
             errors = [v for v in results_summary.values() if "Failed" in v]

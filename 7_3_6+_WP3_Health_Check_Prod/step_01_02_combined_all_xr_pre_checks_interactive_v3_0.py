@@ -141,69 +141,91 @@ CLI_PRECHECK_RESULTS = {}
 PYTHON_PRECHECK_RESULTS = {}
 PYTHON_PHASE2_ERRORS_DETECTED = False
 
+
 # === EXCEPTIONS ===
 class DeviceError(Exception):
     pass
 
+
 class FileUploadError(Exception):
     pass
+
 
 class SSHConnectionError(Exception):
     pass
 
+
 class RouterCommandError(Exception):
     pass
+
 
 class PlatformStatusError(DeviceError):
     pass
 
+
 class FabricReachabilityError(DeviceError):
     pass
+
 
 class FabricLinkDownError(DeviceError):
     pass
 
+
 class NpuLinkError(DeviceError):
     pass
+
 
 class NpuStatsError(DeviceError):
     pass
 
+
 class NpuDriverError(DeviceError):
     pass
+
 
 class FabricPlaneStatsError(DeviceError):
     pass
 
+
 class AsicErrorsError(DeviceError):
     pass
+
 
 class InterfaceStatusError(DeviceError):
     pass
 
+
 class AlarmError(DeviceError):
     pass
+
 
 class LcAsicErrorsError(DeviceError):
     pass
 
+
 class FanTrayError(DeviceError):
     pass
+
 
 class EnvironmentError(DeviceError):
     pass
 
+
 class FpdStatusError(DeviceError):
     pass
+
 
 class FileProcessingError(Exception):
     pass
 
+
 class ScriptExecutionError(Exception):
     pass
 
+
 class HostnameRetrievalError(Exception):
     pass
+
 
 # === OUTPUT COORDINATION ===
 class Tee:
@@ -220,6 +242,7 @@ class Tee:
     def flush(self):
         self.stdout.flush()
         self.file_object.flush()
+
 
 # === SSH UTILITIES ===
 def connect_with_retry(client, router_ip, username, password, max_retries=3):
@@ -247,7 +270,9 @@ def connect_with_retry(client, router_ip, username, password, max_retries=3):
                 raise e
     return False
 
-def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, print_real_time: bool = True) -> Tuple[str, bool]:
+
+def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, print_real_time: bool = True) -> Tuple[
+    str, bool]:
     full_output_buffer = ""
     start_time = time.time()
     prompt_found = False
@@ -282,6 +307,7 @@ def read_and_print_realtime(shell_obj: paramiko.Channel, timeout_sec: int = 60, 
     if print_real_time and full_output_buffer and not full_output_buffer.endswith('\n'):
         print()
     return full_output_buffer, prompt_found
+
 
 def execute_command_in_shell(shell: paramiko.Channel, command: str, command_description: str,
                              timeout: int = 60, print_real_time_output: bool = False, cli_output_file=None) -> str:
@@ -321,7 +347,8 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
     if not prompt_found:
         logging.warning(f"Prompt not detected after '{command_description}'. Attempting to send newline and re-check.")
         shell.send("\n")
-        output_retry, prompt_found_retry = read_and_print_realtime(shell, timeout_sec=5, print_real_time=print_real_time_output)
+        output_retry, prompt_found_retry = read_and_print_realtime(shell, timeout_sec=5,
+                                                                   print_real_time=print_real_time_output)
         if cli_output_file:
             cli_output_file.write(output_retry)
             cli_output_file.flush()
@@ -352,6 +379,7 @@ def execute_command_in_shell(shell: paramiko.Channel, command: str, command_desc
 
     return output
 
+
 def format_execution_time(seconds):
     """Format execution time in human-readable format"""
     hours, remainder = divmod(int(seconds), 3600)
@@ -362,6 +390,7 @@ def format_execution_time(seconds):
         return f"{minutes:02d}m {seconds:02d}s"
     else:
         return f"{seconds:02d}s"
+
 
 def countdown_timer(seconds, console_stream):
     """Enhanced countdown timer matching Part II"""
@@ -376,6 +405,7 @@ def countdown_timer(seconds, console_stream):
     console_stream.write('\r' + ' ' * 30 + '\r')
     console_stream.flush()
     logging.info('Countdown Timer: 00:00 - Time is up!')
+
 
 # === FILE UPLOAD UTILITIES ===
 def upload_monitor_files_to_router(existing_client: paramiko.SSHClient, router_ip: str) -> bool:
@@ -425,6 +455,7 @@ def upload_monitor_files_to_router(existing_client: paramiko.SSHClient, router_i
         logging.error(f"File upload operation failed: {e}")
         raise FileUploadError(f"Monitor file upload failed: {e}")
 
+
 def check_and_upload_monitor_files(shell: paramiko.Channel, router_ip: str, username: str, password: str,
                                    cli_output_file=None, existing_client=None) -> bool:
     """Check for monitor files on router and upload only if needed"""
@@ -451,7 +482,8 @@ def check_and_upload_monitor_files(shell: paramiko.Channel, router_ip: str, user
 
         if files_exist:
             logging.info("✅ Files already on hard drive...skipping upload")
-            files_display = ", ".join([f.replace("monitor_8800_system_v2_3_msft_bash_group", "group") for f in files_found])
+            files_display = ", ".join(
+                [f.replace("monitor_8800_system_v2_3_msft_bash_group", "group") for f in files_found])
             print(f"📁 Monitor files detected on device: {files_display}")
             return True
         else:
@@ -463,6 +495,7 @@ def check_and_upload_monitor_files(shell: paramiko.Channel, router_ip: str, user
     except Exception as e:
         logging.error(f"Error during file check: {e}. Attempting upload...")
         return upload_monitor_files_to_router(existing_client, router_ip)
+
 
 def get_hostname(shell: paramiko.Channel, cli_output_file=None) -> str:
     logging.info("Attempting to retrieve hostname using 'show running-config | i hostname'...")
@@ -477,6 +510,7 @@ def get_hostname(shell: paramiko.Channel, cli_output_file=None) -> str:
             return hostname
     logging.warning("Could not parse hostname from 'show running-config | i hostname' output. Using 'unknown_host'.")
     return "unknown_host"
+
 
 def get_hostname_from_router(router_ip, username, password):
     """Enhanced hostname retrieval"""
@@ -526,6 +560,7 @@ def get_hostname_from_router(router_ip, username, password):
             client.close()
             logging.info(f"Temporary SSH connection for hostname retrieval closed.")
 
+
 def get_chassis_model(shell: paramiko.Channel, cli_output_file=None) -> str:
     output = execute_command_in_shell(shell, "show inventory chassis", "get chassis model from inventory", timeout=30,
                                       print_real_time_output=False, cli_output_file=cli_output_file)
@@ -534,8 +569,10 @@ def get_chassis_model(shell: paramiko.Channel, cli_output_file=None) -> str:
         chassis_model = match.group(1).strip()
         logging.info(f"Chassis model (PID) detected: {chassis_model}")
         return chassis_model
-    logging.warning("Could not parse chassis model (PID) from 'show inventory chassis' output. Using 'unknown_chassis'.")
+    logging.warning(
+        "Could not parse chassis model (PID) from 'show inventory chassis' output. Using 'unknown_chassis'.")
     return "unknown_chassis"
+
 
 # === PARSING UTILITIES ===
 def parse_inventory_for_serial_numbers(inventory_output: str) -> Dict[str, Dict[str, str]]:
@@ -555,6 +592,7 @@ def parse_inventory_for_serial_numbers(inventory_output: str) -> Dict[str, Dict[
             }
             current_location = None
     return card_info
+
 
 def parse_inventory_optics_from_string(output: str) -> Dict[str, Dict[str, str]]:
     optics_info = {}
@@ -580,6 +618,7 @@ def parse_inventory_optics_from_string(output: str) -> Dict[str, Dict[str, str]]
         logging.debug("No optics inventory items parsed from 'show inventory' output.")
     return optics_info
 
+
 def parse_inventory_lcfc_from_string(output: str) -> Dict[str, Dict[str, str]]:
     lcfc_info = {}
     lines = output.splitlines()
@@ -603,6 +642,7 @@ def parse_inventory_lcfc_from_string(output: str) -> Dict[str, Dict[str, str]]:
     if not lcfc_info:
         logging.warning("No LC/FC/RP inventory items parsed from 'show inventory' output.")
     return lcfc_info
+
 
 def parse_interface_status_from_strings(summary_output: str, brief_output: str) -> Dict[str, Dict[str, str]]:
     interface_statuses: Dict[str, Dict[str, str]] = {}
@@ -822,7 +862,8 @@ def check_platform_and_serial_numbers(shell: paramiko.Channel,
             framework_instance.chassis_inventory_info = {"PID": "N/A", "VID": "N/A", "SN": "N/A"}
 
     if platform_issues_found:
-        logging.error(f"One or more Line Cards, Fabric Cards, or Route Processors are not in the expected state. Please review the table above.")
+        logging.error(
+            f"One or more Line Cards, Fabric Cards, or Route Processors are not in the expected state. Please review the table above.")
         raise PlatformStatusError("Platform status check failed.")
     else:
         logging.info(f"All Line Cards, Fabric Cards, and Route Processors are in their expected states.")
@@ -830,7 +871,8 @@ def check_platform_and_serial_numbers(shell: paramiko.Channel,
     return platform_output
 
 
-def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None, chassis_model: str = "unknown_chassis", framework_instance=None):
+def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None, chassis_model: str = "unknown_chassis",
+                              framework_instance=None):
     logging.info(f"Checking Fabric Reachability (show controller fabric fsdb-pla rack 0)...")
     fabric_output = execute_command_in_shell(shell, "show controller fabric fsdb-pla rack 0",
                                              "show controller fabric fsdb-pla rack 0", timeout=120,
@@ -878,6 +920,7 @@ def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None, cha
     else:
         logging.info(f"Fabric Reachability check passed. No issues detected.")
 
+
 def check_fabric_link_down_status(shell: paramiko.Channel, cli_output_file=None, framework_instance=None):
     logging.info(f"Checking Fabric Link Down Status...")
     commands_and_descriptions = {
@@ -907,7 +950,8 @@ def check_fabric_link_down_status(shell: paramiko.Channel, cli_output_file=None,
             if re.match(r'^\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\w+$', stripped_line): continue
             if re.match(r'^RP/\d+/\S+:\S+#', stripped_line): continue
             if re.escape(command.strip()) in re.escape(stripped_line): continue
-            if any(x in stripped_line for x in ['Description:', 'R/S/A/P', 'DN', 'SFE port', 'FIA Port', '----']): continue
+            if any(
+                x in stripped_line for x in ['Description:', 'R/S/A/P', 'DN', 'SFE port', 'FIA Port', '----']): continue
 
             match = link_pattern.match(stripped_line)
             if match:
@@ -931,6 +975,7 @@ def check_fabric_link_down_status(shell: paramiko.Channel, cli_output_file=None,
         raise FabricLinkDownError("Fabric link down status check failed. Down links reported.")
     else:
         logging.info(f"Fabric Link Down Status check passed. No issues detected.")
+
 
 def check_npu_link_info(shell: paramiko.Channel, cli_output_file=None, framework_instance=None):
     logging.info(f"Checking NPU Link Information...")
@@ -975,6 +1020,7 @@ def check_npu_link_info(shell: paramiko.Channel, cli_output_file=None, framework
         raise NpuLinkError("NPU link info check failed. Links are reported as down.")
     else:
         logging.info(f"NPU Link Information check passed. No down links reported.")
+
 
 def check_npu_stats_link(shell: paramiko.Channel, cli_output_file=None, framework_instance=None):
     logging.info(f"Checking NPU Stats Link for UCE/CRC Errors...")
@@ -1028,6 +1074,7 @@ def check_npu_stats_link(shell: paramiko.Channel, cli_output_file=None, framewor
         raise NpuStatsError("NPU stats link check failed. Non-zero UCE or CRC errors detected.")
     else:
         logging.info(f"NPU Stats Link check passed. No non-zero UCE or CRC errors detected.")
+
 
 def check_npu_driver_status(shell: paramiko.Channel, cli_output_file=None):
     logging.info(f"Checking NPU Driver Status (Asic states)...")
@@ -1094,6 +1141,7 @@ def check_npu_driver_status(shell: paramiko.Channel, cli_output_file=None):
     else:
         logging.info(f"NPU Driver Status check passed. All Asic states are as expected.")
 
+
 def check_fabric_plane_stats(shell: paramiko.Channel, cli_output_file=None, framework_instance=None):
     logging.info(f"Checking Fabric Plane Statistics (CE/UCE/PE Packets)...")
     command = "show controllers fabric plane all statistics"
@@ -1144,6 +1192,7 @@ def check_fabric_plane_stats(shell: paramiko.Channel, cli_output_file=None, fram
         raise FabricPlaneStatsError("Fabric plane statistics check failed. Non-zero CE/UCE/PE packets detected.")
     else:
         logging.info(f"Fabric Plane Statistics check passed. No issues detected.")
+
 
 def check_asic_errors(shell: paramiko.Channel, cli_output_file=None, framework_instance=None):
     logging.info(f"Checking ASIC Errors (rx_link_status_down, count, npu[])...")
@@ -1199,12 +1248,14 @@ def check_asic_errors(shell: paramiko.Channel, cli_output_file=None, framework_i
     else:
         logging.info(f"ASIC Errors check passed. No non-zero error counts detected.")
 
+
 def run_show_inventory(shell: paramiko.Channel, cli_output_file=None) -> str:
     logging.info(f"Running show inventory (output captured silently)...")
     output = execute_command_in_shell(shell, "show inventory", "show inventory", timeout=120,
                                       print_real_time_output=False, cli_output_file=cli_output_file)
     logging.info("show inventory command executed and output captured.")
     return output
+
 
 def check_interface_status(shell: paramiko.Channel, cli_output_file=None, framework_instance=None) -> Tuple[str, str]:
     logging.info(f"Checking Interface Status...")
@@ -1242,7 +1293,8 @@ def check_interface_status(shell: paramiko.Channel, cli_output_file=None, framew
         print(summary_table)
         logging.info(f"Interface summary for ALL TYPES successfully retrieved.")
     else:
-        logging.warning(f"Could not find or parse 'ALL TYPES' row in 'show interface summary'. Proceeding with other checks.")
+        logging.warning(
+            f"Could not find or parse 'ALL TYPES' row in 'show interface summary'. Proceeding with other checks.")
 
     # Store interface summary for report
     if all_types_data and framework_instance:
@@ -1258,9 +1310,11 @@ def check_interface_status(shell: paramiko.Channel, cli_output_file=None, framew
     logging.info("show interface description | ex admin executed silently.")
 
     if not brief_output.strip():
-        raise InterfaceStatusError("No valid output received from 'show interface brief'. Cannot proceed with interface status checks.")
+        raise InterfaceStatusError(
+            "No valid output received from 'show interface brief'. Cannot proceed with interface status checks.")
 
     return summary_output, brief_output
+
 
 def check_hw_module_fpd_status(shell: paramiko.Channel, cli_output_file=None) -> str:
     logging.info(f"Checking HW Module FPD Status...")
@@ -2499,7 +2553,6 @@ class InteractivePreCheckManager:
         except Exception as e:
             print(f"Monitor file operation failed: {e}")
 
-
     def _perform_file_upload_operation(self) -> bool:
         """Perform file upload operation exactly like Option 1"""
 
@@ -2850,8 +2903,7 @@ class InteractivePreCheckManager:
                 # This block runs when part of a sequence (standalone=False)
                 logging.info("Running in sequential mode, leaving session log open for the next step.")
 
-
-    def execute_python_precheck_only(self,standalone=True):
+    def execute_python_precheck_only(self, standalone=True):
         """Execute Python pre-checks exactly like Part II"""
         global PYTHON_PHASE2_ERRORS_DETECTED
         PYTHON_PHASE2_ERRORS_DETECTED = False
@@ -3024,7 +3076,6 @@ class InteractivePreCheckManager:
 
                     total_execution_time = time.time() - self.session_start_time
                     print(f"\nTotal script execution time: {format_execution_time(total_execution_time)}")
-
 
     def _execute_script_phase(self, shell, scripts_to_run, script_arg_option):
         """Execute script phase exactly like Part II"""

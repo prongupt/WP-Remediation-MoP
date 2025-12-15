@@ -244,6 +244,40 @@ class Tee:
         self.file_object.flush()
 
 
+# === OUTPUT COORDINATION ===
+class CompactFormatter(logging.Formatter):
+    """Custom formatter to add color to success and failure messages."""
+
+    def __init__(self):
+        super().__init__(datefmt='%Y-%m-%d %H:%M:%S')
+
+    FORMATS = {
+        logging.ERROR: '%(asctime)s - %(levelname)s - \033[1;91m%(message)s\033[0m',
+        logging.WARNING: '%(asctime)s - %(levelname)s - \033[1;93m%(message)s\033[0m',
+        logging.INFO: '%(asctime)s - %(levelname)s - %(message)s',
+        logging.CRITICAL: '%(asctime)s - %(levelname)s - \033[1;91m%(message)s\033[0m',
+        logging.DEBUG: '%(asctime)s - %(levelname)s - %(message)s',
+    }
+
+    def format(self, record):
+        msg = record.getMessage()
+
+        # Condition to color all success messages green
+        if msg.startswith('✅') or msg.startswith('✓'):
+            return f'{self.formatTime(record, self.datefmt)} - \033[92m{record.levelname}\033[0m - \033[1;92m{msg}\033[0m'
+
+        # --- FIX: Broaden the condition to catch all failure/cross mark messages ---
+        elif msg.startswith('❌') or msg.startswith('✗'):
+            # This now covers "✗ ... failed:", "✗ ... errors detected", etc.
+            return f'{self.formatTime(record, self.datefmt)} - \033[91m{record.levelname}\033[0m - \033[1;91m{msg}\033[0m'
+        # --- END OF FIX ---
+
+        else:
+            log_fmt = self.FORMATS.get(record.levelno, self.FORMATS[logging.INFO])
+            formatter = logging.Formatter(log_fmt, datefmt=self.datefmt)
+            return formatter.format(record)
+
+
 # === SSH UTILITIES ===
 def connect_with_retry(client, router_ip, username, password, max_retries=3):
     """Retry SSH connection with increasing delays"""
@@ -1362,7 +1396,7 @@ def check_and_capture_alarms_and_logs(shell: paramiko.Channel, cli_output_file=N
     logging.info("show install log detail executed and output captured.")
 
 
-def check_lc_asic_errors(shell: paramiko.Channel, lc_locations: List[str], cli_output_file=None):
+def check_lc_asic_errors(shell: paramiko.Channel, lc_locations: List[str], cli_output_file=None, framework_instance=None):
     logging.info(f"Checking LC ASIC Errors...")
     problematic_lc_asic_errors = []
 
@@ -1393,6 +1427,11 @@ def check_lc_asic_errors(shell: paramiko.Channel, lc_locations: List[str], cli_o
                 "LC Location": lc_location,
                 "Error Output": "\n".join(cleaned_lines)
             })
+
+    # --- FIX: STORE THE DETECTED ERRORS IN THE FRAMEWORK INSTANCE ---
+    if framework_instance:
+        framework_instance.lc_asic_errors = problematic_lc_asic_errors
+    # --- END OF FIX ---
 
     if problematic_lc_asic_errors:
         logging.error(f"!!! LC ASIC ERRORS DETECTED !!!")
@@ -2259,11 +2298,84 @@ class InteractivePreCheckManager:
         self.fabric_links_down = []
         self.fan_tray_errors = []
 
+    # ADD THIS NEW METHOD
+    def _setup_logging(self):
+        """Centralized logging setup for the entire script session."""
+        logger = logging.getLogger()
+        logger.setLevel(logging.INFO)
+
+        # Clear any previously added handlers to prevent duplication
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+            handler.close()
+
+        # Replace with this block
+        # Configure the single CONSOLE handler for the entire session
+        console_handler = logging.StreamHandler(self.true_original_stdout)
+        # --- FIX: Use the new CompactFormatter for color ---
+        console_handler.setFormatter(CompactFormatter())
+        logger.addHandler(console_handler)
+
+        # Get hostname for creating the output directory
+        try:
+            self.hostname = get_hostname_from_router(self.router_ip, self.username, self.password)
+        except HostnameRetrievalError as e:
+            # Use a temporary console logger just for this initial error
+            temp_handler = logging.StreamHandler(self.true_original_stdout)
+            temp_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            temp_handler.setFormatter(temp_formatter)
+            logging.getLogger().addHandler(temp_handler)
+            logging.warning(f"Could not retrieve hostname: {e}. Using IP address for log filenames.")
+            logging.getLogger().removeHandler(temp_handler)
+            self.hostname = self.router_ip.replace('.', '-')
+
+        self.output_directory = os.path.join(os.getcwd(), self.hostname)
+        os.makedirs(self.output_directory, exist_ok=True)
+
+        # Configure the single CONSOLE handler for the entire session
+        console_handler = logging.StreamHandler(self.true_original_stdout)
+        console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        console_handler.setFormatter(console_formatter)
+        logger.addHandler(console_handler)
+
+        logging.info(f"Logging initialized. Output will be saved in: {self.output_directory}")
+
     def initialize(self):
-        """Initialize framework exactly like Part I"""
+        """Initialize framework, get user input, and set up centralized logging."""
+
+        # --- Step 1: Get user input FIRST ---
         self.router_ip = input(f"Enter Router IP address or Hostname: ")
         self.username = input(f"Enter SSH Username: ")
         self.password = getpass.getpass(f"Enter SSH Password for {self.username}@{self.router_ip}: ")
+
+        # --- Step 2: Configure the logger BEFORE any function that makes a logging call ---
+        logger = logging.getLogger()
+        logger.setLevel(logging.INFO)
+
+        # Clear any previously added handlers to prevent duplication
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+            handler.close()
+
+        # Replace with this block
+        # Add the single, correctly formatted console handler for the entire session
+        console_handler = logging.StreamHandler(self.true_original_stdout)
+        # --- FIX: Use the new CompactFormatter for color ---
+        console_handler.setFormatter(CompactFormatter())
+        logger.addHandler(console_handler)
+
+        # --- Step 3: NOW it is safe to call functions that use logging ---
+        try:
+            self.hostname = get_hostname_from_router(self.router_ip, self.username, self.password)
+        except HostnameRetrievalError as e:
+            logging.warning(f"Could not retrieve hostname: {e}. Using IP address for log filenames.")
+            self.hostname = self.router_ip.replace('.', '-')
+
+        # --- FIX: Step 4 - Create the 'output_directory' attribute that was missing ---
+        self.output_directory = os.path.join(os.getcwd(), self.hostname)
+        os.makedirs(self.output_directory, exist_ok=True)
+
+        logging.info(f"Logging initialized. Output will be saved in: {self.output_directory}")
 
     def display_main_menu(self):
         """Display main menu with SecureCRT compatible formatting"""
@@ -2292,6 +2404,7 @@ class InteractivePreCheckManager:
 
         print(f"\n{'=' * 80}")
 
+
     def get_user_choice(self):
         """Get user choice"""
         while True:
@@ -2302,6 +2415,7 @@ class InteractivePreCheckManager:
             else:
                 print(f"Invalid choice '{choice}'. Please try again.")
 
+
     def confirm_action(self, message: str, default_yes: bool = False) -> bool:
         """Interactive confirmation"""
         default_choice = "Y/n" if default_yes else "y/N"
@@ -2309,6 +2423,7 @@ class InteractivePreCheckManager:
         if not response:
             return default_yes
         return response.startswith('y')
+
 
     def run_interactive_framework(self):
         """Main interactive loop"""
@@ -2499,6 +2614,17 @@ class InteractivePreCheckManager:
                 ])
             print(ft_obs_table)
 
+        # --- FIX: ADD NEW SECTION FOR LC ASIC ERRORS ---
+        if hasattr(self, 'lc_asic_errors') and self.lc_asic_errors:
+            observations_found = True
+            print(f"\ng) LC ASIC Errors:")
+            lc_asic_table = PrettyTable()
+            lc_asic_table.field_names = ["LC Location", "Error Output"]
+            for error in self.lc_asic_errors:
+                lc_asic_table.add_row([error["LC Location"], error["Error Output"]])
+            print(lc_asic_table)
+        # --- END OF FIX ---
+
         if not observations_found:
             print("NA")
 
@@ -2603,48 +2729,28 @@ class InteractivePreCheckManager:
         # 1. DECLARE GLOBAL AT THE TOP OF THE FUNCTION
         global CLI_PRECHECK_RESULTS
 
-        # Setup logging to match Part I exactly
-        logger = logging.getLogger()
-        logger.setLevel(logging.INFO)
 
-        for handler in logger.handlers[:]:
-            logger.removeHandler(handler)
-            handler.close()
-
-        # Get hostname for directory setup
-        try:
-            self.hostname = get_hostname_from_router(self.router_ip, self.username, self.password)
-        except HostnameRetrievalError as e:
-            logging.error(f"Could not retrieve hostname: {e}")
-            self.hostname = self.router_ip.replace('.', '-')
-
-        # Setup directories and logging exactly like Part I
+        # Define file paths using the already-created output directory
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_directory = os.path.join(os.getcwd(), self.hostname)
-        os.makedirs(output_directory, exist_ok=True)
-
-        session_log_path = os.path.join(output_directory, f"{self.hostname}_combined_session_log_{timestamp}.txt")
-        cli_output_path = os.path.join(output_directory, f"{self.hostname}_combined_cli_output_{timestamp}.txt")
+        session_log_path = os.path.join(self.output_directory, f"{self.hostname}_combined_session_log_{timestamp}.txt")
+        cli_output_path = os.path.join(self.output_directory, f"{self.hostname}_combined_cli_output_{timestamp}.txt")
 
         session_log_file_handle = open(session_log_path, 'a', encoding='utf-8')
         cli_output_file = open(cli_output_path, 'a')
 
-        sys.stdout = Tee(self.true_original_stdout, session_log_file_handle)
-
-        # Setup clean logging
+        # Add a file handler to the root logger for this specific operation's log
         file_handler = logging.FileHandler(session_log_path, encoding='utf-8')
         file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         file_handler.setFormatter(file_formatter)
-        logger.addHandler(file_handler)
+        logging.getLogger().addHandler(file_handler)
 
-        console_handler = logging.StreamHandler(self.true_original_stdout)
-        console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        console_handler.setFormatter(console_formatter)
-        logger.addHandler(console_handler)
+        # Redirect stdout to also write to the session log
+        original_stdout = sys.stdout
+        sys.stdout = Tee(self.true_original_stdout, session_log_file_handle)
 
-        logging.info(f"Created output directory: {output_directory}")
-        logging.info(f"Session log will be saved to: {session_log_path}")
-        logging.info(f"CLI output will be saved to: {cli_output_path}")
+        # Announce the file paths (THIS FUNCTIONALITY IS RETAINED)
+        logging.info(f"Session log for this run will be saved to: {session_log_path}")
+        logging.info(f"CLI output for this run will be saved to: {cli_output_path}")
 
         # Execute CLI health checks
         client = paramiko.SSHClient()
@@ -2758,7 +2864,7 @@ class InteractivePreCheckManager:
             lc_locations_for_asic_check = [loc for loc in all_cpu_locations_from_platform if "RP" not in loc]
             if lc_locations_for_asic_check:
                 _run_section_check(section_name, check_lc_asic_errors, section_statuses, overall_script_failed, shell,
-                                   lc_locations_for_asic_check, cli_output_file)
+                                   lc_locations_for_asic_check, cli_output_file, self)
             else:
                 logging.warning(
                     f"Skipping {section_name} as no non-RP LC locations were identified from 'show platform'.")
@@ -2782,7 +2888,7 @@ class InteractivePreCheckManager:
             print(f"{'INITIATING COMPARISON WITH PERMANENT BASELINE':^80}")
             print("=" * 80 + "\n")
 
-            permanent_baseline_file_path = find_earliest_file_as_permanent_baseline(self.hostname, output_directory)
+            permanent_baseline_file_path = find_earliest_file_as_permanent_baseline(self.hostname, self.output_directory)
             all_comparison_diffs_found = False
 
             if permanent_baseline_file_path:
@@ -2909,53 +3015,28 @@ class InteractivePreCheckManager:
         global PYTHON_PHASE2_ERRORS_DETECTED
         PYTHON_PHASE2_ERRORS_DETECTED = False
 
-        # Clear existing handlers
-        for handler in logging.root.handlers[:]:
-            logging.root.removeHandler(handler)
-
-        try:
-            self.hostname = get_hostname_from_router(self.router_ip, self.username, self.password)
-        except HostnameRetrievalError as e:
-            logging.error(f"Could not retrieve hostname: {e}. Using IP address for log filename.")
-            self.hostname = self.router_ip.replace('.', '-')
-
-        hostname_dir = os.path.join(os.getcwd(), self.hostname)
-        os.makedirs(hostname_dir, exist_ok=True)
-
+        # Define file paths using the already-created output directory
         timestamp_for_logs = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        session_log_path = os.path.join(hostname_dir,
+        session_log_path = os.path.join(self.output_directory,
                                         f"{self.hostname}_python_pre_check_session_log_{timestamp_for_logs}.txt")
-        raw_output_log_path = os.path.join(hostname_dir,
+        raw_output_log_path = os.path.join(self.output_directory,
                                            f"{self.hostname}_python_pre_check_output_{timestamp_for_logs}.txt")
 
-        # Setup file logging exactly like Part II
-        try:
-            session_log_file_handler = logging.FileHandler(session_log_path)
-            session_log_file_handler.setFormatter(
-                logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
-            logging.root.addHandler(session_log_file_handler)
-            logging.info(f"Internal script logs will be saved to: {session_log_path}")
-        except IOError as e:
-            logging.error(
-                f"Could not open internal session log file {session_log_path}: {e}. Internal logs will only go to console.")
-            session_log_file_handler = None
-
-        try:
-            raw_output_file = open(raw_output_log_path, 'w', encoding='utf-8')
-            sys.stdout = Tee(self.true_original_stdout, raw_output_file)
-            logging.info(f"All console output (including router raw output) will be logged to: {raw_output_log_path}")
-        except IOError as e:
-            logging.error(
-                f"Could not open raw output log file {raw_output_log_path}: {e}. Raw output will only go to console.")
-            raw_output_file = None
-            sys.stdout = self.true_original_stdout
-
-        # Setup console handler exactly like Part II
-        console_handler = logging.StreamHandler(self.true_original_stdout)
-        console_handler.setFormatter(
+        # Create file handlers for this specific operation's log
+        session_log_file_handler = logging.FileHandler(session_log_path)
+        session_log_file_handler.setFormatter(
             logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
-        logging.root.addHandler(console_handler)
-        logging.root.setLevel(logging.INFO)
+        logging.getLogger().addHandler(session_log_file_handler)
+
+        raw_output_file = open(raw_output_log_path, 'w', encoding='utf-8')
+
+        # Redirect stdout to also write to the raw output file
+        original_stdout = sys.stdout
+        sys.stdout = Tee(self.true_original_stdout, raw_output_file)
+
+        # Announce the file paths (THIS FUNCTIONALITY IS RETAINED)
+        logging.info(f"Internal script logs will be saved to: {session_log_path}")
+        logging.info(f"All console output (including router raw output) will be logged to: {raw_output_log_path}")
 
         scripts_to_run = [
             "monitor_8800_system_v2_3_msft_bash_group0.py",

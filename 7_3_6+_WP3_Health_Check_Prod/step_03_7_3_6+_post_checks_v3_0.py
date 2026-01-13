@@ -901,8 +901,8 @@ class InteractiveFrameworkManager:
                 "This will run the full 8-step workflow (~3 hours) and abort on critical errors. Proceed?"):
             return
 
-        # --- FIX: RESET ALL STATE-TRACKING VARIABLES AT THE START OF EACH RUN ---
-        global PHASE2_ERRORS_DETECTED, PHASE3_ERRORS_DETECTED
+        # Reset all state-tracking variables at the start of each run
+        global PHASE2_ERRORS_DETECTED, PHASE3_ERRORS_DETECTED, step_names
         PHASE2_ERRORS_DETECTED = False
         PHASE3_ERRORS_DETECTED = False
 
@@ -910,39 +910,57 @@ class InteractiveFrameworkManager:
         results_summary: Dict[str, str] = {}
         script_aborted = False
         workflow_name = f"Full_Workflow_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        # --- END OF FIX ---
 
         try:
+            # Define descriptive names for each step
+            step_names = {
+                "Step 1": "Phase 1 (Dummy Yes)",
+                "Step 2": "First Dataplane Monitor",
+                "Step 3": f"{COUNTDOWN_DURATION_MINUTES}-minute Countdown",
+                "Step 4": "Phase 2 (Dummy No)",
+                "Step 5": "Second Dataplane Monitor",
+                "Step 6": "Concurrent Countdown & Show Tech",
+                "Step 7": "Final Dummy No",
+                "Step 8": "ASIC Errors Show Command"
+            }
+
+            # --- The entire 'try' block remains the same, executing steps 1-8 ---
+            # Step 1
             self.workflow_manager.dashboard.update_progress(workflow_name, 1, "Starting Phase 1 - Dummy Yes")
             print(f"\n{'#' * 70}\n### Step 1: Phase 1 - Dummy Yes ###\n{'#' * 70}\n")
             execute_script_phase(self.router_ip, self.username, self.password, self.scripts_to_run, "'--dummy' yes",
                                  SSH_TIMEOUT_SECONDS, "Phase 1")
-            results_summary["Step 1"] = "Phase 1 (Dummy Yes): Success"
+            results_summary["Step 1"] = f"{step_names['Step 1']}: Success"
 
+            # Step 2
             self.workflow_manager.dashboard.update_progress(workflow_name, 2, "Starting First Dataplane Monitor")
             print(f"\n{'#' * 70}\n### Step 2: First Dataplane Monitor ###\n{'#' * 70}\n")
             run_dataplane_monitor_phase(self.router_ip, self.username, self.password, "FIRST", SSH_TIMEOUT_SECONDS,
                                         DATAPLANE_MONITOR_TIMEOUT_SECONDS)
-            results_summary["Step 2"] = "First Dataplane Monitor: Success"
+            results_summary["Step 2"] = f"{step_names['Step 2']}: Success"
 
+            # Step 3
             self.workflow_manager.dashboard.update_progress(workflow_name, 3,
                                                             f"Starting {COUNTDOWN_DURATION_MINUTES}-min Countdown")
             print(f"\n{'#' * 70}\n### Step 3: {COUNTDOWN_DURATION_MINUTES}-minute Countdown ###\n{'#' * 70}\n")
             colorful_countdown_timer(COUNTDOWN_DURATION_MINUTES * 60)
-            results_summary["Step 3"] = f"{COUNTDOWN_DURATION_MINUTES}-minute Countdown: Success"
+            results_summary["Step 3"] = f"{step_names['Step 3']}: Success"
 
+            # Step 4
             self.workflow_manager.dashboard.update_progress(workflow_name, 4, "Starting Phase 2 - Dummy No")
             print(f"\n{'#' * 70}\n### Step 4: Phase 2 - Dummy No ###\n{'#' * 70}\n")
             execute_script_phase(self.router_ip, self.username, self.password, self.scripts_to_run, "'--dummy' no",
                                  SSH_TIMEOUT_SECONDS, "Phase 2")
-            results_summary["Step 4"] = "Phase 2 (Dummy No): Success"
+            results_summary["Step 4"] = f"{step_names['Step 4']}: Success"
 
+            # Step 5
             self.workflow_manager.dashboard.update_progress(workflow_name, 5, "Starting Second Dataplane Monitor")
             print(f"\n{'#' * 70}\n### Step 5: Second Dataplane Monitor ###\n{'#' * 70}\n")
             run_dataplane_monitor_phase(self.router_ip, self.username, self.password, "SECOND", SSH_TIMEOUT_SECONDS,
                                         DATAPLANE_MONITOR_TIMEOUT_SECONDS)
-            results_summary["Step 5"] = "Second Dataplane Monitor: Success"
+            results_summary["Step 5"] = f"{step_names['Step 5']}: Success"
 
+            # Step 6
             self.workflow_manager.dashboard.update_progress(workflow_name, 6,
                                                             "Starting Concurrent Countdown & Show Tech")
             print(f"\n{'#' * 70}\n### Step 6: Concurrent Countdown & Show Tech ###\n{'#' * 70}\n")
@@ -950,27 +968,34 @@ class InteractiveFrameworkManager:
                                                           SSH_TIMEOUT_SECONDS, COUNTDOWN_DURATION_MINUTES,
                                                           SHOW_TECH_MONITOR_TIMEOUT_SECONDS):
                 raise ShowTechError("Concurrent show tech collection failed.")
-            results_summary["Step 6"] = "Concurrent Countdown & Show Tech: Success"
+            results_summary["Step 6"] = f"{step_names['Step 6']}: Success"
 
+            # Step 7
             self.workflow_manager.dashboard.update_progress(workflow_name, 7, "Starting Phase 3 - Final Dummy No")
             print(f"\n{'#' * 70}\n### Step 7: Phase 3 - Final Dummy No ###\n{'#' * 70}\n")
             execute_script_phase(self.router_ip, self.username, self.password, self.scripts_to_run, "'--dummy' no",
                                  SSH_TIMEOUT_SECONDS, "Phase 3")
-            results_summary["Step 7"] = "Final Dummy No: Success"
+            results_summary["Step 7"] = f"{step_names['Step 7']}: Success"
 
+            # Step 8
             self.workflow_manager.dashboard.update_progress(workflow_name, 8, "Starting ASIC Errors Show Command")
             print(f"\n{'#' * 70}\n### Step 8: ASIC Errors Show Command ###\n{'#' * 70}\n")
             run_asic_errors_show_command(self.router_ip, self.username, self.password, SSH_TIMEOUT_SECONDS)
-            results_summary["Step 8"] = "ASIC Errors Show Command: Success"
+            results_summary["Step 8"] = f"{step_names['Step 8']}: Success"
 
         except (ScriptExecutionError, DataplaneError, ShowTechError, AsicErrorShowError, RouterCommandError,
                 SSHConnectionError) as e:
             logging.critical(f"CRITICAL FAILURE: Workflow aborted due to: {e}")
             script_aborted = True
-            # FIX: Standardize the failed step name
+
+            # --- THIS IS THE CORRECTED LOGIC ---
+            # Find the key of the step that failed (e.g., "Step 7")
             failed_step_key = f"Step {len(results_summary) + 1}"
-            failed_step_name = results_summary.get(failed_step_key, "Unknown Step").split(':')[0]
+            # Look up the descriptive name for that step (e.g., "Final Dummy No")
+            failed_step_name = step_names.get(failed_step_key, "Unknown Step")
+            # Record the failure using the descriptive name
             results_summary[failed_step_key] = f"{failed_step_name}: Failed - {e}"
+            # --- END OF FIX ---
 
         finally:
             total_time = time.time() - workflow_start_time
@@ -981,6 +1006,7 @@ class InteractiveFrameworkManager:
             else:
                 logging.info("--- Workflow Execution Finished Successfully ---")
             self._display_results(workflow_name, results_summary, total_time, script_aborted)
+
 
     def run_dataplane_monitor_interactive(self):
         print(f"\n{'#' * 70}\n### Standalone Dataplane Monitor ###\n{'#' * 70}\n")

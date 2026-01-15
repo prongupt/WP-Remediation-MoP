@@ -513,6 +513,8 @@ def main():
     total_time = time.time() - start_time
     successful_scans = sum(1 for r in results if r.success)
     failed_scans = len(results) - successful_scans
+    # Count how many successful scans actually found hardware issues
+    devices_with_issues = sum(1 for r in results if r.success and len(r.fan_issues) > 0)
 
     # Collect all fan issues that need replacement
     replacement_needed = []

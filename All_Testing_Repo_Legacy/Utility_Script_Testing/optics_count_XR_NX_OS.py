@@ -14,7 +14,7 @@
 #     - **OS Detection:** Dynamically determines if a device is IOS-XR or NX-OS based on command output,
 #       handling command echoes and prompt variations robustly.
 #     - **Chassis Detection:** Parses 'show version' output to identify and report the specific chassis model
-#       (e.g., Cisco 8818, Nexus 9508) for both platforms.
+#       (e.g., Cisco 8818, C9508) for both platforms.
 #     - **Version Capture:** Reports the running software version for all devices.
 #
 # 3.  **Robust Connectivity (Interactive Shell):**
@@ -45,7 +45,7 @@
 __author__ = "Pronoy Dasgupta"
 __copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
 __credits__ = "Pronoy Dasgupta"
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 __maintainer__ = "Pronoy Dasgupta"
 __email__ = "prongupt@cisco.com"
 __status__ = "production"
@@ -407,9 +407,9 @@ def process_device_optics(device_config):
                             if i + j < len(lines):
                                 hw_line = lines[i + j].strip()
                                 if "cisco" in hw_line.lower() and "Nexus" in hw_line:
-                                    # Updated Regex to be more flexible with what follows the model number
-                                    # Captures: cisco Nexus9000 C93180YC-EX
-                                    match = re.search(r"(cisco\s+Nexus\d+\s+[A-Z0-9-]+)", hw_line, re.IGNORECASE)
+                                    # Updated Regex: Capture ONLY the model part after "Nexus\d+"
+                                    # Example: "cisco Nexus9000 C93180YC-EX chassis" -> "C93180YC-EX"
+                                    match = re.search(r"cisco\s+Nexus\d+\s+([A-Z0-9-]+)", hw_line, re.IGNORECASE)
                                     if match:
                                         device_results["chassis_type"] = match.group(1)
                                     else:

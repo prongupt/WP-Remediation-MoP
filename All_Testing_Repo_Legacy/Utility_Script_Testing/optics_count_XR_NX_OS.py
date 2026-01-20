@@ -10,21 +10,20 @@
 #
 # 2.  **Scale & Performance:**
 #     - **High Concurrency:** Defaults to 50 concurrent threads to process large lists quickly.
-#     - **Retry Logic:** Includes a robust retry mechanism (3 attempts) for SSH connections to handle
-#       network jitter or AAA server throttling.
-#     - **CSV Export:** Automatically exports a consolidated CSV report for easy analysis of large datasets.
+#     - **Retry Logic:** Includes a robust retry mechanism (3 attempts) for SSH connections.
+#     - **CSV Export:** Automatically exports a consolidated CSV report of SUCCESSFUL devices only.
 #
 # 3.  **Intelligent Device Interrogation:**
-#     - **OS & Chassis Detection:** Dynamically determines OS (IOS-XR/NX-OS) and Chassis model
-#       (e.g., Cisco 8818, Nexus 9508) via 'show version'.
+#     - **OS & Chassis Detection:** Dynamically determines OS and Chassis model via 'show version'.
 #     - **Interactive Shell:** Uses `invoke_shell()` to bypass common non-interactive authorization issues.
 #
 # 4.  **Reporting:**
-#     - **Console:** Prints progress updates and error summaries.
-#     - **Files:** Saves raw 'show inventory' output per device and a master CSV report.
+#     - **Console:** Prints progress, OS-specific summaries, AND a dedicated failure report for unreachable devices.
+#     - **Files:** Saves a master CSV report (Raw text files are no longer generated to reduce clutter).
 #
 # Usage:
-# Run the script, enter SSH credentials, paste the device list, and wait for the CSV report.
+# Run the script, enter your SSH username and password when prompted, then paste your list of
+# device hostnames or IP addresses (one per line), pressing Enter twice when finished.
 #
 # Requirements:
 # - Python 3.x
@@ -35,7 +34,7 @@
 __author__ = "Pronoy Dasgupta"
 __copyright__ = "Copyright 2024 (C) Cisco Systems, Inc."
 __credits__ = "Pronoy Dasgupta"
-__version__ = "3.0.0-SCALE"
+__version__ = "2.4.0"
 __maintainer__ = "Pronoy Dasgupta"
 __email__ = "prongupt@cisco.com"
 __status__ = "production"
@@ -52,7 +51,7 @@ import csv
 import sys
 
 # --- Configuration Constants ---
-MAX_WORKERS = 50  # Number of concurrent threads. Adjust based on CPU/Network limits.
+MAX_WORKERS = 50  # Number of concurrent threads
 MAX_RETRIES = 3  # Number of SSH connection attempts per device
 RETRY_DELAY = 5  # Seconds to wait between retries
 SSH_TIMEOUT = 20  # Seconds to wait for SSH connection
@@ -279,7 +278,6 @@ def process_device_optics(device_config):
         "hostname": hostname,
         "status": "Success",
         "error_message": None,
-        "raw_show_inventory_file": None,
         "line_cards": [],
         "os_type": "Unknown",
         "os_version": "Unknown",
@@ -296,8 +294,9 @@ def process_device_optics(device_config):
         # --- OS Detection ---
         xr_check_output = send_command_interactive(shell, 'show version | i "Cisco IOS XR Software"')
 
+        # FIX: Check for "Version" as well to avoid matching the command echo on NX-OS
         if "Cisco IOS XR Software" in xr_check_output and "Version" in xr_check_output:
-            # --- IOS-XR Logic ---
+            # Step B: It is IOS-XR
             device_results["os_type"] = "IOS-XR"
 
             # Get Version & Chassis
@@ -334,19 +333,6 @@ def process_device_optics(device_config):
                     if line.strip().startswith("Cisco") and "Chassis" in line:
                         device_results["chassis_type"] = line.strip()
                         break
-
-            # Capture Raw Inventory
-            timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-            safe_hostname = re.sub(r'[^\w.-]', '_', hostname)
-            filename = f"raw_inventory_{safe_hostname}_{timestamp}.txt"
-            raw_inv_output = send_command_interactive(shell, "show inventory", wait_time=3)
-
-            try:
-                with open(filename, 'w') as f:
-                    f.write(raw_inv_output)
-                device_results["raw_show_inventory_file"] = filename
-            except IOError:
-                pass
 
             # Get Platform & Optics
             platform_output = send_command_interactive(shell, "show platform", wait_time=2)
@@ -409,21 +395,9 @@ def process_device_optics(device_config):
                                         device_results["chassis_type"] = hw_line
                                     break
 
-                # Capture Raw Inventory
-                timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-                safe_hostname = re.sub(r'[^\w.-]', '_', hostname)
-                filename = f"raw_inventory_{safe_hostname}_{timestamp}.txt"
-
                 module_output = send_command_interactive(shell, "show module", wait_time=2)
                 slot_model_map = parse_nxos_show_module(module_output)
                 transceiver_output = send_command_interactive(shell, "show interface transceiver", wait_time=3)
-
-                try:
-                    with open(filename, 'w') as f:
-                        f.write(transceiver_output)
-                    device_results["raw_show_inventory_file"] = filename
-                except IOError:
-                    pass
 
                 slot_optics_data = parse_nxos_transceiver_output(transceiver_output)
 
@@ -462,6 +436,7 @@ def process_device_optics(device_config):
 def export_to_csv(results, filename):
     """
     Exports the consolidated results to a CSV file.
+    Only exports devices with Status = "Success".
     """
     with open(filename, mode='w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
@@ -473,6 +448,10 @@ def export_to_csv(results, filename):
         ])
 
         for res in results:
+            # Skip failed devices
+            if res["status"] != "Success":
+                continue
+
             base_row = [
                 res["hostname"], res["os_type"], res["os_version"], res["chassis_type"],
                 res["status"], res["error_message"]
@@ -561,6 +540,33 @@ def print_summary_for_os(results, os_type_filter):
     print(f"{'=' * 50}\n")
 
 
+def print_failures(results):
+    """
+    Prints a table of devices that failed connection or authentication.
+    """
+    failed_devices = [r for r in results if r.get("os_type") == "Unknown" or r.get("status") != "Success"]
+
+    if not failed_devices:
+        return
+
+    print(f"\n{'=' * 10} Connection / Audit Failures {'=' * 10}")
+    fail_table = PrettyTable()
+    fail_table.field_names = ["Device", "Status", "Error Details"]
+    fail_table.align = "l"
+    fail_table.max_width["Error Details"] = 60
+    fail_table.hrules = FRAME
+
+    for dev in failed_devices:
+        fail_table.add_row([
+            dev["hostname"],
+            f"{COLOR_BOLD_RED}{dev['status']}{COLOR_RESET}",
+            dev["error_message"]
+        ])
+
+    print(fail_table)
+    print(f"{'=' * 50}\n")
+
+
 def main():
     all_devices_config = get_device_info_list()
 
@@ -595,10 +601,9 @@ def main():
                     "hostname": device_config["host"],
                     "status": "Thread Error",
                     "error_message": f"Exception: {exc}",
-                    "raw_show_inventory_file": None,
                     "line_cards": [],
-                    "os_type": "Error",
-                    "os_version": "Error",
+                    "os_type": "Unknown",
+                    "os_version": "Unknown",
                     "chassis_type": "Unknown"
                 })
 
@@ -613,7 +618,10 @@ def main():
     print_summary_for_os(results, "IOS-XR")
     print_summary_for_os(results, "NX-OS")
 
-    # 2. Export to CSV
+    # 2. Print Failures
+    print_failures(results)
+
+    # 3. Export to CSV
     csv_filename = f"optics_audit_report_{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.csv"
     try:
         export_to_csv(results, csv_filename)

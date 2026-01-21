@@ -31,6 +31,7 @@
 #     - **User-Friendly Errors:** Clean, actionable error messages
 #     - **Summary Files:** Separate CSV files for summary and detailed data
 #     - **Excel-Safe Format:** Uses spaced hyphens to prevent date interpretation
+#     - **Robust Error Handling:** Handles None values in sorting and processing
 #
 # Usage:
 # Run the script, enter your SSH credentials, then provide the list of hostnames/IPs
@@ -43,7 +44,7 @@
 __author__ = "Pronoy Dasgupta"
 __copyright__ = "Copyright 2026 (C) Cisco Systems, Inc."
 __credits__ = "Pronoy Dasgupta"
-__version__ = "4.4.0"
+__version__ = "4.5.0"
 __maintainer__ = "Pronoy Dasgupta"
 __email__ = "prongupt@cisco.com"
 __status__ = "production"
@@ -161,7 +162,7 @@ def format_slot_ranges(slot_list):
             if start == end:
                 ranges.append(str(start))
             else:
-                ranges.append(f"{start} - {end}")  # Space before and after hyphen
+                ranges.append(f"{start}__{end}")  # Space before and after hyphen
             start = sorted_slots[i]
             end = sorted_slots[i]
 
@@ -169,7 +170,7 @@ def format_slot_ranges(slot_list):
     if start == end:
         ranges.append(str(start))
     else:
-        ranges.append(f"{start} - {end}")  # Space before and after hyphen
+        ranges.append(f"{start}__{end}")  # Space before and after hyphen
 
     return ", ".join(ranges)
 
@@ -178,6 +179,7 @@ def save_summary_to_file(results, filename_prefix):
     """
     Saves the slot availability summary to dedicated CSV files for easy analysis.
     Uses spaced hyphen format (3 - 7) to prevent Excel date interpretation.
+    Handles None values robustly.
     """
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     summary_filename = f"{filename_prefix}_summary_{timestamp}.csv"
@@ -191,9 +193,9 @@ def save_summary_to_file(results, filename_prefix):
         for result in results:
             if result["status"] == "Success":
                 successful_devices.append(result)
-                chassis_type = result["chassis_type"]
-                os_type = result["os_type"]
-                available_count = result["available_slot_count"]
+                chassis_type = result.get("chassis_type") or "Unknown"
+                os_type = result.get("os_type") or "Unknown"
+                available_count = result.get("available_slot_count") or 0
 
                 key = f"{chassis_type}_{os_type}"
                 if key not in chassis_os_totals:
@@ -232,18 +234,22 @@ def save_summary_to_file(results, filename_prefix):
             writer.writerow(
                 ['Device', 'OS_Type', 'Chassis_Type', 'Occupied_Slots', 'Available_Slots', 'Available_Count'])
 
-            for result in sorted(successful_devices, key=lambda x: (x["os_type"], x["chassis_type"], x["hostname"])):
-                occupied_str = format_slot_ranges(result["occupied_slots"])
-                available_str = format_slot_ranges(result["available_slots"])
+            for result in sorted(successful_devices, key=lambda x: (
+                    x.get("os_type") or "Unknown",
+                    x.get("chassis_type") or "Unknown",
+                    x["hostname"]
+            )):
+                occupied_str = format_slot_ranges(result.get("occupied_slots", []))
+                available_str = format_slot_ranges(result.get("available_slots", []))
 
                 # Clean format with spaced hyphens
                 writer.writerow([
                     result["hostname"],
-                    result["os_type"],
-                    result["chassis_type"],
+                    result.get("os_type") or "Unknown",
+                    result.get("chassis_type") or "Unknown",
                     occupied_str,  # Will display as: 1 - 2
                     available_str,  # Will display as: 0, 3
-                    result["available_slot_count"]
+                    result.get("available_slot_count", 0)
                 ])
 
         print(f"{COLOR_BOLD_GREEN}✓ Summary saved to: {summary_filename}{COLOR_RESET}")
@@ -693,6 +699,7 @@ def process_device_slots(device_config):
 def print_slot_availability_summary(results):
     """
     Prints summary table showing available slots count per chassis type and OS.
+    Handles None values robustly.
     """
     print(f"\n{'=' * 10} Chassis Slot Availability Summary {'=' * 10}")
 
@@ -701,9 +708,9 @@ def print_slot_availability_summary(results):
 
     for result in results:
         if result["status"] == "Success":
-            chassis_type = result["chassis_type"]
-            os_type = result["os_type"]
-            available_count = result["available_slot_count"]
+            chassis_type = result.get("chassis_type") or "Unknown"
+            os_type = result.get("os_type") or "Unknown"
+            available_count = result.get("available_slot_count", 0)
 
             key = f"{chassis_type}_{os_type}"
             if key not in chassis_os_totals:
@@ -735,6 +742,7 @@ def print_slot_availability_summary(results):
 def print_detailed_device_info(results):
     """
     Prints detailed per-device slot information with compact range formatting.
+    Handles None values robustly.
     """
     print(f"\n{'=' * 10} Detailed Device Slot Information {'=' * 10}")
 
@@ -752,17 +760,21 @@ def print_detailed_device_info(results):
     detail_table.max_width["Occupied Slots"] = 25
     detail_table.max_width["Available Slots"] = 25
 
-    for result in sorted(successful_results, key=lambda x: (x["os_type"], x["chassis_type"], x["hostname"])):
-        occupied_str = format_slot_ranges(result["occupied_slots"])
-        available_str = format_slot_ranges(result["available_slots"])
+    for result in sorted(successful_results, key=lambda x: (
+            x.get("os_type") or "Unknown",
+            x.get("chassis_type") or "Unknown",
+            x["hostname"]
+    )):
+        occupied_str = format_slot_ranges(result.get("occupied_slots", []))
+        available_str = format_slot_ranges(result.get("available_slots", []))
 
         detail_table.add_row([
             result["hostname"],
-            result["os_type"],
-            result["chassis_type"],
+            result.get("os_type") or "Unknown",
+            result.get("chassis_type") or "Unknown",
             occupied_str,
             available_str,
-            result["available_slot_count"]
+            result.get("available_slot_count", 0)
         ])
 
     print(detail_table)
@@ -801,7 +813,7 @@ def print_failures(results):
 
 
 def main():
-    print(f"{COLOR_BOLD_YELLOW}Multi-OS Chassis Slot Availability Audit Tool v4.4.0{COLOR_RESET}")
+    print(f"{COLOR_BOLD_YELLOW}Multi-OS Chassis Slot Availability Audit Tool v4.5.0{COLOR_RESET}")
     print(f"Optimized for large-scale deployment (7000+ devices)")
     print(f"Supported OS: IOS-XR and SONiC")
     print(f"Supported chassis: 8812 (12 slots), 8818 (18 slots), 8808 (8 slots), 8804 (4 slots)")
@@ -861,15 +873,19 @@ def main():
     os_counts = {}
     for result in results:
         if result["status"] == "Success":
-            os_type = result["os_type"]
+            os_type = result.get("os_type") or "Unknown"
             os_counts[os_type] = os_counts.get(os_type, 0) + 1
 
     print(f"{COLOR_BOLD_GREEN}Success Rate: {successful_devices}/{total_devices} ({success_rate:.1f}%){COLOR_RESET}")
     for os_type, count in sorted(os_counts.items()):
         print(f"{COLOR_BOLD_GREEN}{os_type}: {count} devices{COLOR_RESET}")
 
-    # Sort results by OS type, chassis type, then hostname
-    results.sort(key=lambda x: (x.get('os_type', 'ZZZ'), x.get('chassis_type', 'ZZZ'), x['hostname']))
+    # Sort results by OS type, chassis type, then hostname - FIXED to handle None values
+    results.sort(key=lambda x: (
+        x.get('os_type') or 'ZZZ',
+        x.get('chassis_type') or 'ZZZ',  # Handle None chassis_type
+        x['hostname']
+    ))
 
     # Print reports to console
     print_slot_availability_summary(results)

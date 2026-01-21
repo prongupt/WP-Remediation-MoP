@@ -12,6 +12,7 @@
 #     - **High Concurrency:** Optimized for 7000+ devices with configurable thread pool
 #     - **Retry Logic:** Includes robust retry mechanism for SSH connections
 #     - **Efficient Processing:** Streamlined for slot availability calculation only
+#     - **Robust OS Detection:** Multiple fallback methods for reliable identification
 #
 # 3.  **Chassis Slot Analysis:**
 #     - **8812:** 12 slots (0-11) - calculates available slots
@@ -27,11 +28,11 @@
 # 5.  **Reporting:**
 #     - **Slot Availability Summary:** Shows blank slots per chassis type and OS
 #     - **Connection Failures:** Detailed failure reporting for unreachable devices
-#     - **Compact Slot Display:** Contiguous slots shown with spaced hyphens (e.g., 1 - 2)
+#     - **Compact Slot Display:** Contiguous slots shown with double underscores (e.g., 1__2)
 #     - **User-Friendly Errors:** Clean, actionable error messages
 #     - **Summary Files:** Separate CSV files for summary and detailed data
-#     - **Excel-Safe Format:** Uses spaced hyphens to prevent date interpretation
-#     - **Robust Error Handling:** Handles None values in sorting and processing
+#     - **Excel-Safe Format:** Uses double underscores to prevent date interpretation
+#     - **Robust Error Handling:** Handles None values and concurrency issues
 #
 # Usage:
 # Run the script, enter your SSH credentials, then provide the list of hostnames/IPs
@@ -44,7 +45,7 @@
 __author__ = "Pronoy Dasgupta"
 __copyright__ = "Copyright 2026 (C) Cisco Systems, Inc."
 __credits__ = "Pronoy Dasgupta"
-__version__ = "4.5.0"
+__version__ = "4.6.0"
 __maintainer__ = "Pronoy Dasgupta"
 __email__ = "prongupt@cisco.com"
 __status__ = "production"
@@ -136,11 +137,11 @@ def sanitize_error_message(error_message):
 def format_slot_ranges(slot_list):
     """
     Converts a list of slot numbers to a compact string representation.
-    Contiguous slots are represented with spaced hyphens to prevent Excel date interpretation.
+    Contiguous slots are represented with double underscores to prevent Excel date interpretation.
 
     Examples:
-    [10, 11, 12, 13, 14, 15] -> "10 - 15"
-    [1, 2, 5, 6, 7, 10] -> "1 - 2, 5 - 7, 10"
+    [10, 11, 12, 13, 14, 15] -> "10__15"
+    [1, 2, 5, 6, 7, 10] -> "1__2, 5__7, 10"
     [1, 3, 5] -> "1, 3, 5"
     """
     if not slot_list:
@@ -162,7 +163,7 @@ def format_slot_ranges(slot_list):
             if start == end:
                 ranges.append(str(start))
             else:
-                ranges.append(f"{start}__{end}")  # Space before and after hyphen
+                ranges.append(f"{start}__{end}")  # Double underscore to prevent date interpretation
             start = sorted_slots[i]
             end = sorted_slots[i]
 
@@ -170,7 +171,7 @@ def format_slot_ranges(slot_list):
     if start == end:
         ranges.append(str(start))
     else:
-        ranges.append(f"{start}__{end}")  # Space before and after hyphen
+        ranges.append(f"{start}__{end}")  # Double underscore to prevent date interpretation
 
     return ", ".join(ranges)
 
@@ -178,7 +179,7 @@ def format_slot_ranges(slot_list):
 def save_summary_to_file(results, filename_prefix):
     """
     Saves the slot availability summary to dedicated CSV files for easy analysis.
-    Uses spaced hyphen format (3 - 7) to prevent Excel date interpretation.
+    Uses double underscore format (3__7) to prevent Excel date interpretation.
     Handles None values robustly.
     """
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -226,7 +227,7 @@ def save_summary_to_file(results, filename_prefix):
             writer.writerow([])  # Empty row
             writer.writerow(['TOTAL_AVAILABLE_SLOTS', '', total_available])
 
-        # Save detailed CSV with spaced hyphen format
+        # Save detailed CSV with double underscore format
         with open(detailed_filename, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
 
@@ -242,12 +243,12 @@ def save_summary_to_file(results, filename_prefix):
                 occupied_str = format_slot_ranges(result.get("occupied_slots", []))
                 available_str = format_slot_ranges(result.get("available_slots", []))
 
-                # Clean format with spaced hyphens
+                # Clean format with double underscores
                 writer.writerow([
                     result["hostname"],
                     result.get("os_type") or "Unknown",
                     result.get("chassis_type") or "Unknown",
-                    occupied_str,  # Will display as: 1 - 2
+                    occupied_str,  # Will display as: 1__2
                     available_str,  # Will display as: 0, 3
                     result.get("available_slot_count", 0)
                 ])
@@ -255,7 +256,7 @@ def save_summary_to_file(results, filename_prefix):
         print(f"{COLOR_BOLD_GREEN}✓ Summary saved to: {summary_filename}{COLOR_RESET}")
         print(f"{COLOR_BOLD_GREEN}✓ Detailed data saved to: {detailed_filename}{COLOR_RESET}")
         print(
-            f"{COLOR_BOLD_GREEN}✓ Using spaced hyphen format (3 - 7) to prevent Excel date interpretation{COLOR_RESET}")
+            f"{COLOR_BOLD_GREEN}✓ Using double underscore format (3__7) to prevent Excel date interpretation{COLOR_RESET}")
 
         # Also log to the debug log
         logger.info(f"Summary files created: {summary_filename}, {detailed_filename}")
@@ -313,14 +314,6 @@ def parse_sonic_platform_for_slots(output):
     """
     Parses SONiC 'show platform inventory' output to extract occupied slot numbers.
     Looks for Line Cards section and identifies which LC slots are present vs "not present"
-
-    Example parsing from:
-    Line Cards
-        LC0                 88-LC0-36FH-M   1.0      FOC2710N8TB     Cisco 8800 36x400GE QSFP56-DD Line Card with MacSec
-        LC1                 88-LC0-36FH     1.0      FJZ27210HBB     Cisco 8800 36x400GE QSFP56-DD Line Card
-        LC2                 88-LC0-36FH     1.0      FOC2725N9AY     Cisco 8800 36x400GE QSFP56-DD Line Card
-        LC3 -- not present
-        LC4 -- not present
     """
     occupied_slots = []
     lines = output.splitlines()
@@ -359,11 +352,10 @@ def determine_sonic_chassis_type(inventory_output):
     """
     Determines chassis type from SONiC 'show platform inventory' output.
     Looks for the Chassis section to identify the chassis model.
-
-    Example parsing from:
-    Chassis
-        CHASSIS             8808            1.0                  FOX2723PE96     Cisco 8808 8-slot Chassis
     """
+    if not inventory_output:
+        return None
+
     lines = inventory_output.splitlines()
 
     # Look for chassis information in the Chassis section
@@ -400,50 +392,57 @@ def determine_sonic_chassis_type(inventory_output):
     return None
 
 
-def detect_os_type(shell):
-    """
-    Detects whether the device is running IOS-XR or SONiC.
-    Returns tuple: (os_type, os_version, chassis_type)
-    """
-    # First try IOS-XR detection
-    xr_output = send_command_interactive(shell, 'show version | i "Cisco IOS XR Software"', wait_time=1, max_loops=8)
-
-    if "Cisco IOS XR Software" in xr_output and "Version" in xr_output:
-        # It's IOS-XR
-        full_version_output = send_command_interactive(shell, 'show version', wait_time=2)
-
-        # Parse IOS-XR version
+def process_iosxr_device(shell, hostname, version_output):
+    """Process IOS-XR device after detection with robust error handling"""
+    try:
+        # Parse version with better error handling
         os_version = "Unknown"
-        for line in full_version_output.splitlines():
-            if "Label" in line and ":" in line:
-                parts = line.split(":", 1)
-                if len(parts) > 1:
-                    os_version = parts[1].strip()
-                    break
 
-        if os_version == "Unknown":
-            # Fallback parse for IOS-XR
-            for line in xr_output.splitlines():
-                if "Version" in line:
-                    parts = line.split("Version", 1)
+        if version_output:
+            lines = version_output.splitlines()
+
+            for line in lines:
+                if "Label" in line and ":" in line:
+                    parts = line.split(":", 1)
                     if len(parts) > 1:
-                        os_version = parts[1].strip().split(" ")[0]
+                        os_version = parts[1].strip()
                         break
 
-        # Parse IOS-XR chassis
-        chassis_type = determine_chassis_type(full_version_output)
+            if os_version == "Unknown":
+                for line in lines:
+                    if "Version" in line and ("Cisco IOS XR Software" in line or "IOS XR" in line):
+                        version_match = re.search(r'Version\s+([^\s,\[\]]+)', line)
+                        if version_match:
+                            os_version = version_match.group(1)
+                            break
 
+        # Get chassis info - try show version first, then show platform if needed
+        chassis_type = determine_chassis_type(version_output)
+
+        if not chassis_type:
+            # Fallback: try show platform for chassis detection
+            try:
+                platform_output = send_command_interactive(shell, 'show platform', wait_time=2, max_loops=8)
+                if platform_output:
+                    chassis_type = determine_chassis_type(platform_output)
+            except Exception as e:
+                logger.debug(f"DEBUG {hostname}: Platform detection fallback failed: {e}")
+
+        logger.debug(f"DEBUG {hostname}: IOS-XR processed - version: {os_version}, chassis: {chassis_type}")
         return "IOS-XR", os_version, chassis_type
 
-    else:
-        # Try SONiC detection
-        sonic_output = send_command_interactive(shell, 'show version | egrep -i version', wait_time=1, max_loops=8)
+    except Exception as e:
+        logger.error(f"DEBUG {hostname}: Error processing IOS-XR device: {e}")
+        return "IOS-XR", "Unknown", None
 
-        if "SONiC Software Version" in sonic_output or "SONiC OS Version" in sonic_output:
-            # It's SONiC
-            os_version = "Unknown"
 
-            # Parse SONiC version
+def process_sonic_device(shell, hostname, sonic_output):
+    """Process SONiC device after detection with robust error handling"""
+    try:
+        os_version = "Unknown"
+
+        # Parse SONiC version
+        if sonic_output:
             for line in sonic_output.splitlines():
                 if "SONiC Software Version:" in line:
                     parts = line.split("SONiC Software Version:", 1)
@@ -451,17 +450,98 @@ def detect_os_type(shell):
                         os_version = parts[1].strip()
                         break
 
-            # For SONiC, get chassis info from platform inventory
-            inventory_output = send_command_interactive(shell, 'show platform inventory', wait_time=2, max_loops=10)
-            chassis_type = determine_sonic_chassis_type(inventory_output)
+        # Get chassis info from platform inventory
+        chassis_type = None
+        try:
+            inventory_output = send_command_interactive(shell, 'show platform inventory', wait_time=3, max_loops=10)
+            if inventory_output:
+                chassis_type = determine_sonic_chassis_type(inventory_output)
+        except Exception as e:
+            logger.debug(f"DEBUG {hostname}: SONiC inventory failed: {e}")
 
-            if not chassis_type:
-                # Fallback: try hostname pattern matching
+        if not chassis_type:
+            # Fallback: try hostname pattern matching
+            try:
                 hostname_output = send_command_interactive(shell, 'hostname', wait_time=1, max_loops=5)
-                chassis_type = determine_chassis_from_hostname(hostname_output)
+                if hostname_output:
+                    chassis_type = determine_chassis_from_hostname(hostname_output)
+            except Exception as e:
+                logger.debug(f"DEBUG {hostname}: Hostname fallback failed: {e}")
 
-            return "SONiC", os_version, chassis_type
+        logger.debug(f"DEBUG {hostname}: SONiC processed - version: {os_version}, chassis: {chassis_type}")
+        return "SONiC", os_version, chassis_type
 
+    except Exception as e:
+        logger.error(f"DEBUG {hostname}: Error processing SONiC device: {e}")
+        return "SONiC", "Unknown", None
+
+
+def detect_os_type(shell):
+    """
+    Robust OS detection with multiple fallback methods and better error handling.
+    Returns tuple: (os_type, os_version, chassis_type)
+    """
+    hostname = "unknown"
+
+    try:
+        # Get hostname for better debugging (with timeout protection)
+        hostname_output = send_command_interactive(shell, 'hostname', wait_time=0.5, max_loops=3)
+        if hostname_output and hostname_output.strip():
+            hostname = hostname_output.strip().split('\n')[-1].replace('$', '').replace('#', '').strip()
+    except Exception as e:
+        logger.debug(f"Hostname detection failed: {e}")
+
+    # Method 1: Try IOS-XR detection with longer timeout
+    try:
+        logger.debug(f"DEBUG {hostname}: Starting OS detection method 1")
+        xr_output = send_command_interactive(shell, 'show version | i "Cisco IOS XR Software"', wait_time=2,
+                                             max_loops=10)
+
+        if xr_output and "Cisco IOS XR Software" in xr_output and "Version" in xr_output:
+            logger.debug(f"DEBUG {hostname}: IOS-XR detected via method 1")
+            return process_iosxr_device(shell, hostname, xr_output)
+    except Exception as e:
+        logger.debug(f"DEBUG {hostname}: Method 1 failed: {e}")
+
+    # Method 2: Try full show version (fallback for busy systems)
+    try:
+        logger.debug(f"DEBUG {hostname}: Trying method 2 - full show version")
+        full_version = send_command_interactive(shell, 'show version', wait_time=3, max_loops=12)
+
+        if full_version and "Cisco IOS XR Software" in full_version:
+            logger.debug(f"DEBUG {hostname}: IOS-XR detected via method 2")
+            return process_iosxr_device(shell, hostname, full_version)
+    except Exception as e:
+        logger.debug(f"DEBUG {hostname}: Method 2 failed: {e}")
+
+    # Method 3: Try SONiC detection
+    try:
+        logger.debug(f"DEBUG {hostname}: Trying SONiC detection")
+        sonic_output = send_command_interactive(shell, 'show version | egrep -i version', wait_time=2, max_loops=8)
+
+        if sonic_output and ("SONiC Software Version" in sonic_output or "SONiC OS Version" in sonic_output):
+            logger.debug(f"DEBUG {hostname}: SONiC detected")
+            return process_sonic_device(shell, hostname, sonic_output)
+    except Exception as e:
+        logger.debug(f"DEBUG {hostname}: SONiC detection failed: {e}")
+
+    # Method 4: Last resort - try to detect IOS-XR via show platform
+    try:
+        logger.debug(f"DEBUG {hostname}: Trying method 4 - show platform detection")
+        platform_output = send_command_interactive(shell, 'show platform', wait_time=2, max_loops=8)
+
+        if platform_output and ("IOS XR RUN" in platform_output or "8800-RP" in platform_output):
+            logger.debug(f"DEBUG {hostname}: IOS-XR detected via method 4 (show platform)")
+            # Try to get version info again
+            try:
+                full_version = send_command_interactive(shell, 'show version', wait_time=3, max_loops=10)
+                return process_iosxr_device(shell, hostname, full_version)
+            except:
+                return process_iosxr_device(shell, hostname, platform_output)
+    except Exception as e:
+        logger.debug(f"DEBUG {hostname}: Method 4 failed: {e}")
+
+    logger.warning(f"DEBUG {hostname}: All OS detection methods failed")
     return "Unknown", "Unknown", None
 
 
@@ -470,6 +550,9 @@ def determine_chassis_from_hostname(hostname_output):
     Attempts to determine chassis type from hostname pattern.
     This is a fallback method for SONiC devices.
     """
+    if not hostname_output:
+        return None
+
     hostname = hostname_output.strip()
 
     # Look for chassis indicators in hostname
@@ -492,6 +575,9 @@ def parse_show_platform_for_slots(output):
     Parses IOS-XR 'show platform' output to extract occupied slot numbers.
     Returns a list of occupied slot numbers (integers).
     """
+    if not output:
+        return []
+
     occupied_slots = []
     lines = output.splitlines()
 
@@ -514,6 +600,9 @@ def determine_chassis_type(show_version_output):
     Determines chassis type from IOS-XR show version output.
     Returns chassis type (8812, 8818, 8808, 8804) or None if not found.
     """
+    if not show_version_output:
+        return None
+
     # Look for chassis information in show version
     patterns = [
         r'8812',
@@ -545,19 +634,23 @@ def calculate_available_slots(chassis_type, occupied_slots):
 def send_command_interactive(shell, command, wait_time=2, max_loops=15):
     """
     Sends a command to an interactive shell and waits for the output.
-    Optimized for faster response.
+    Optimized for faster response with better error handling.
     """
-    shell.send(command + '\n')
-    output = ""
-    for _ in range(max_loops):
-        if shell.recv_ready():
-            chunk = shell.recv(65535).decode('utf-8', errors='ignore')
-            output += chunk
-            # Check for both IOS-XR (#) and SONiC ($) prompts
-            if output.strip().endswith('#') or output.strip().endswith('$'):
-                break
-        time.sleep(wait_time)
-    return output
+    try:
+        shell.send(command + '\n')
+        output = ""
+        for _ in range(max_loops):
+            if shell.recv_ready():
+                chunk = shell.recv(65535).decode('utf-8', errors='ignore')
+                output += chunk
+                # Check for both IOS-XR (#) and SONiC ($) prompts
+                if output.strip().endswith('#') or output.strip().endswith('$'):
+                    break
+            time.sleep(wait_time)
+        return output
+    except Exception as e:
+        logger.debug(f"Command execution failed: {command} - {e}")
+        return ""
 
 
 def connect_with_retry(hostname, username, password):
@@ -611,7 +704,7 @@ def connect_with_retry(hostname, username, password):
 def process_device_slots(device_config):
     """
     Connects to a single device and calculates slot availability.
-    Supports both IOS-XR and SONiC devices.
+    Supports both IOS-XR and SONiC devices with robust error handling.
     """
     hostname = device_config["host"]
     username = device_config["username"]
@@ -636,7 +729,7 @@ def process_device_slots(device_config):
         # Connect with retry mechanism
         client, shell = connect_with_retry(hostname, username, password)
 
-        # Detect OS type, version, and chassis
+        # Detect OS type, version, and chassis with robust detection
         os_type, os_version, chassis_type = detect_os_type(shell)
 
         device_results["os_type"] = os_type
@@ -657,7 +750,7 @@ def process_device_slots(device_config):
         if os_type == "IOS-XR":
             platform_output = send_command_interactive(shell, "show platform", wait_time=1, max_loops=10)
 
-            if "authorization failed" in platform_output.lower():
+            if platform_output and "authorization failed" in platform_output.lower():
                 device_results["status"] = "Authorization Failed"
                 device_results["error_message"] = "User does not have permission to run 'show platform'"
                 return device_results
@@ -668,7 +761,8 @@ def process_device_slots(device_config):
             # Use SONiC platform inventory command
             platform_output = send_command_interactive(shell, "show platform inventory", wait_time=2, max_loops=10)
 
-            if "command not found" in platform_output.lower() or "invalid command" in platform_output.lower():
+            if platform_output and (
+                    "command not found" in platform_output.lower() or "invalid command" in platform_output.lower()):
                 device_results["status"] = "Command Not Found"
                 device_results["error_message"] = "SONiC 'show platform inventory' command not available"
                 return device_results
@@ -813,7 +907,7 @@ def print_failures(results):
 
 
 def main():
-    print(f"{COLOR_BOLD_YELLOW}Multi-OS Chassis Slot Availability Audit Tool v4.5.0{COLOR_RESET}")
+    print(f"{COLOR_BOLD_YELLOW}Multi-OS Chassis Slot Availability Audit Tool v4.6.0{COLOR_RESET}")
     print(f"Optimized for large-scale deployment (7000+ devices)")
     print(f"Supported OS: IOS-XR and SONiC")
     print(f"Supported chassis: 8812 (12 slots), 8818 (18 slots), 8808 (8 slots), 8804 (4 slots)")

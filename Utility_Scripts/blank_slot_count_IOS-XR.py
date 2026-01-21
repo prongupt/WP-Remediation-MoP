@@ -27,9 +27,10 @@
 # 5.  **Reporting:**
 #     - **Slot Availability Summary:** Shows blank slots per chassis type and OS
 #     - **Connection Failures:** Detailed failure reporting for unreachable devices
-#     - **Compact Slot Display:** Contiguous slots shown with hyphens (e.g., 10-15)
+#     - **Compact Slot Display:** Contiguous slots shown with hyphens (e.g., 1-2)
 #     - **User-Friendly Errors:** Clean, actionable error messages
 #     - **Summary Files:** Separate CSV files for summary and detailed data
+#     - **Excel-Safe CSV:** Prevents date interpretation using proper CSV quoting
 #
 # Usage:
 # Run the script, enter your SSH credentials, then provide the list of hostnames/IPs
@@ -42,7 +43,7 @@
 __author__ = "Pronoy Dasgupta"
 __copyright__ = "Copyright 2026 (C) Cisco Systems, Inc."
 __credits__ = "Pronoy Dasgupta"
-__version__ = "4.1.0"
+__version__ = "4.3.0"
 __maintainer__ = "Pronoy Dasgupta"
 __email__ = "prongupt@cisco.com"
 __status__ = "production"
@@ -140,6 +141,8 @@ def format_slot_ranges(slot_list):
     [10, 11, 12, 13, 14, 15] -> "10-15"
     [1, 2, 5, 6, 7, 10] -> "1-2, 5-7, 10"
     [1, 3, 5] -> "1, 3, 5"
+
+    Note: CSV output uses QUOTE_ALL to prevent Excel date interpretation
     """
     if not slot_list:
         return "None"
@@ -176,7 +179,7 @@ def format_slot_ranges(slot_list):
 def save_summary_to_file(results, filename_prefix):
     """
     Saves the slot availability summary to dedicated CSV files for easy analysis.
-    This is separate from debug logs for better performance and analysis.
+    Uses csv.QUOTE_ALL to prevent Excel date interpretation while maintaining clean display.
     """
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     summary_filename = f"{filename_prefix}_summary_{timestamp}.csv"
@@ -199,9 +202,9 @@ def save_summary_to_file(results, filename_prefix):
                     chassis_os_totals[key] = 0
                 chassis_os_totals[key] += available_count
 
-        # Save summary CSV
+        # Save summary CSV with proper quoting
         with open(summary_filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
+            writer = csv.writer(f, quoting=csv.QUOTE_ALL)
 
             # Header with metadata
             writer.writerow(['# Chassis Slot Availability Summary'])
@@ -223,9 +226,9 @@ def save_summary_to_file(results, filename_prefix):
             writer.writerow([])  # Empty row
             writer.writerow(['TOTAL_AVAILABLE_SLOTS', '', total_available])
 
-        # Save detailed CSV
+        # Save detailed CSV with QUOTE_ALL to prevent date interpretation
         with open(detailed_filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
+            writer = csv.writer(f, quoting=csv.QUOTE_ALL)  # This prevents ALL date interpretation
 
             # Header with OS Type column
             writer.writerow(
@@ -235,17 +238,19 @@ def save_summary_to_file(results, filename_prefix):
                 occupied_str = format_slot_ranges(result["occupied_slots"])
                 available_str = format_slot_ranges(result["available_slots"])
 
+                # Clean format - QUOTE_ALL handles the Excel protection automatically
                 writer.writerow([
                     result["hostname"],
                     result["os_type"],
                     result["chassis_type"],
-                    occupied_str,
-                    available_str,
+                    occupied_str,  # Will display as: 1-2 (but treated as text)
+                    available_str,  # Will display as: 0, 3 (but treated as text)
                     result["available_slot_count"]
                 ])
 
         print(f"{COLOR_BOLD_GREEN}✓ Summary saved to: {summary_filename}{COLOR_RESET}")
         print(f"{COLOR_BOLD_GREEN}✓ Detailed data saved to: {detailed_filename}{COLOR_RESET}")
+        print(f"{COLOR_BOLD_GREEN}✓ CSV files use QUOTE_ALL to prevent Excel date interpretation{COLOR_RESET}")
 
         # Also log to the debug log
         logger.info(f"Summary files created: {summary_filename}, {detailed_filename}")
@@ -797,7 +802,7 @@ def print_failures(results):
 
 
 def main():
-    print(f"{COLOR_BOLD_YELLOW}Multi-OS Chassis Slot Availability Audit Tool v4.1.0{COLOR_RESET}")
+    print(f"{COLOR_BOLD_YELLOW}Multi-OS Chassis Slot Availability Audit Tool v4.3.0{COLOR_RESET}")
     print(f"Optimized for large-scale deployment (7000+ devices)")
     print(f"Supported OS: IOS-XR and SONiC")
     print(f"Supported chassis: 8812 (12 slots), 8818 (18 slots), 8808 (8 slots), 8804 (4 slots)")

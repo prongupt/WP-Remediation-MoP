@@ -1028,6 +1028,8 @@ proc display_help {} {
     puts "      Archive logs from one or more hostnames (a single hostname or a file with hostnames) and upload them to the Cisco File Server."
     puts "  --scan <hostname_file> <playbook_name> <sr_number> <cxd_token>"
     puts "      Execute scan mode on a list of hostnames (one hostname per line) concurrently (up to 10 at a time) using the specified playbook."
+    puts "  --background"
+    puts "      Optional. Run the collector in a detached SCREEN session. Useful for long-running scans. The screen terminates automatically when done."
     puts "  --help, -h"
     puts "      Display this help message.\n"
     exit 1
@@ -1134,6 +1136,54 @@ if {[lindex $argv 0] == "--lcfc-prefix"} {
 
 # Disable Output to the Screen
 log_user 0 
+
+# ==============================================================================
+# NEW FEATURE: Background Screen Execution
+# ==============================================================================
+set bg_index [lsearch $argv "--background"]
+if {$bg_index != -1} {
+    # 1. Remove the --background flag so the inner script doesn't loop infinitely
+    set argv [lreplace $argv $bg_index $bg_index]
+
+    # 2. Generate a unique session name
+    set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+    set session_name "MSFT_COLL_${timestamp}"
+
+    # 3. Get the interpreter and script paths to ensure we run the exact same tool
+    set interpreter [info nameofexecutable]
+    set script_path [info script]
+
+    # 4. Construct the argument string
+    set args_str [join $argv " "]
+
+    puts "\n\033\[1;32m=================================================================\033\[0m"
+    puts "\033\[1;32m LAUNCHING JOB IN BACKGROUND (SCREEN SESSION)\033\[0m"
+    puts " Session Name: $session_name"
+    puts " Command:      $interpreter $script_path $args_str"
+    puts " Status:       Detached"
+    puts "\033\[1;32m=================================================================\033\[0m"
+    puts "-> The script is now running in the background."
+    puts "-> To view the live output, run: screen -r $session_name"
+    puts "-> The screen session will \033\[1;31mterminate automatically\033\[0m when the job finishes."
+    puts "-> You may safely disconnect from this terminal now.\n"
+
+    # 5. Execute the screen command
+    # -d: Detach immediately
+    # -m: Force a new screen session
+    # -S: Name the session
+    if {[catch {exec screen -dmS $session_name $interpreter $script_path {*}$argv} result]} {
+        puts "Error launching screen session: $result"
+        puts "Ensure 'screen' is installed on this host."
+        exit 1
+    }
+
+    # 6. Exit the foreground process
+    exit 0
+}
+# ==============================================================================
+# END NEW FEATURE
+# ==============================================================================
+
 
 set mode [lindex $argv 0]
 set argv [lrange $argv 1 end]

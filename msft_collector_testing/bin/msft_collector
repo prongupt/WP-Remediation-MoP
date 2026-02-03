@@ -1138,18 +1138,21 @@ if {[lindex $argv 0] == "--lcfc-prefix"} {
 log_user 0 
 
 # ==============================================================================
-# NEW FEATURE: Background Screen Execution
+# NEW FEATURE: Background Screen Execution (Auto-Attach & Auto-Terminate)
 # ==============================================================================
 set bg_index [lsearch $argv "--background"]
 if {$bg_index != -1} {
-    # 1. Remove the --background flag so the inner script doesn't loop infinitely
+    # 1. Remove the --background flag
     set argv [lreplace $argv $bg_index $bg_index]
 
-    # 2. Generate a unique session name
+    # 2. Generate a unique session name and log file path
     set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
     set session_name "MSFT_COLL_${timestamp}"
 
-    # 3. Get the interpreter and script paths to ensure we run the exact same tool
+    if {![file exists "logs"]} { file mkdir "logs" }
+    set session_log "logs/${session_name}.progress"
+
+    # 3. Get interpreter and script paths
     set interpreter [info nameofexecutable]
     set script_path [info script]
 
@@ -1157,27 +1160,40 @@ if {$bg_index != -1} {
     set args_str [join $argv " "]
 
     puts "\n\033\[1;32m=================================================================\033\[0m"
-    puts "\033\[1;32m LAUNCHING JOB IN BACKGROUND (SCREEN SESSION)\033\[0m"
-    puts " Session Name: $session_name"
-    puts " Command:      $interpreter $script_path $args_str"
-    puts " Status:       Detached"
+    puts "\033\[1;32m INITIALIZING BACKGROUND JOB \033\[0m"
+    puts " Session Name:  $session_name"
+    puts " Log File:      $session_log"
     puts "\033\[1;32m=================================================================\033\[0m"
-    puts "-> The script is now running in the background."
-    puts "-> To view the live output, run: screen -r $session_name"
-    puts "-> The screen session will \033\[1;31mterminate automatically\033\[0m when the job finishes."
-    puts "-> You may safely disconnect from this terminal now.\n"
+    puts "-> Launching Screen Session..."
 
-    # 5. Execute the screen command
-    # -d: Detach immediately
-    # -m: Force a new screen session
-    # -S: Name the session
-    if {[catch {exec screen -dmS $session_name $interpreter $script_path {*}$argv} result]} {
+    # 5. Construct the internal command
+    # Logic: Run script | tee to log file ; Print Footer ; Sleep 10s ; Exit
+    # The 'tee' ensures output goes to the log AND the screen.
+    # The 'sleep 10' ensures you have time to see the success message before the window closes.
+    set finish_msg "\n\n\033\[1;32m=======================================================\nJOB FINISHED at \$(date)\nSCREEN SESSION TERMINATING IN 10 SECONDS...\n=======================================================\033\[0m"
+
+    set shell_cmd "$interpreter $script_path $args_str | tee $session_log; echo \"$finish_msg\"; sleep 10"
+
+    # 6. Launch the detached screen session
+    if {[catch {exec screen -dmS $session_name sh -c $shell_cmd} result]} {
         puts "Error launching screen session: $result"
-        puts "Ensure 'screen' is installed on this host."
         exit 1
     }
 
-    # 6. Exit the foreground process
+    puts "-> Session started."
+    puts "-> \033\[1;33mAttaching to live session now...\033\[0m"
+    puts "   (If you detach using Ctrl+A, D, the job will keep running)"
+    puts "   (If the network drops, the job will keep running)"
+    sleep 2
+
+    # 7. Automatically attach to the screen
+    # We use 'spawn' here because we are inside an Expect script, which handles
+    # interactive processes better than 'exec'
+    spawn screen -r $session_name
+    interact
+
+    # 8. When screen terminates (or user detaches), exit this script
+    puts "\n\033\[1;32m-> Screen session ended or detached.\033\[0m"
     exit 0
 }
 # ==============================================================================

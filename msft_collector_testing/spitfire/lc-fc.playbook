@@ -1,0 +1,44 @@
+terminal length 0
+terminal width 132
+show version
+show platform
+show inventory
+show install active summary
+show logging | exc "macsec|auditlogger|ssh_syslog_proxy|locald|SwanAgent|mka|SSHD"
+show cli history detail
+show context
+show environment all
+show shelfmgr history oir
+show shelfmgr history events
+show shelfmgr history events detail
+show reboot history 
+show reboot history detail
+show led
+show alarms
+show controllers fabric health
+show controllers fabric fsdb-pla rack 0
+show controllers fabric link port fia rx all
+show controllers fabric link port s1 rx all
+show asic-errors all detail location 0/0/CPU0
+show asic-errors all detail location 0/1/CPU0
+show asic-errors all detail location 0/2/CPU0
+show asic-errors all detail location 0/3/CPU0
+show asic-errors all detail location 0/4/CPU0
+show asic-errors all detail location 0/5/CPU0
+show asic-errors all detail location 0/6/CPU0
+show asic-errors all detail location 0/7/CPU0
+show asic-errors all detail location 0/8/CPU0
+show asic-errors all detail location 0/9/CPU0
+show asic-errors all detail location 0/10/CPU0
+show asic-errors all detail location 0/11/CPU0
+show asic-errors all detail location 0/12/CPU0
+show asic-errors all detail location 0/13/CPU0
+show asic-errors all detail location 0/14/CPU0
+show asic-errors all detail location 0/15/CPU0
+show asic-errors all detail location 0/16/CPU0
+show asic-errors all detail location 0/17/CPU0
+show asic-errors all detail location 0/RP0/CPU0
+show asic-errors all detail location 0/RP1/CPU0
+show controllers fabric plane all detail
+show asic-errors all detail location 0/RP0/CPU0 | inc "rx_link_status_down|count|npu"
+show controllers npu link-info rx 0 255 topo instance all location all | ex "EN/UP\|NC              NC"

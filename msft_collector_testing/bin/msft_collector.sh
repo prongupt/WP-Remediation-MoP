@@ -1,0 +1,2813 @@
+#!/usr/bin/expect
+# Script Version: 1.0.25
+# Last Updated: Feb 03rd, 2026
+#
+# Features:
+# - CURL Upload Function replacing SCP for uploading files to cxd.cisco.com
+# - Enhanced archive-log functionality with file verification and contents preview
+# - SCP retry logic for archive-log transfers (3 attempts with 5-second delays)
+# - SONiC Network OS support for --showtech mode
+# - Custom SSH port support (hostname:port format)
+# - Platform-specific showtech execution with long-running command handling
+# - IOS-XR OS showtech background monitoring with automatic completion detection (Spitfire only)
+# - Interactive mode with direct execution for single hostname (no subprocess spawning)
+# - Interactive mode with TTY detection: supports both interactive and scriptable (piped) modes
+# - Enhanced command execution with proper prompt matching and output capture
+# - Support for sudo commands with automatic password handling in interactive mode
+# - Interactive mode exit options: Ctrl+C, "END", or "exit" commands
+# - LC-FC automated sequence: playbook → archive-log → showtech orchestration with phase tracking
+# - Optional timestamp in log filenames: scan mode creates simple hostnames (hostname.log)
+# - Extended CURL timeout: 60 minutes for large file transfers (50MB+ showtechs)
+# - Secure password handling: prevents Tcl variable substitution of special characters
+# - NEW: Fretta (NCS5500) Admin Show Tech support without entering sysadmin mode
+#   * Detects 'admin show tech' commands
+#   * Parses admin file path (/misc/disk1/showtech/)
+#   * Automates 'admin copy' to move file to XR harddisk
+#   * Queues file for standard SCP download
+# Fixes:
+# - Fixed --playbook-scan credential handling: now uses env variable for username and secret file for password (not command-line args).
+# - Refactored --playbook-scan to use initialize_logging function for consistency with other modes.
+# - Fixed tar compression error handling: check if tarball exists rather than relying on stderr output (ignores harmless locale warnings).
+# - Fixed determine_playbook_file function for SONiC compatibility:
+#   * Changed prompt pattern from `:.*\$ |.*#` to `\r\n.*:.*\$ |\r\n.*#` to prevent premature matching
+#   * Made `terminal length 0` conditional - only runs on IOS XR platforms (not SONiC bash)
+#   * Added case-insensitive matching for SONiC platform detection with -nocase flag
+# - Fixed SCP command handling for messages-LC files.
+# - Added support for processing captured packets command.
+# - CURL upload function now retries up to 3 times with a delay between attempts.
+# - Added support for processing SCP commands for messages-LC files.
+# - Files deleted after successful upload to cxd.cisco.com.
+# - Files deleted after unsuccessful upload to cxd.cisco.com.
+# - Mechanism to copy the tar file to /tmp/cisco/ in case of CURL timeout.
+# - Added comprehensive error handling for SCP connection failures in archive-log mode.
+# - Archive-log now includes recursive file listing, tar verification, and archive contents preview.
+# - Added SONiC platform detection with fallback logic from IOS XR detection.
+# - Implemented execute_sonic_long_command for handling long-running SONiC commands (20-minute timeout).
+# - Added flexible prompt matching for SONiC bash shell (:.*\\$ |.*#).
+# - Custom SSH port parsing and SCP port flag support (-p for SSH, -P for SCP).
+# - File cleanup only after successful CURL upload to cxd.cisco.com.
+# - Interactive mode refactored for single hostname: direct SSH execution instead of subprocess.
+# - Fixed credential handling: interactive mode now uses cisco username with secret file password.
+# - Enhanced execute_command function: consumes command echo before matching prompt to prevent premature matching.
+# - Improved prompt pattern matching: \r\n prefix ensures prompt matched only after newline (not in command echo).
+# - Added sudo password prompt handling in execute_command for commands requiring privilege escalation.
+# - Fixed tarball naming in interactive mode: includes hostname and timestamp for single host scenarios.
+# - Improved log capture: proper log_user controls ensure command output is captured in log files.
+# - Added Ctrl+C (SIGINT) signal handler for graceful exit during interactive command collection.
+# - Interactive mode now accepts "exit" command as alternative to "END" for exiting command collection.
+# - Added trap handler to restore terminal settings on Ctrl+C interrupt.
+# - Added OS showtech background monitoring for IOS-XR (Spitfire platform):
+#   * Detects 'show tech-support os file harddisk: background compressed' command
+#   * Transforms to timestamped background execution command
+#   * Monitors log file for completion with 1-minute polling intervals
+#   * 100-minute timeout with graceful skip on timeout
+#   * Displays elapsed time during monitoring
+# - Fixed archive-log empty directory handling: checks for actual files before tar, skips gracefully if empty
+# - Fixed archive-log tar command: uses absolute paths without -C flag to handle empty subdirectories
+# - Fixed archive-log command wrapping: uses shell variable (LOGPATH) to prevent line splitting
+# - Fixed archive-log spawn_id management: saves/restores SSH spawn_id around SCP operations
+# - Fixed archive-log session cleanup: exits bash shell (from attach location) before closing SSH
+# - Fixed --scan mode subprocess handling: processes results regardless of exit codes (no false errors)
+# - Fixed LC-FC sequence orchestration: Phase 2/3 continue even if previous phase fails/skips
+# - Added LC-FC playbook auto-detection: automatically triggers 3-phase sequence when lc-fc.playbook is used
+# - Added --no-lc-fc-detection flag: prevents recursive subprocess loops during LC-FC sequence execution
+# - Fixed password security vulnerability: all password sends now use format command to prevent Tcl variable substitution
+#   * Addresses authentication failures with passwords containing special characters like $#, ${}, etc.
+#   * Changed from 'send "$password\r"' to 'send [format "%s\r" $password]' throughout the script
+# - Enhanced interactive mode with improved TTY detection and scriptable mode support
+#   * Better separation between interactive (TTY) and scriptable (piped/redirected stdin) modes
+#   * Improved stdin detection logic: set is_tty [expr {[catch {exec test -t 0}] == 0}]
+#   * Scriptable mode reads commands line-by-line from stdin for automation/CI integration
+# - Enhanced platform detection in interactive mode to prevent incorrect terminal settings
+#   * Added NX-OS and Nexus platform detection alongside existing SONiC detection
+#   * Only applies 'terminal length 0' to IOS-XR platforms (NCS5500, Cisco 8000)
+#   * Prevents terminal configuration errors on non-IOS-XR Cisco platforms
+# - Improved unreachable device notification with enhanced diagnostics
+#   * Added mode and reason parameters to upload_unreachable_notification function
+#   * Better tracking of connection failures with context-aware error reporting
+
+# Declare global variable
+global in_admin_mode
+set in_admin_mode 0
+
+# Define a global list to store messages-LC filenames to be downloaded later
+global messages_LC_list
+set messages_LC_list {}
+
+# This function initializes the logging process by setting up necessary variables,
+# generating a unique log file name, checking the password file, setting a timeout,
+# and starting the logging process.
+proc initialize_logging {hostname {skip_timestamp 0} {prefix ""}} {
+    global log_file
+    global username
+    global password
+    global timeout
+
+
+    set password_file [file join [file dirname [info script]] "secret"]
+    set username $::env(USER)
+
+    # Generate a unique log file name based on the current timestamp
+    # set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+
+    # Generate a unique log file name (optionally with timestamp and prefix)
+    if {$skip_timestamp} {
+        set log_file "logs/${prefix}${hostname}.log"
+    } else {
+        set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+        set log_file "logs/${prefix}${hostname}_${timestamp}.log"
+    }
+    
+    # Check if the password file exists and has content
+    if {[file exists $password_file] && [file size $password_file] > 0} {
+        # set password [exec cat $password_file]
+        set fp [open $password_file r]
+        set password [string trim [read $fp]]
+        close $fp
+    } else {
+        puts "Password file is missing or empty!"
+        exit 1
+    }
+
+    # Set a reasonable timeout for commands
+    set timeout 1200  ;# Adjusted for longer output
+
+    # Open the log file for writing, start logging
+    log_file $log_file
+    puts "Log start time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
+}
+
+proc pull_out_file_from_device {banner messages_LC_list sr_number cxd_token hostname password timestamp {ssh_port ""}} {
+    # This function pulls out a file from the device and saves it to the local system.
+    # Arguments:
+    #   $banner: The banner message to display.
+    #   $sr_number: The service request number.
+    #   $cxd_token: The Cisco CXD token for authentication.
+    #   $hostname: The hostname of the device to connect to.
+    #   $messages_LC_list: A list of messages-LC files to be downloaded.
+    #   $ssh_port: Optional SSH port number.
+
+    # Guard: if there are no messages-LC files, do nothing.
+    if {[string trim $messages_LC_list] eq ""} {
+        puts "No messages-LC files to process."
+        return
+    }
+
+    foreach lc_file $messages_LC_list {
+        # Construct the destination file name with the timestamp
+        set destination_file "${hostname}-${timestamp}-${lc_file}"
+        puts "\n================== $banner ==================\n"
+        log_user 0
+        if {$ssh_port ne ""} {
+            spawn scp -o StrictHostKeyChecking=no -P $ssh_port $username@$hostname:/harddisk:/$lc_file ./logs/$destination_file
+        } else {
+            spawn scp -o StrictHostKeyChecking=no $username@$hostname:/harddisk:/$lc_file ./logs/$destination_file
+        }        
+        expect {
+            "continue connecting (yes/no/\[fingerprint\])?" {
+                send "yes\r"
+                expect "assword:" { send [format "%s\r" $password] }
+                log_user 1
+            }
+            "assword:" {
+                send [format "%s\r" $password]
+            }
+            timeout {
+                puts "================== SCP from $hostname timed out =================="
+                continue
+            }
+            eof {
+                set scp_status [wait]
+                puts "\n================== SCP from $hostname terminated with status: $scp_status ==================\n"
+            }
+        }
+        expect eof
+        puts "\n================== SCP from $hostname completed successfully ==================\n"
+    }
+}
+
+# This function transfers the log file to the Cisco File Server - cxd.cisco.com using curl.
+proc transfer_log_file {log_file sr_number cxd_token} {
+    global timeout
+    set remote_host "cxd.cisco.com"
+    #set remote_host "10.88.242.130"
+    set max_retries 3    ;# Maximum number of retry attempts
+    set retry_delay 10   ;# Delay in seconds between retries
+    set transfer_successful 0 ;# Flag to indicate overall success
+    
+    # Save current timeout and set a longer timeout for large file transfers
+    set old_timeout $timeout
+    set timeout 3600  ;# 60 minutes for large showtech files (can be 50MB+)
+
+    puts "================== Transferring log file to Cisco File Server - $remote_host using curl ================== "
+    log_user 0
+
+    for {set attempt 1} {$attempt <= $max_retries} {incr attempt} {
+        puts "Attempt $attempt of $max_retries using curl..."
+        
+        # Build and spawn the curl command:
+        # curl --user <sr_number>:<cxd_token> --upload-file <log_file> https://<remote_host>/home/
+        spawn curl -v -# --user "$sr_number:$cxd_token" --upload-file $log_file "https://$remote_host/home/"
+
+        set curl_status ""
+        set timeout_occurred 0
+
+        # Expect for completion (curl does not output a prompt,
+        # so we wait for EOF or timeout)
+        expect {
+            timeout {
+                puts "================== CURL upload timed out after $timeout seconds. =================="
+                set timeout_occurred 1
+            }
+            eof {
+                set curl_status [wait]
+            }
+        }
+        
+        # Ensure curl_status is set
+        if {![info exists curl_status] || $curl_status eq ""} {
+            catch { set curl_status [wait] }
+        }
+        
+        # Check if a timeout occurred or if curl exited with a non-zero error code.
+        if {$timeout_occurred || ([lindex $curl_status 3] != 0 && [lindex $curl_status 3] ne "")} {
+            puts "================== curl transfer failed for attempt $attempt. Status: $curl_status. ================== "
+            if {$attempt < $max_retries} {
+                puts "================== Retrying in $retry_delay seconds... ================== "
+                sleep $retry_delay
+            } else {
+                puts "================== All curl attempts failed. Transfer of $log_file to $remote_host unsuccessful. =================="
+                return 0 ;# All attempts failed
+            }
+        } else {
+            puts "\n================== curl transfer to $remote_host completed successfully ==================\n"
+            set transfer_successful 1
+            break ;# Exit the loop on success
+        }
+    }
+    
+    # Restore original timeout
+    set timeout $old_timeout
+    return $transfer_successful
+}
+
+# Function to create and upload a notification log when a device is unreachable
+# This function performs diagnostics, creates a log file, and attempts to upload it
+# Parameters:
+#   hostname: The target hostname or IP
+#   sr_number: Service request number
+#   cxd_token: Authentication token for upload
+#   mode: The mode that was being executed (e.g., "--interactive", "--playbook")
+#   reason: Brief reason for unreachability (e.g., "ping timeout")
+# Returns: 1 if upload successful, 0 otherwise (local file retained)
+proc upload_unreachable_notification {hostname sr_number cxd_token mode reason} {
+    global username
+    
+    # Generate timestamp for log file
+    set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+    set log_file "logs/NOT-REACHABLE-${hostname}_${timestamp}.log"
+    
+    # Create the log file with diagnostic information
+    set log_fh [open $log_file w]
+    
+    # Write header information
+    puts $log_fh "================================================================================"
+    puts $log_fh "DEVICE UNREACHABLE NOTIFICATION"
+    puts $log_fh "================================================================================"
+    puts $log_fh "Timestamp:    [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S %Z}]"
+    puts $log_fh "Hostname:     $hostname"
+    puts $log_fh "Mode:         $mode"
+    puts $log_fh "SR Number:    $sr_number"
+    puts $log_fh "Username:     $username"
+    puts $log_fh "Reason:       $reason"
+    puts $log_fh "================================================================================"
+    puts $log_fh ""
+    
+    # Perform 3 ping attempts and capture results
+    puts $log_fh "CONNECTIVITY DIAGNOSTICS (3 ping attempts):"
+    puts $log_fh "--------------------------------------------------------------------------------"
+    for {set attempt 1} {$attempt <= 3} {incr attempt} {
+        puts $log_fh "\nPing Attempt $attempt:"
+        if {[catch {exec ping -c 1 -W 2 $hostname} ping_output]} {
+            puts $log_fh "Status: FAILED"
+            puts $log_fh "Output:\n$ping_output"
+        } else {
+            puts $log_fh "Status: SUCCESS"
+            puts $log_fh "Output:\n$ping_output"
+        }
+        # Small delay between attempts
+        if {$attempt < 3} {
+            sleep 1
+        }
+    }
+    
+    puts $log_fh "\n================================================================================"
+    puts $log_fh "END OF UNREACHABLE NOTIFICATION"
+    puts $log_fh "================================================================================"
+    close $log_fh
+    
+    puts "\n================== Created unreachable notification log: $log_file ==================\n"
+    
+    # Attempt to upload the log file using existing transfer_log_file function
+    set upload_success [transfer_log_file $log_file $sr_number $cxd_token]
+    
+    if {$upload_success} {
+        # Delete local file after successful upload
+        if {[file exists $log_file]} {
+            file delete $log_file
+            puts "================== Unreachable notification uploaded and local file removed ==================\n"
+        }
+        return 1
+    } else {
+        puts "================== Upload failed - notification log retained locally: $log_file ==================\n"
+        return 0
+    }
+}
+
+# Function to generate timestamp in IOS-XR format: 2025-Dec-04.180630.UTC
+proc generate_timestamp {} {
+    set now [clock seconds]
+    set year [clock format $now -format {%Y}]
+    set month [clock format $now -format {%b}]
+    set day [clock format $now -format {%d}]
+    set time [clock format $now -format {%H%M%S}]
+    return "${year}-${month}-${day}.${time}.UTC"
+}
+
+# Function to execute OS showtech command and return log file path
+proc execute_os_showtech_command {timestamp prompt} {
+    set transformed_cmd "show tech os file harddisk:showtech-os-${timestamp} background compressed"
+    
+    puts "\n================== Executing OS showtech command with timestamp: $timestamp ==================\n"
+    puts "Command: $transformed_cmd\n"
+    
+    send "$transformed_cmd\r"
+    
+    # First, wait for the command echo to complete
+    expect -re [string map {* \\* . \\. ? \\? + \\+ ( \\( ) \\) \[ \\\[ \] \\\] $ \\$ ^ \\^ | \\|} $transformed_cmd]
+    
+    # Wait for "Show tech running in background" message and prompt
+    set output ""
+    expect {
+        -re "Show tech running in background" {
+            append output $expect_out(buffer)
+            append output $expect_out(0,string)
+            exp_continue
+        }
+        -re "$prompt" {
+            append output $expect_out(buffer)
+            puts "\n================== OS showtech started in background ==================\n"
+            puts "Output: $output\n"
+        }
+        timeout {
+            puts "ERROR: Timeout waiting for OS showtech command response"
+            return ""
+        }
+        eof {
+            puts "ERROR: Unexpected EOF while executing OS showtech command"
+            return ""
+        }
+    }
+    
+    # Extract the actual log file path and RP location from device output
+    # Pattern: "Please check 0/RP1/CPU0 : /harddisk:/showtech-os-2025-Dec-04.124144.UTC.logs"
+    set log_file_path ""
+    set tgz_file_path ""
+    set rp_location ""
+    
+    # Extract both RP location and log file path from the output
+    if {[regexp {Please check (0/RP[0-9]/CPU0) : (/harddisk:/showtech-os-[^\s]+\.logs)} $output match rp_loc log_path]} {
+        set log_file_path $log_path
+        set rp_location $rp_loc
+        # Derive tgz path by removing .logs extension
+        regsub {\.logs$} $log_file_path ".tgz" tgz_file_path
+        
+        puts "RP Location (from output): $rp_location"
+        puts "Log file path (extracted): $log_file_path"
+        puts "Expected TGZ file path: $tgz_file_path\n"
+        
+        return [list $log_file_path $tgz_file_path $rp_location]
+    } else {
+        puts "ERROR: Could not extract log file path and RP location from output"
+        puts "Output was: $output"
+        return ""
+    }
+}
+
+# Function to monitor OS showtech completion by polling log file
+proc monitor_os_showtech_completion {log_file_path tgz_file_path prompt active_rp} {
+    set max_timeout_minutes 100
+    set poll_interval_seconds 60
+    set max_timeout_seconds [expr {$max_timeout_minutes * 60}]
+    set start_time [clock seconds]
+    
+    puts "\n================== Monitoring OS showtech completion ==================\n"
+    puts "Log file: $log_file_path"
+    puts "Polling interval: $poll_interval_seconds seconds"
+    puts "Maximum timeout: $max_timeout_minutes minutes\n"
+    
+    while {1} {
+        set current_time [clock seconds]
+        set elapsed_seconds [expr {$current_time - $start_time}]
+        set elapsed_minutes [expr {$elapsed_seconds / 60}]
+        
+        # Check if we've exceeded the timeout
+        if {$elapsed_seconds >= $max_timeout_seconds} {
+            set timestamp [clock format $current_time -format {%Y-%m-%d %H:%M:%S}]
+            puts "\n\[$timestamp\] WARNING: OS showtech timed out after $max_timeout_minutes minutes, skipping file transfer and continuing...\n"
+            return 0
+        }
+        
+        # Display elapsed time
+        set timestamp [clock format $current_time -format {%Y-%m-%d %H:%M:%S}]
+        puts "\[$timestamp\] Elapsed: $elapsed_minutes mins - Checking completion..."
+        
+        # Check if TGZ file exists using dir command from XR prompt (no need to attach to bash)
+        send "dir $tgz_file_path\r"
+        
+        # Wait for command echo to complete
+        expect -re [string map {* \\* . \\. ? \\? + \\+ ( \\( ) \\) \[ \\\[ \] \\\] $ \\$ ^ \\^ | \\|} "dir $tgz_file_path"]
+        
+        # Check for file existence or "Path does not exist" error
+        set completion_found 0
+        expect {
+            -re "Path does not exist|No such file|Error:" {
+                # File doesn't exist yet, showtech still running
+                set completion_found 0
+                expect -re "$prompt"
+            }
+            -re "showtech-os-.*\\.tgz" {
+                # File exists in directory listing - showtech complete!
+                set completion_found 1
+                expect -re "$prompt"
+            }
+            timeout {
+                puts "Timeout checking file existence, will retry..."
+                set completion_found 0
+                # Try to get back to prompt
+                send "\r"
+                expect -re "$prompt"
+            }
+        }
+ 
+        
+        # Check if completion was found
+        if {$completion_found == 1} {
+            set completion_time [clock format $current_time -format {%Y-%m-%d %H:%M:%S}]
+            puts "\n\[$completion_time\] ================== OS showtech completed successfully! ==================\n"
+            puts "Total time elapsed: $elapsed_minutes minutes"
+            puts "TGZ file ready at: $tgz_file_path\n"
+            return 1
+        }
+        
+        # Wait for next poll interval
+        puts "Not completed yet, waiting $poll_interval_seconds seconds before next check...\n"
+        after [expr {$poll_interval_seconds * 1000}]
+    }
+}
+ 
+ 
+
+# # Function to execute a command and capture its output
+proc execute_command {cmd prompt} {
+    send "$cmd\r"
+    
+    # First, wait for the command echo to complete (match the command we just sent)
+    expect -re [string map {* \\* . \\. ? \\? + \\+ ( \\( ) \\) \[ \\\[ \] \\\] $ \\$ ^ \\^ | \\|} $cmd]
+    
+    # Now wait for command execution and output, handling password prompts
+    expect {
+        -re "(P|p)assword:" {
+            # Handle sudo password prompt
+            send [format "%s\r" $::password]
+            exp_continue
+        }
+        -re "$prompt" {
+            set output $expect_out(buffer)
+            set timestamp [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]
+            #send_user "\n$timestamp Command output captured...\n"
+            return $output
+        }
+        timeout {
+            puts "Command '$cmd' timed out"
+            return ""
+        }
+        eof {
+            puts "Unexpected EOF while executing '$cmd'"
+            return ""
+        }
+    }
+}
+
+# Function to execute long-running SONiC commands (like show techsupport)
+proc execute_sonic_long_command {cmd prompt} {
+    global timeout
+    set old_timeout $timeout
+    set timeout 2400  ;# 40 minutes for long-running commands
+    
+    puts "\n================== Executing long-running command: $cmd (timeout: 20 min) ==================\n"
+    
+    send "$cmd\r"
+    
+    # First, consume the command echo (same as execute_command)
+    expect -re [string map {* \\* . \\. ? \\? + \\+ ( \\( ) \\) \[ \\\[ \] \\\] $ \\$ ^ \\^ | \\|} $cmd]
+    
+    # Wait for the tar.gz file to appear in output, then the prompt
+    set output ""
+    set found_file 0
+    expect {
+        -re {/var/dump/sonic_dump.*\.tar\.gz|sonic_dump.*\.tar\.gz} {
+            # Match any sonic_dump tar.gz file, with or without full path
+            append output $expect_out(buffer)
+            append output $expect_out(0,string)
+            set found_file 1
+            puts "\n================== DEBUG: Found tar.gz file in output ==================\n"
+            exp_continue
+        }
+        -re "$prompt" {
+            append output $expect_out(buffer)
+            if {$found_file == 1} {
+                set timestamp [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]
+                puts "\n================== Command completed at $timestamp ==================\n"
+                set timeout $old_timeout
+                return $output
+            } else {
+                # Prompt without tar.gz file - show debug and keep waiting
+                puts "\n================== DEBUG: Prompt matched but no tar.gz file found yet ==================\n"
+                puts "Output so far: [string range $output end-200 end]"
+                exp_continue
+            }
+        }
+        timeout {
+            puts "Command '$cmd' timed out after $timeout seconds"
+            set timeout $old_timeout
+            return $output
+        }
+        eof {
+            puts "Unexpected EOF while executing '$cmd'"
+            set timeout $old_timeout
+            return $output
+        }
+    }
+}
+
+# Procedure to handle SCP commands for messages-LC files
+proc handle_scp_messages {cmd_line} {
+    # Example command: scp 172.0.0.1:/var/log/messages ./messages-LC0
+    # Split the command into tokens and extract the destination file
+    set tokens [split $cmd_line]
+    set local_file [lindex $tokens end]
+    # Remove leading "./" if present
+    regsub {^\./} $local_file "" local_file
+
+    puts "================== Processing SCP command for messages file: $cmd_line =================="
+    execute_command $cmd_line ":.*\\$ |.*#"
+    return $local_file
+}
+
+# Process a customized "show logging start" command:
+proc process_show_logging {cmd_line} {
+    # Execute "show clock" to get the current date/time output.
+    set clock_output [execute_command "show clock" ":.*\\$ |.*#"]
+    # Split the output into individual lines.
+    set clock_lines [split $clock_output "\n"]
+    set parsed 0
+    foreach line $clock_lines {
+        # Look for a line that starts with a time value.
+        if {[regexp {^([0-9]{2}):([0-9]{2}):([0-9]{2})\.[0-9]+\s+UTC\s+([A-Za-z]{3})\s+([A-Za-z]+)\s+([0-9]{1,2})\s+([0-9]{4})} $line match hour min sec weekday month day year]} {
+            set parsed 1
+            break
+        }
+    }
+    if {$parsed} {
+        # Construct a date string (e.g. "Thu Jul 31 01:12:25 2025")
+        set date_str "$weekday $month $day $hour:$min:$sec $year"
+        # Convert to epoch seconds and subtract 4 hours (14400 seconds)
+        set epoch [clock scan $date_str]
+        set new_epoch [expr {$epoch - 14400}]
+        # Format into "Month day HH:MM:SS" (e.g. "July 30 21:12:25")
+        set four_hour_less_date [clock format $new_epoch -format {%B %d %H:%M:%S}]
+        puts "Computed adjusted command: show logging start $four_hour_less_date exclude fib_mgr"
+        # set new_cmd "show logging start $four_hour_less_date |  exclude "(-4-)|(-5-)|(-6-)"
+        set new_cmd "show logging start $four_hour_less_date \| exclude fib_mgr"
+        send "$new_cmd\r"
+        expect -re ":.*\\$ |.*#"
+    } else {
+        puts "Failed to parse clock output: $clock_output"
+    }
+}
+
+# Process SCP commands for messages, capturing the destination file.
+proc process_scp_messages_cmd {cmd_line} {
+    set lc_file [handle_scp_messages $cmd_line]
+    if {$lc_file ne ""} {
+        lappend messages_LC_list $lc_file
+        puts "================== Added $lc_file to messages_LC_list =================="
+    }
+}
+
+# Process captured packets command.
+proc process_captured_packets {cmd_line file_path} {
+    # Set the file path (this is currently hardcoded)
+    set file_path "/harddisk:/msft_collector_captured_packets"
+    set captured_packet_file [string trim $file_path]
+    set prompt ":.*\\$ |.*#"
+    set prompt_captured_packet "Save.*"
+    send "$cmd_line\r"
+    expect {
+        -re "$prompt_captured_packet" {
+            send "\r"
+            expect -re "$prompt"
+        }
+        -re "$prompt" {
+            set output $expect_out(buffer)
+            set timestamp [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]
+            return $output
+        }
+        timeout {
+            puts "Command '$cmd_line' timed out"
+            continue
+        }
+        eof {
+            puts "Unexpected EOF while executing '$cmd_line'"
+            continue
+        }
+    }
+}
+
+# Function to parse show platform output and extract LC list and Active RP
+proc parse_platform_output {platform_output} {
+    set lc_list {}
+    set active_rp ""
+    
+    # Split output into lines
+    set lines [split $platform_output "\n"]
+    
+    foreach line $lines {
+        # Extract Active RP (looking for "Active" in Type column)
+        if {[regexp {(0/RP[0-9]/CPU0)\s+.*\(Active\)} $line match rp_location]} {
+            set active_rp $rp_location
+        }
+        
+        # Extract Line Cards - match patterns for both platforms:
+        # Cisco 8000: 0/X/CPU0 with "-LC" in type (e.g., "8800-LC-48H")
+        # NCS5500: 0/X/CPU0 with "NC55-MOD" or "NC55-" followed by numbers in type
+        # Exclude RPs, FCs, FTs, PMs, SCs (fabric cards, fans, power, system controllers)
+        if {[regexp {^(0/[0-9]+/CPU0)\s+} $line match lc_location]} {
+            # Check if this is a line card (has -LC or NC55-MOD or NC55-[0-9])
+            # Exclude RP, FC, FT, PM, SC nodes
+            if {[regexp -- {-LC|NC55-MOD|NC55-[0-9]} $line] && ![regexp {0/RP|0/FC|0/FT|0/PM|0/SC} $line]} {
+                lappend lc_list $lc_location
+            }
+        }
+    }
+    
+    return [list $lc_list $active_rp]
+}
+
+# Function to determine Active RP IP address based on platform
+proc get_active_rp_ip {active_rp platform_output} {
+    # Detect platform type from show platform output
+    # NCS-5500 uses 172.0.16.x, Cisco 8000 uses 172.0.30.x
+    set is_ncs5500 [regexp -nocase {NCS-5[0-9]{3}|NC55} $platform_output]
+    
+    if {$active_rp eq "0/RP0/CPU0"} {
+        if {$is_ncs5500} {
+            return "172.0.16.1"
+        } else {
+            return "172.0.30.1"
+        }
+    } elseif {$active_rp eq "0/RP1/CPU0"} {
+        if {$is_ncs5500} {
+            return "172.0.17.1"
+        } else {
+            return "172.0.31.1"
+        }
+    } else {
+        return ""
+    }
+}
+
+# Function to collect PPDB files from all LCs
+proc process_ppdb_collection {cmd_line prompt hostname} {
+    puts "\n================== Detected pd_aib_show_prod command ==================\n"
+    
+    # Step 1: Get platform information
+    puts "Step 1: Gathering platform information..."
+    set platform_output [execute_command "show platform" $prompt]
+    set parsed_data [parse_platform_output $platform_output]
+    set lc_list [lindex $parsed_data 0]
+    set active_rp [lindex $parsed_data 1]
+    
+    if {$active_rp eq ""} {
+        puts "ERROR: Could not determine Active RP"
+        return ""
+    }
+    
+    set active_rp_ip [get_active_rp_ip $active_rp $platform_output]
+    if {$active_rp_ip eq ""} {
+        puts "ERROR: Could not map Active RP to IP address"
+        return ""
+    }
+    
+    puts "Active RP: $active_rp (IP: $active_rp_ip)"
+    puts "Line Cards found: [llength $lc_list] - $lc_list"
+    
+    if {[llength $lc_list] == 0} {
+        puts "WARNING: No Line Cards found in platform output"
+        return ""
+    }
+    
+    # Step 2: Loop through each LC
+    set ppdb_files {}
+    foreach lc $lc_list {
+        # Extract LC number (e.g., "1" from "0/1/CPU0")
+        regexp {0/([0-9]+)/CPU0} $lc match lc_num
+        set ppdb_filename "ppdb_prod_dump_file_lc${lc_num}.txt"
+        
+        puts "\n--- Processing LC: $lc ---"
+        
+        # Attach to LC
+        execute_command "attach location $lc" ".*#"
+        
+        # Set bash prompt
+        execute_command "export PS1='#'" "#"
+        
+        # Run pd_aib_show_prod command
+        puts "Running pd_aib_show_prod -P0 on $lc..."
+        set pd_output [execute_command "pd_aib_show_prod -P0" "#"]
+        
+        # Extract the default filename from output
+        set default_file "/tmp/ppdb_prod_dump_file.txt"
+        if {[regexp {File written: (/tmp/ppdb_prod_dump_file\.txt)} $pd_output]} {
+            puts "File generated: $default_file"
+            
+            # Rename the file
+            execute_command "mv $default_file /tmp/$ppdb_filename" "#"
+            
+            # Verify file exists
+            execute_command "ls -lh /tmp/$ppdb_filename" "#"
+            
+            # SCP to Active RP (no username needed, direct IP to IP on same device)
+            puts "Transferring $ppdb_filename to Active RP ($active_rp_ip)..."
+            send "scp /tmp/$ppdb_filename ${active_rp_ip}:/harddisk:/\r"
+            expect {
+                -re "100%" {
+                    # SCP progress indicator - wait for prompt
+                    expect -re "#"
+                    puts "Successfully transferred $ppdb_filename to Active RP"
+                    lappend ppdb_files $ppdb_filename
+                }
+                "No route to host" {
+                    puts "ERROR: Cannot reach Active RP at $active_rp_ip"
+                }
+                "Connection refused" {
+                    puts "ERROR: Connection refused by Active RP"
+                }
+                -re "#" {
+                    puts "Transfer completed for $ppdb_filename"
+                    lappend ppdb_files $ppdb_filename
+                }
+                timeout {
+                    puts "WARNING: SCP timeout for $ppdb_filename"
+                }
+            }
+        } else {
+            puts "WARNING: pd_aib_show_prod did not generate expected file for $lc"
+        }
+        
+        # Exit from LC bash back to XR
+        execute_command "exit" $prompt
+    }
+    
+    # Step 3: Compress all files on Active RP
+    if {[llength $ppdb_files] > 0} {
+        puts "\n================== Compressing PPDB files on Active RP ==================\n"
+        
+        # Generate timestamp for tarball
+        set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+        set tarball_name "ppdb_prod_dump_all_lcs_${timestamp}.tar.gz"
+        
+        puts "Attaching to Active RP: $active_rp"
+        
+        # Attach to Active RP and set bash prompt
+        send "attach location $active_rp\r"
+        expect {
+            -re ".*#" {
+                puts "Successfully attached to $active_rp"
+            }
+            timeout {
+                puts "Timeout attaching to $active_rp"
+                return ""
+            }
+        }
+        
+        # Set bash prompt with more reliable pattern
+        send "export PS1='#'\r"
+        expect {
+            -re "#" {
+                puts "Bash prompt set"
+            }
+            timeout {
+                puts "Timeout setting bash prompt"
+            }
+        }
+        
+        # Change to harddisk directory
+        puts "Changing to /harddisk: directory..."
+        send "cd /harddisk:\r"
+        expect -re "#"
+        
+        # Get the actual path (in bash, /harddisk: maps to /misc/disk1/)
+        send "pwd\r"
+        set actual_path ""
+        expect {
+            -re "(/\[^\\r\\n\]+)\\r\\n.*#" {
+                set actual_path $expect_out(1,string)
+                puts "Actual working directory in bash: $actual_path"
+            }
+            -re "#" {
+                set actual_path "/misc/disk1"
+                puts "Using default path: $actual_path"
+            }
+        }
+        
+        # Create tarball with timestamp
+        set file_list [join $ppdb_files " "]
+        puts "Creating tarball: $tarball_name with files: $file_list"
+        
+        # Verify files exist before creating tarball
+        puts "Verifying files exist in $actual_path..."
+        send "ls -lh ppdb_prod_dump_file_lc*.txt\r"
+        expect -re "#"
+        
+        # Increase timeout for tar operation
+        global timeout
+        set old_timeout $timeout
+        set timeout 60  ;# 60 seconds should be enough for small PPDB files
+        
+        send "tar -czvf $tarball_name $file_list\r"
+        
+        # Wait for tar to complete (files are small, should be quick)
+        expect {
+            -re "#" {
+                puts "Tarball created successfully"
+            }
+            timeout {
+                puts "Timeout creating tarball"
+                set timeout $old_timeout
+                return ""
+            }
+        }
+        
+        # Restore timeout
+        set timeout $old_timeout
+        
+        # Verify tarball
+        puts "Verifying tarball..."
+        send "ls -lh $tarball_name\r"
+        expect -re "#"
+        
+        # Exit back to XR
+        puts "Exiting back to XR mode..."
+        send "exit\r"
+        expect -re $prompt
+        
+        # Build the full path for SCP (use /harddisk:/ like other SCP operations)
+        set scp_path "/harddisk:/$tarball_name"
+        puts "\n================== PPDB collection complete: $scp_path ==================\n"
+        
+        # Return both the tarball path and the tarball name for later renaming
+        return [list $scp_path $tarball_name]
+    }
+    
+    return ""
+}
+
+# Function to execute LC-FC automated sequence: playbook -> archive-log -> showtech
+# Function to execute LC-FC automated sequence: playbook -> archive-log -> showtech
+# This function orchestrates three separate script executions as subprocesses
+proc execute_lc_fc_sequence {hostname sr_number cxd_token} {
+    puts "\n╔════════════════════════════════════════════════════════════════╗"
+    puts "║ LC-FC AUTOMATED SEQUENCE FOR: $hostname"
+    puts "╚════════════════════════════════════════════════════════════════╝\n"
+    
+    set phase_results [dict create playbook 0 archive 0 showtech 0]
+    set script_path [info script]
+    
+    # ==================== PHASE 1: PLAYBOOK EXECUTION ====================
+    puts "\n\[PHASE 1/3\] Executing lc-fc.playbook commands...\n"
+    
+    if {[catch {
+        set cmd_pipe [open "|$script_path --no-lc-fc-detection --lcfc-prefix --playbook lc-fc.playbook $hostname $sr_number $cxd_token 2>@1" r]
+        while {[gets $cmd_pipe line] >= 0} {
+            puts $line
+        }
+        close $cmd_pipe
+    } playbook_error]} {
+        puts "\[PHASE 1/3\] ❌ Playbook execution failed: $playbook_error\n"
+        dict set phase_results playbook 0
+        puts "Stopping sequence due to playbook failure.\n"
+        
+        # Print final summary
+        puts "\n╔════════════════════════════════════════════════════════════════╗"
+        puts "║ LC-FC SEQUENCE STOPPED FOR: $hostname"
+        puts "╚════════════════════════════════════════════════════════════════╝\n"
+        puts "Phase Summary:"
+        puts "  Phase 1 (Playbook):  ❌ Failed"
+        puts "  Phase 2 (Archive):   ⚠️  Skipped (due to Phase 1 failure)"
+        puts "  Phase 3 (Showtech):  ⚠️  Skipped (due to Phase 1 failure)\n"
+        
+        return $phase_results
+    }
+    puts "\[PHASE 1/3\] ✅ Playbook execution completed successfully\n"
+    dict set phase_results playbook 1
+    
+    # ==================== PHASE 2: ARCHIVE-LOG ====================
+    puts "\n\[PHASE 2/3\] Archiving device logs...\n"
+    
+    if {[catch {
+        set cmd_pipe [open "|$script_path --archive-log $hostname $sr_number $cxd_token 2>@1" r]
+        set archive_output ""
+        while {[gets $cmd_pipe line] >= 0} {
+            puts $line
+            append archive_output "$line\n"
+        }
+        close $cmd_pipe
+        
+        if {[string match "*Archive Log is not configured*" $archive_output]} {
+            puts "\[PHASE 2/3\] ⚠️  Archive-log not configured, continuing to showtech phase\n"
+            dict set phase_results archive 0
+        } else {
+            puts "\[PHASE 2/3\] ✅ Archive-log completed successfully\n"
+            dict set phase_results archive 1
+        }
+    } archive_error]} {
+        puts "\[PHASE 2/3\] ⚠️  Archive-log failed: $archive_error, continuing to showtech phase\n"
+        dict set phase_results archive 0
+    }
+    
+    # ==================== PHASE 3: SHOWTECH EXECUTION ====================
+    puts "\n\[PHASE 3/3\] Collecting showtech outputs...\n"
+    
+    if {[catch {
+        set cmd_pipe [open "|$script_path --showtech lc-fc.showtech $hostname $sr_number $cxd_token 2>@1" r]
+        while {[gets $cmd_pipe line] >= 0} {
+            puts $line
+        }
+        close $cmd_pipe
+    } showtech_error]} {
+        puts "\[PHASE 3/3\] ❌ Showtech execution failed: $showtech_error\n"
+        dict set phase_results showtech 0
+    } else {
+        puts "\[PHASE 3/3\] ✅ Showtech execution completed successfully\n"
+        dict set phase_results showtech 1
+    }
+    
+    # Print final summary
+    puts "\n╔════════════════════════════════════════════════════════════════╗"
+    puts "║ LC-FC SEQUENCE COMPLETED FOR: $hostname"
+    puts "╚════════════════════════════════════════════════════════════════╝\n"
+    puts "Phase Summary:"
+    set playbook_status [expr {[dict get $phase_results playbook] ? "✅ Success" : "❌ Failed"}]
+    set archive_status [expr {[dict get $phase_results archive] ? "✅ Success" : "⚠️  Skipped/Failed"}]
+    set showtech_status [expr {[dict get $phase_results showtech] ? "✅ Success" : "❌ Failed"}]
+    puts "  Phase 1 (Playbook):  $playbook_status"
+    puts "  Phase 2 (Archive):   $archive_status"
+    puts "  Phase 3 (Showtech):  $showtech_status\n"
+    
+    return $phase_results
+}
+
+# Function to enter sysadmin mode
+proc enter_admin_mode {} {
+    global in_admin_mode
+    send "admin\r"
+    expect {
+        -re "sysadmin-vm:.*#" {
+            puts "Entered sysadmin mode"
+            set in_admin_mode 1
+        }
+        timeout {
+            puts "Failed to enter sysadmin mode"
+            exit 1
+        }
+    }
+}
+
+# Function to exit sysadmin mode
+proc exit_admin_mode {} {
+    global in_admin_mode
+    if {$in_admin_mode} {
+        send "exit\r"
+        expect {
+            -re "RP/.*#" {
+                puts "Exited sysadmin mode"
+            }
+            eof {
+                puts "Unexpected EOF during exit from sysadmin mode"
+            }
+        }
+        set in_admin_mode 0
+    }
+}
+
+# Function to display help information
+proc display_help {} {
+    puts "\nUsage: msft_collector \[options\] <hostname|hostname_file> <args>\n"
+    puts "Options:"
+    puts "  --list-playbooks"
+    puts "      List all available playbook files."
+    puts "  --playbook <playbook_name> <hostname|hostname_file> <sr_number> <cxd_token>"
+    puts "      Execute the specified playbook on one or more hostnames (a single hostname or a file with one hostname per line) using the provided SR number and CXD token."
+    puts "  --showtech <showtech_playbook> <hostname|hostname_file> <sr_number> <cxd_token>"
+    puts "      Run the showtech playbook on one or more hostnames (a single hostname or a file containing hostnames) using the provided SR number and CXD token."
+    puts "  --interactive <hostname|hostname_file> <sr_number> <cxd_token>"
+    puts "      Enter interactive mode for one or more hostnames (a single hostname or a hostname file) to execute commands directly."
+    puts "  --archive-log <hostname|hostname_file> <sr_number> <cxd_token>"
+    puts "      Archive logs from one or more hostnames (a single hostname or a file with hostnames) and upload them to the Cisco File Server."
+    puts "  --scan <hostname_file> <playbook_name> <sr_number> <cxd_token>"
+    puts "      Execute scan mode on a list of hostnames (one hostname per line) concurrently (up to 10 at a time) using the specified playbook."
+    puts "  --help, -h"
+    puts "      Display this help message.\n"
+    exit 1
+}
+# Function to list playbooks
+proc list_playbooks {} {
+    puts "Available playbooks:"
+    set directories {"fretta" "spitfire" "sonic"}  ;# Add directories as needed
+    foreach dir $directories {
+        puts "Directory: $dir"
+        set files [glob -nocomplain ${dir}/*.playbook ${dir}/*.showtech]
+        foreach file $files {
+            puts "  [file tail $file]"
+        }
+    }
+    exit 0
+}
+
+# Function to Identify platform type by retrieving version information.
+proc determine_playbook_file {playbook_name} {
+    # Identify platform type by retrieving version information.
+    set version_output [execute_command "show version" "\r\n.*:.*\\$ |\r\n.*#"]
+    
+    # Determine the correct playbook directory based on platform.
+    set platform "unknown"
+    set playbook_directory ""
+    if {[regexp {ncs5500} $version_output]} {
+        set platform "ncs5500"
+        set playbook_directory "fretta"
+        # Only run terminal length 0 on IOS XR platforms
+        execute_command "terminal length 0" "\r\n.*:.*\\$ |\r\n.*#"
+    } elseif {[regexp {8000} $version_output]} {
+        set platform "8000"
+        set playbook_directory "spitfire"
+        # Only run terminal length 0 on IOS XR platforms
+        execute_command "terminal length 0" "\r\n.*:.*\\$ |\r\n.*#"
+    } elseif {[regexp -nocase {sonic} $version_output]} {
+        set platform "sonic"
+        set playbook_directory "sonic"
+    } else {
+        puts "Unknown platform. Exiting..."
+        exit 1
+    }
+    
+    log_user 1
+
+    # Construct the full playbook path.
+    set playbook_file [file join $playbook_directory $playbook_name]
+
+    # Check if the playbook file exists and is non-empty.
+    if {![file exists $playbook_file] || [file size $playbook_file] == 0} {
+        puts "Playbook file $playbook_file is missing or empty!"
+        exit 1
+    }
+    return $playbook_file
+}
+
+# Function to extract arguments from the command line
+proc extract_arguments {argv_index argv_list} {
+    # Extract playbook name, hostname or hostname file, and other arguments from given argv list.
+    # Returns a list: {playbook_name hostnames sr_number cxd_token}
+    set playbook_name [lindex $argv_list 0]
+    set input_hostname [lindex $argv_list 1]
+    set hostnames {}
+    if {[file exists $input_hostname] && ![file isdirectory $input_hostname]} {
+        # Treat it as a file containing hostnames
+        set fh [open $input_hostname r]
+        set fileData [read $fh]
+        close $fh
+        regsub -all {\r} $fileData {} fileData
+        set all_hosts [split $fileData "\n"]
+        foreach host $all_hosts {
+            if {[string trim $host] ne ""} {
+                lappend hostnames $host
+            }
+        }
+    } else {
+        # Treat it as a single hostname
+        set hostnames [list $input_hostname]
+    }
+    set sr_number [lindex $argv_list 2]
+    set cxd_token [lindex $argv_list 3]
+    return [list $playbook_name $hostnames $sr_number $cxd_token]
+}
+
+# Main script execution
+if {[llength $argv] == 0 || [lindex $argv 0] == "--help" || [lindex $argv 0] == "-h"} {
+    display_help
+}
+
+# Check for --no-lc-fc-detection flag and remove it from argv if present
+set no_lc_fc_detection 0
+if {[lindex $argv 0] == "--no-lc-fc-detection"} {
+    set no_lc_fc_detection 1
+    set argv [lrange $argv 1 end]
+}
+
+# Check for --lcfc-prefix flag and remove it from argv if present
+set lcfc_prefix ""
+if {[lindex $argv 0] == "--lcfc-prefix"} {
+    set lcfc_prefix "LCFC-"
+    set argv [lrange $argv 1 end]
+}
+
+# Disable Output to the Screen
+log_user 0 
+
+set mode [lindex $argv 0]
+set argv [lrange $argv 1 end]
+
+if {$mode == "--interactive"} {
+    # Get the start time using Tcl's clock command
+    set start_time [clock seconds]
+
+    if {[llength $argv] != 3} {
+        puts "Error: Incorrect number of arguments for --interactive mode."
+        display_help
+    }
+
+    # Extract and validate argument for interactive mode
+    set input_hostname [lindex $argv 0]
+    set hostfile ""
+    if {[file exists $input_hostname] && ![file isdirectory $input_hostname]} {
+        # Treat it as a file containing hostnames
+        set hostfile $input_hostname
+    } else {
+        # Create a temporary file with the single hostname
+        set hostfile "/tmp/msft_collector_interactive_hosts_[clock seconds].txt"
+        set fh [open $hostfile w]
+        puts $fh $input_hostname
+        close $fh
+    }
+    set sr_number [lindex $argv 1]
+    set cxd_token [lindex $argv 2]
+
+    # List to store commands
+    set commands_list {}
+    # Note: Don't pre-add commands like "terminal length 0" as they may not work on all platforms (e.g., SONiC)
+
+    set timeout -1
+    
+    # Detect if stdin is a TTY (interactive) or piped/redirected (scriptable)
+    set is_tty [catch {exec test -t 0}]
+    set is_tty [expr {$is_tty == 0}]
+    
+    if {$is_tty} {
+        # ========== INTERACTIVE MODE (TTY) ==========
+        puts "\n================== Entering interactive mode. Type 'END' when you are finished. ================== \n"
+        puts "================== Press Ctrl+C at any time to exit command collection. ================== \n"
+        
+        # Save current terminal settings and configure for raw input
+        set stty_settings [exec stty -g]
+        exec stty raw -echo
+        
+        # Set up trap for Ctrl+C (SIGINT)
+        trap {
+            # Restore terminal settings on interrupt
+            exec stty $stty_settings
+            send_user "\n\n================== Interrupted by user (Ctrl+C). Exiting command collection. ================== \n\n"
+            # Clean up and exit
+            if {[info exists temp_playbook] && [file exists $temp_playbook]} {
+                file delete $temp_playbook
+            }
+            if {[info exists hostfile] && [file exists $hostfile]} {
+                file delete $hostfile
+            }
+            exit 0
+        } SIGINT
+        
+        # Collect commands from the user interactively
+        while {1} {
+            # Display custom prompt
+            send_user "\nMicrosoft Collector - Interactive> "
+            
+            # Read input character by character to handle backspace
+            set user_cmd ""
+            
+            while {1} {
+                expect_user -re "(.)" {
+                    set char $expect_out(1,string)
+                    scan $char %c ascii_val
+                    
+                    # Handle different key inputs
+                    if {$ascii_val == 3} {
+                        # Ctrl+C - exit gracefully
+                        exec stty $stty_settings
+                        send_user "\n\n================== Interrupted by user (Ctrl+C). Exiting command collection. ================== \n\n"
+                        exit 0
+                    } elseif {$ascii_val == 13 || $ascii_val == 10} {
+                        # Enter key
+                        send_user "\r\n"
+                        break
+                    } elseif {$ascii_val == 127 || $ascii_val == 8} {
+                        # Backspace (DEL=127 or BS=8)
+                        if {[string length $user_cmd] > 0} {
+                            # Remove last character from command
+                            set user_cmd [string range $user_cmd 0 end-1]
+                            # Visually erase the character (backspace, space, backspace)
+                            send_user "\b \b"
+                        }
+                    } elseif {$ascii_val == 27} {
+                        # Escape sequence (arrow keys, etc.) - ignore them
+                        # Read and discard the rest of the escape sequence
+                        expect_user -timeout 0.1 -re ".*" {}
+                    } elseif {$ascii_val >= 32 && $ascii_val < 127} {
+                        # Regular printable character
+                        append user_cmd $char
+                        send_user -- $char
+                    }
+                }
+            }
+
+            # Check for termination keywords (END or exit)
+            set trimmed_cmd [string trim $user_cmd]
+            if {$trimmed_cmd eq "END" || $trimmed_cmd eq "exit"} {
+                # Restore terminal settings before exiting
+                exec stty $stty_settings
+                puts "\n================== Exiting command collection. ================== \n"
+                break
+            }
+
+            # Add command to the list if it is not empty
+            if {$user_cmd ne ""} {
+                lappend commands_list $user_cmd
+            }
+        }
+    } else {
+        # ========== SCRIPTABLE MODE (PIPED/REDIRECTED) ==========
+        puts "\n================== Entering scriptable mode. Reading commands from stdin. ================== \n"
+        
+        # Read commands line-by-line from stdin
+        while {[gets stdin line] >= 0} {
+            set trimmed_line [string trim $line]
+            
+            # Skip empty lines and comments
+            if {$trimmed_line eq "" || [string index $trimmed_line 0] eq "#"} {
+                continue
+            }
+            
+            # Check for termination keywords (END or exit)
+            if {$trimmed_line eq "END" || $trimmed_line eq "exit"} {
+                puts "================== Reached END marker, stopping command collection. ================== \n"
+                break
+            }
+            
+            # Add command to the list
+            lappend commands_list $trimmed_line
+            puts "Collected command: $trimmed_line"
+        }
+        
+        puts "================== Finished reading [llength $commands_list] commands from stdin. ================== \n"
+    }
+
+    # Create a temporary playbook file with the collected commands
+    set temp_playbook "/tmp/msft_collector_interactive_playbook_[clock seconds].playbook"
+    set playbook_fh [open $temp_playbook w]
+    foreach cmd $commands_list {
+        puts $playbook_fh $cmd
+    }
+    close $playbook_fh
+    puts "================== Created temporary playbook: $temp_playbook =================="
+
+    # Copy the temporary playbook to all platform directories so it can be found
+    foreach dir {"fretta" "spitfire" "sonic"} {
+        if {[file exists $dir]} {
+            file copy -force $temp_playbook "$dir/[file tail $temp_playbook]"
+        }
+    }
+
+    # Record the current log files in the logs directory
+    set old_files [glob -nocomplain logs/*.log]
+    
+    # Read hostnames from the hostfile
+    set fh [open $hostfile r]
+    set fileData [read $fh]
+    close $fh
+    regsub -all {\r} $fileData {} fileData
+    set all_hosts [split $fileData "\n"]
+    set hostnames {}
+    foreach host $all_hosts {
+        if {[string trim $host] ne ""} {
+            lappend hostnames $host
+        }
+    }
+    
+    set date [exec date -u]
+    puts "======== $date ========"
+    
+    # Check if we have a single hostname or multiple
+    if {[llength $hostnames] == 1} {
+        # Single hostname - execute commands directly inline
+        set hostname [lindex $hostnames 0]
+        puts "======== Executing interactive commands directly on single host: $hostname ========"
+        
+        # Parse hostname and port if provided in format hostname:port
+        set ssh_port ""
+        set actual_hostname $hostname
+        if {[regexp {^(.+):([0-9]+)$} $hostname match host port]} {
+            set actual_hostname $host
+            set ssh_port $port
+            puts "================== Detected custom SSH port: $ssh_port ==================\n"
+        }
+        
+        # Store for later use in tarball naming
+        set interactive_hostname $actual_hostname
+        
+        # Set username from environment variable
+        set username $::env(USER)
+        set password_file [file join [file dirname [info script]] "secret"]
+        if {[file exists $password_file] && [file size $password_file] > 0} {
+            set password [exec cat $password_file]
+        } else {
+            puts "Password file is missing or empty!"
+            exit 1
+        }
+        
+        puts "DEBUG: Using username: '$username' and password from secret file"
+        
+        # Check connectivity before spawning SSH
+        puts "Checking connectivity to $actual_hostname..."
+        if {[catch {exec ping -c 1 -W 1 $actual_hostname}]} {
+            puts "✗ Device $actual_hostname is not reachable"
+            puts "Creating unreachable notification..."
+            upload_unreachable_notification $actual_hostname $sr_number $cxd_token "--interactive" "ping timeout"
+            
+            # Clean up temp files
+            if {[info exists temp_playbook] && [file exists $temp_playbook]} {
+                file delete $temp_playbook
+            }
+            if {[info exists hostfile] && [file exists $hostfile]} {
+                file delete $hostfile
+            }
+            exit 1
+        }
+        puts "✓ Device is reachable"
+        
+        # Setup logging
+        set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+        set log_file "logs/${actual_hostname}_${timestamp}.log"
+        set timeout 1200
+        log_file $log_file  ;# Start logging to file
+        log_user 1  ;# Enable output to screen and log file
+        puts "Log start time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
+        log_user 0  ;# Disable screen output during connection
+        
+        # SSH into the device
+        set port_info [expr {$ssh_port ne "" ? ":$ssh_port" : ""}]
+        puts "\n================== Opening SSH Connection to ${actual_hostname}${port_info} with user: $username ==================\n"
+        
+        if {$ssh_port ne ""} {
+            spawn ssh -o StrictHostKeyChecking=no -p $ssh_port $username@$actual_hostname
+        } else {
+            spawn ssh -o StrictHostKeyChecking=no $username@$actual_hostname
+        }
+        
+        log_user 0
+        #exp_internal 1
+        expect {
+            "assword:" {
+                puts "DEBUG: Password prompt detected, sending password..."
+                send [format "%s\r" $password]
+                puts "DEBUG: Password sent, waiting for response..."
+
+                expect {
+                    -re "(\\r\\n|\\r).*#\\s*$|(\\r\\n|\\r).*\\$\\s*$|:.*\\$\\s*$" {
+                        puts "================== Successfully connected to ${actual_hostname}${port_info} ==================\n"
+                        puts "DEBUG: Matched login prompt, buffer contents: $expect_out(buffer)"
+                    }
+                    -re "assword:" {
+                        puts "================== ERROR: Authentication failed - wrong password for user '$username' ==================\n"
+                        puts "DEBUG: Got second password prompt, which means authentication failed"
+                        exit 1
+                    }
+                    "Permission denied" {
+                        puts "================== ERROR: Permission denied for user '$username' ==================\n"
+                        exit 1
+                    }
+                    timeout {
+                        puts "================== ERROR: Timeout waiting for prompt after login ==================\n"
+                        exit 1
+                    }
+                }
+            }
+            "continue connecting" {
+                puts "DEBUG: Host key prompt detected"
+                send "yes\r"
+                exp_continue
+            }
+            timeout {
+                puts "Connection timed out for ${actual_hostname}${port_info}"
+                exit 1
+            }
+            eof {
+                puts "Connection failed for ${actual_hostname}${port_info}"
+                exit 1
+            }
+        }
+        exp_internal 0
+        
+        # Detect platform and set terminal length 0 for all Cisco platforms
+        log_user 0
+        puts "\nDEBUG: About to run 'show version' for platform detection..."
+        #exp_internal 1
+        execute_command "terminal length 0" "(\\r\\n|\\r).*#\\s*$|(\\r\\n|\\r).*\\$\\s*$|:.*\\$\\s*$"
+        set version_output [execute_command "show version" "(\\r\\n|\\r).*#\\s*$|(\\r\\n|\\r).*\\$\\s*$|:.*\\$\\s*$"]
+        exp_internal 0
+        puts "DEBUG: show version completed, output length: [string length $version_output]"
+        log_user 1
+        
+        # Stabilize input buffer after large output to prevent first-byte drop
+        after 500
+        
+        # Check if this is IOS-XR (not SONiC or NX-OS)
+        if {![regexp -nocase {sonic} $version_output] && ![regexp -nocase {NX-OS|Nexus} $version_output] && ([regexp {ncs5500} $version_output] || [regexp {8000} $version_output] 
+|| [regexp {IOS XR} $version_output])} {
+            puts "\n================== Detected IOS-XR platform, setting terminal length 0 ==================\n"
+            execute_command "terminal length 0" "(\\r\\n|\\r).*#\\s*$|(\\r\\n|\\r).*\\$\\s*$|:.*\\$\\s*$"
+        } else {
+            puts "\n================== Non-IOS-XR platform detected (SONiC/NX-OS/Nexus), skipping terminal length 0 ==================\n"
+        }
+        
+        # Execute each command from the temporary playbook
+        log_user 1  ;# Enable logging to capture command output
+        
+        set cmd_Fh [open $temp_playbook r]
+        while { [gets $cmd_Fh cmd_line] != -1 } {
+            if {[string trim $cmd_line] == "" || [string index $cmd_line 0] == "#"} {
+                continue
+            }
+            # Use end-of-line anchored prompt pattern to avoid premature matches
+            execute_command $cmd_line "(\\r\\n|\\r).*#\\s*$|(\\r\\n|\\r).*\\$\\s*$|:.*\\$\\s*$"
+        }
+        close $cmd_Fh
+ 
+  
+ 
+           
+        # Exit SSH session
+        send "exit\r"
+        expect eof
+        
+        # Write end time to log before closing
+        log_user 1
+        puts "Log end time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
+        log_user 0
+        log_file  ;# Close the log file
+        
+        puts "======== Interactive commands executed successfully on ${actual_hostname}${port_info} ========"
+        
+    } else {
+        # Multiple hostnames - use parallel execution
+        set interactive_cmd "cat $hostfile \| xargs -I {} -P 50 sh -c 'msft_collector --playbook-scan [file tail $temp_playbook] {} $sr_number $cxd_token'"
+        puts "======== Executing interactive commands in parallel on [llength $hostnames] hosts: $interactive_cmd ========"
+        
+        if {[catch {exec sh -c $interactive_cmd} output]} {
+            puts "Error details: $::errorInfo"
+        } else {
+            puts "Interactive mode output: $output"
+        }
+    }
+    
+    # Process results for log compression and transfer
+
+        # Include .log, .capture-packets-traps, and messages-LC* files in the `logs` directory
+        set new_files [concat \
+            [glob -nocomplain logs/*.log] \
+            [glob -nocomplain logs/*.capture-packets-traps] \
+            [glob -nocomplain logs/*messages-LC*] \
+        ]
+        # Determine only the new files by subtracting old_files from new_files
+        set diff_files {}
+        set capture_files_found 0 ;# Flag to check if capture files were created
+        foreach f $new_files {
+            if {[lsearch -exact $old_files $f] == -1} {
+                lappend diff_files $f
+                if {[regexp {capture-packets-traps$} $f]} {
+                    incr capture_files_found
+                }
+            }
+        }
+        
+        if {[llength $diff_files] > 0} {
+            # Create tarball with hostname and timestamp (matching log file format)
+            set tarball_timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+            if {[info exists interactive_hostname]} {
+                # Single hostname - use specific hostname
+                set tarball "${interactive_hostname}-interactive-${tarball_timestamp}.tar.gz"
+            } else {
+                # Multiple hostnames - use generic name
+                set tarball "interactive-session-[clock format [clock seconds] -format {%d-%b-%Y-%H%M%S}].tar.gz"
+            }
+            puts "======== Compressing [llength $diff_files] log file(s) into $tarball ========"
+            catch {exec tar -czf $tarball {*}$diff_files} tar_error
+            
+            # Check if tarball was actually created (ignore locale warnings in stderr)
+            if {[file exists $tarball]} {
+                puts "======== Successfully compressed logs into $tarball ========"
+                
+                # Transfer the tarball to the remote host
+                set transfer_success [transfer_log_file $tarball $sr_number $cxd_token]
+                if {$transfer_success} {
+                    # If the transfer succeeded, remove the local log and capture files
+                    foreach f $diff_files {
+                        if {[file exists $f]} {
+                            file delete $f
+                            puts "======== Local file $f removed after successful transfer. ========"
+                        }
+                    }
+                } else {
+                    puts "======== Transfer of $tarball failed; local file retained. ========"
+                    # Copy the tarball to the /tmp/cisco/ directory for backup
+                    if {![file exists "/tmp/cisco"]} {
+                        file mkdir "/tmp/cisco"
+                    }
+                    file copy -force $tarball "/tmp/cisco/"
+                    puts "======== Tarball $tarball copied to /tmp/cisco/ for backup. ========"
+                    # If the transfer failed, remove the local log and capture files
+                    foreach f $diff_files {
+                        if {[file exists $f]} {
+                            file delete $f
+                            puts "======== Local file $f Removed After Unsuccessful Transfer. ========"
+                        }
+                    }
+                }
+            } else {
+                puts "======== Error compressing logs: tar command failed ========"
+                if {[info exists tar_error] && $tar_error ne ""} {
+                    puts "======== Tar error: $tar_error ========"
+                }
+            }
+        } else {
+            puts "======== No new log files were generated during the interactive run. ========"
+        }
+
+    # Clean up temporary files (only in interactive mode)
+    if {[info exists temp_playbook] && [file exists $temp_playbook]} {
+        file delete $temp_playbook
+        puts "======== Removed temporary playbook: $temp_playbook ========"
+    }
+    # Clean up playbook copies from platform directories
+    if {[info exists temp_playbook]} {
+        foreach dir {"fretta" "spitfire" "sonic"} {
+            set dir_playbook "$dir/[file tail $temp_playbook]"
+            if {[file exists $dir_playbook]} {
+                file delete $dir_playbook
+                puts "======== Removed playbook copy: $dir_playbook ========"
+            }
+        }
+    }
+    if {[info exists input_hostname] && [info exists hostfile] && $input_hostname ne $hostfile && [file exists $hostfile]} {
+        file delete $hostfile
+        puts "======== Removed temporary hostfile: $hostfile ========"
+    }
+
+    # Get the end time
+    if {[info exists start_time]} {
+        set end_time [clock seconds]
+        # Calculate the duration in minutes and seconds
+        set duration [expr {$end_time - $start_time}]
+        set minutes [expr {$duration / 60}]
+        set seconds [expr {$duration % 60}]
+        puts "\n================== Interactive session completed in $minutes minutes and $seconds seconds. ==================\n"
+    }
+    exit 0
+
+
+    
+} elseif {$mode == "--list-playbooks"} {
+    list_playbooks
+} elseif {$mode == "--playbook"} {
+    if {[llength $argv] != 4} {
+        puts "Error: Incorrect number of arguments for --playbook mode."
+        display_help
+    }
+
+    # Extract arguments for playbook mode
+    set args [extract_arguments 0 $argv]
+    lassign $args playbook_name hostnames sr_number cxd_token
+
+    foreach hostname $hostnames {
+        # Ping the host to check reachability
+        if {[catch {exec ping -c 1 -W 1 $hostname} ping_output]} {
+            puts "================== Hostname $hostname is unreachable, skipping... ==================\n"
+            continue
+        }
+
+        # This function initializes the logging process by setting up necessary variables,
+        # generating a unique log file name, checking the password file, setting a timeout,
+        # and starting the logging process.
+        initialize_logging $hostname 0 $lcfc_prefix
+
+        puts "================== Log start time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]==================\n"
+
+        # Trim any empty lines from the file
+        if {[string trim $hostname] eq ""} {
+            continue
+        }
+
+        puts "\n================== Entering Playbook mode. Opening SSH Connection to $hostname. ================== \n"
+        log_user 0
+        # SSH into the IOS XR device with automatic host key acceptance
+        #Uncomment for production
+        spawn ssh -o StrictHostKeyChecking=no $username@$hostname
+        log_user 1
+    
+        expect {
+            "assword:" {
+                send [format "%s\r" $password]
+                expect -re ":.*\\$ |.*#"
+            }
+            timeout {
+                puts "Connection timed out for $hostname"
+                continue
+            }
+            eof {
+                puts "Connection failed for $hostname"
+                continue
+            }
+        }
+        log_user 0
+
+        # Identify platform type by running 'show version'
+        set playbook_file [determine_playbook_file $playbook_name]
+        
+        # ========== LC-FC SEQUENCE DETECTION ==========
+        # Check if this is the lc-fc.playbook - if so, trigger automated sequence
+        # But only if --no-lc-fc-detection flag is not set (to avoid infinite recursion)
+        global no_lc_fc_detection
+        if {$playbook_name eq "lc-fc.playbook" && !$no_lc_fc_detection} {
+            puts "\n════════════════════════════════════════════════════════════════"
+            puts " LC-FC PLAYBOOK DETECTED - Triggering Automated Sequence"
+            puts "════════════════════════════════════════════════════════════════\n"
+            
+            # Close the current SSH session - sequence will make subprocess calls
+            # Each subprocess will handle its own SSH connection
+            send "exit\r"
+            expect eof
+            log_file
+            
+            # Call the automated sequence (makes 3 subprocess calls)
+            set sequence_result [execute_lc_fc_sequence $hostname $sr_number $cxd_token]
+            
+            # Continue to next hostname
+            continue
+        }
+        
+        # ========== NORMAL PLAYBOOK EXECUTION ==========
+        # If not lc-fc.playbook, proceed with normal playbook processing
+        set cmd_Fh [open $playbook_file r]
+    
+        # Enable logging to capture command output to log file
+        log_user 1
+    
+        # Loop through each command in the playbook file
+        while { [gets $cmd_Fh cmd_line] != -1 } {
+            if {[string trim $cmd_line] == "" || [string index $cmd_line 0] == "#"} {
+                continue
+            }
+            execute_command $cmd_line ":.*\\$ |.*#"
+            # Check for admin command to switch modes
+        }
+        
+        # Disable logging for cleanup
+        log_user 0
+        # Close the playbook file
+        close $cmd_Fh
+        
+        # Exit the SSH session
+        send "exit\r"
+        expect eof
+    
+        # Log the end time and close the log file
+        puts "================== Log end time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}] ================== \n"
+        #close $log_file_handle
+        log_file
+    
+        # # This function transfers a log file to the Cisco File Server - cxd.cisco.com
+        # # Arguments:
+        # #   $log_file: The path to the log file that needs to be transferred.
+        # #   $sr_number: The service request number associated with the log file.
+        # #   $cxd_token: The authentication token required for the transfer.
+        set transfer_success [transfer_log_file $log_file $sr_number $cxd_token]
+        if {$transfer_success} {
+            # If the transfer succeeded, delete the local log file
+            if {[file exists $log_file]} {
+                file delete $log_file
+                puts "Local log file $log_file removed after successful transfer."
+            }
+        } else {
+            puts "Transfer of $log_file failed; local file retained."
+        }
+
+    }
+
+} elseif {$mode == "--playbook-scan"} {
+    if {[llength $argv] != 4} {
+        puts "Error: Incorrect number of arguments for --playbook mode."
+        display_help
+    }
+
+    # Extract arguments for playbook mode
+    set args [extract_arguments 0 $argv]
+    lassign $args playbook_name hostnames sr_number cxd_token
+
+    foreach hostname $hostnames {
+        # Initialize file_path variable
+        set file_path ""
+        
+        # Parse hostname and port if provided in format hostname:port
+        set ssh_port ""
+        set actual_hostname $hostname
+        if {[regexp {^(.+):([0-9]+)$} $hostname match host port]} {
+            set actual_hostname $host
+            set ssh_port $port
+            puts "================== Detected custom SSH port: $ssh_port ==================\n"
+        }
+        
+        # Ping the host to check reachability
+        if {[catch {exec ping -c 1 -W 1 $actual_hostname} ping_output]} {
+            puts "================== Hostname $hostname is unreachable, skipping... ==================\n"
+            continue
+        }
+
+        # This function initializes the logging process by setting up necessary variables,
+        # generating a unique log file name, checking the password file, setting a timeout,
+        # and starting the logging process.
+        initialize_logging $actual_hostname 1 $lcfc_prefix
+
+        puts "================== Log start time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]==================\n"
+
+        # Trim any empty lines from the file
+        if {[string trim $actual_hostname] eq ""} {
+            continue
+        }
+
+        set port_info [expr {$ssh_port ne "" ? ":$ssh_port" : ""}]
+        puts "\n================== Entering Playbook mode. Opening SSH Connection to ${actual_hostname}${port_info} with user: $username. ================== \n"
+        log_user 0
+        # SSH into the device with automatic host key acceptance
+        if {$ssh_port ne ""} {
+            spawn ssh -o StrictHostKeyChecking=no -p $ssh_port $username@$actual_hostname
+        } else {
+            spawn ssh -o StrictHostKeyChecking=no $username@$actual_hostname
+        }
+        log_user 1
+    
+        expect {
+            "assword:" {
+                send [format "%s\r" $password]
+                expect -re ":.*\\$ |.*#"  ;# Expect the full prompt
+            }
+            timeout {
+                puts "Connection timed out for ${actual_hostname}${port_info}"
+                continue
+            }
+            eof {
+                puts "Connection failed for ${actual_hostname}${port_info}"
+                continue
+            }
+        }
+
+        log_user 0
+        puts "DEBUG: About to determine playbook file..."
+
+        # Identify platform type by running 'show version'
+        log_user 1
+        puts "DEBUG: Running show version..."
+        set playbook_file [determine_playbook_file $playbook_name]
+        log_user 0
+        puts "DEBUG: Playbook file determined: $playbook_file"
+        set cmd_Fh [open $playbook_file r]
+        puts "DEBUG: Playbook file opened successfully"
+     
+        # Enable logging to capture command output to log file
+        log_user 1
+     
+        # # Loop through each command in the playbook file
+        while { [gets $cmd_Fh cmd_line] != -1 } {
+            if {[string trim $cmd_line] == "" || [string index $cmd_line 0] == "#"} {
+                continue
+            }
+
+            # If the command is a customized "show logging start" command,
+            # compute the adjusted timestamp and send the updated command.
+            if {[regexp {^show logging start} $cmd_line]} {
+                # Execute "show clock" to get the current date/time output.
+                set clock_output [execute_command "show clock" ":.*\\$ |.*#"]
+                # Example clock_output may look like:
+                # "Thu Jul 31 01:12:25.351 UTC\n01:12:25.374 UTC Thu Jul 31 2025\nRP/0/RP0/CPU0:8812-A#"
+                
+                # Split output into separate lines.
+                set clock_lines [split $clock_output "\n"]
+                set parsed 0
+                foreach line $clock_lines {
+                    # Look for a line that starts with two digits and a colon.
+                    if {[regexp {^([0-9]{2}):([0-9]{2}):([0-9]{2})\.[0-9]+\s+UTC\s+([A-Za-z]{3})\s+([A-Za-z]+)\s+([0-9]{1,2})\s+([0-9]{4})} $line match hour min sec weekday month 
+day year]} {
+                        set parsed 1
+                        break
+                    }
+                }
+                if {$parsed} {
+                    # Construct a date string (e.g. "Thu Jul 31 01:12:25 2025")
+                    set date_str "$weekday $month $day $hour:$min:$sec $year"
+                    # Convert to epoch seconds
+                    set epoch [clock scan $date_str]
+                    # Subtract 4 hours (14400 seconds)
+                    set new_epoch [expr {$epoch - 14400}]
+                    # Format new timestamp into "Month day HH:MM:SS" (e.g. "July 30 21:12:25")
+                    set four_hour_less_date [clock format $new_epoch -format {%B %d %H:%M:%S}]
+                    #puts "Computed adjusted command: show logging start $four_hour_less_date | exclude fib_mgr"
+                    set new_cmd "show logging start $four_hour_less_date |  exclude \"(-4-)|(-5-)|(-6-)\""
+                    send "$new_cmd\r"
+                    expect -re ":.*\\$ |.*#"
+                    continue
+                } else {
+                    puts "Failed to parse clock output: $clock_output"
+                    continue
+                }
+            }
+
+            # Check if the command is pd_aib_show_prod for PPDB collection
+            if {[regexp {^pd_aib_show_prod} $cmd_line]} {
+                # Process PPDB collection from all LCs
+                set ppdb_result [process_ppdb_collection $cmd_line ":.*\\$ |.*#" $actual_hostname]
+                
+                # If tarball was created, add to file transfer list
+                if {[llength $ppdb_result] == 2} {
+                    set file_path [lindex $ppdb_result 0]
+                    set ppdb_tarball_name [lindex $ppdb_result 1]
+                    puts "PPDB tarball ready for transfer: $file_path"
+                    
+                    # Ensure we're synced with the XR prompt after returning from PPDB collection
+                    send "\r"
+                    expect -re ":.*\\$ |.*#"
+                }
+                continue
+            }
+
+            # Check if the command is an SCP for messages (e.g. looking for "/var/log/messages" substring)
+            if {[regexp {^scp\s+.*\/var/log/messages} $cmd_line]} {
+                set lc_file [handle_scp_messages $cmd_line]
+                if {$lc_file ne ""} {
+                    lappend messages_LC_list $lc_file
+                    puts "Added $lc_file to messages_LC_list"
+                }
+                continue
+            } elseif {[regexp {show captured packets traps all location all \| file (.*)} $cmd_line match full_match file_path]} {
+                # Extract the file path portion
+                set file_path "/harddisk:/msft_collector_captured_packets"
+                set captured_packet_file [string trim $file_path]
+                #puts "Captured packet file path: $captured_packet_file"
+
+                #set prompt "RP/.*#"
+                set prompt ":.*\\$ |.*#"
+                set prompt_captured_packet "Save.*"
+                send "$cmd_line\r"
+
+                expect {
+                    -re "$prompt_captured_packet" {
+                        send "\r"
+                        expect -re "$prompt"
+                    }
+                                -re "$prompt" {
+                                    set output $expect_out(buffer)
+                                    set timestamp [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]
+                                    #send_user "\n$timestamp Command output captured...\n"
+                                    return $output
+                                }
+                                timeout {
+                                    puts "Command '$cmd_line' timed out"
+                                    continue
+                                }
+                                eof {
+                                    puts "Unexpected EOF while executing '$cmd_line'"
+                                    continue
+                                }
+                    }
+
+            } else {
+                    execute_command $cmd_line ":.*\\$ |.*#"
+                    #execute_command $cmd_line ":.*\\$ |#\nlogout\n.*#|.*#"
+            }
+
+        }
+
+        # Disable logging for cleanup
+        log_user 0
+        
+        # # Main loop: Process each command from the playbook file.
+        # while { [gets $cmd_Fh cmd_line] != -1 } {
+        #     if {[string trim $cmd_line] == "" || [string index $cmd_line 0] == "#"} {
+        #         continue
+        #     }
+        #     # Branch by command type.
+        #     if {[regexp {^show logging start} $cmd_line]} {
+        #         process_show_logging $cmd_line
+        #         continue
+        #     } elseif {[regexp {^scp\s+.*\/var/log/messages} $cmd_line]} {
+        #         process_scp_messages_cmd $cmd_line
+        #         continue
+        #     # } elseif {[regexp {show captured packets traps all location all \| file (.*)} $cmd_line]} {
+        #     } elseif {[regexp {show captured packets traps all location all \| file (.*)} $cmd_line match full_match file_path]} {
+        #         process_captured_packets $cmd_line $file_path
+        #         continue
+        #     } else {
+        #         execute_command $cmd_line ":.*\\$ |.*#"
+        #     }
+        # }
+
+        # # Close the playbook file
+        close $cmd_Fh
+       
+        # Exit the SSH session
+        send "exit\r"
+        expect eof
+
+        # Log the end time and close the log file
+        puts "================== Log end time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}] ================== \n"
+        #close $log_file_handle
+        log_file
+
+        # Generate a unique log file name based on the current timestamp
+        set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+        # Construct the destination file name with the timestamp
+        # Check if this is a PPDB tarball or captured packets file
+        if {$file_path != "" && [regexp {ppdb_prod_dump_all_lcs} $file_path]} {
+            # Extract timestamp from original tarball name and include hostname
+            if {[regexp {ppdb_prod_dump_all_lcs_(\d+_\d+)\.tar\.gz} $ppdb_tarball_name match orig_timestamp]} {
+                set destination_file "ppdb_prod_dump_all_lcs_${actual_hostname}.tar.gz"
+            } else {
+                set destination_file "ppdb_prod_dump_all_lcs_${actual_hostname}.tar.gz"
+            }
+        } else {
+            set destination_file "${actual_hostname}-${timestamp}.capture-packets-traps"
+        }
+        
+        if {$messages_LC_list != ""} {
+            set banner "Transferring messages-LC files from ${actual_hostname}${port_info} to SAW JumpServer:"
+            pull_out_file_from_device $banner $messages_LC_list $sr_number $cxd_token $actual_hostname $password $timestamp $ssh_port
+            # puts "\n================== Transferring messages-LC files from $hostname to SAW JumpServer: ================== \n"
+            # foreach lc_file $messages_LC_list {
+            #     spawn scp dangome2@$hostname:/harddisk:/$lc_file ./logs/
+            #     # Uncomment for production
+            #     #spawn scp -o StrictHostKeyChecking=no $username@$hostname:$lc_file ./logs/
+            #     expect {
+            #         "continue connecting (yes/no/\[fingerprint\])?" {
+            #             send "yes\r"
+            #             expect "assword:" { send "$password\r" }
+            #         }
+            #         "assword:" {
+            #             send "$password\r"
+            #         }
+            #         timeout {
+            #             puts "SCP from $hostname timed out"
+            #             continue
+            #         }
+            #         eof {
+            #             set scp_status [wait]
+            #             puts "\n================== SCP from $hostname terminated with status: $scp_status ==================\n"
+            #         }
+            #     }
+            #     expect eof
+            #     puts "\n================== SCP from $hostname completed successfully ==================\n"
+            # }
+        }
+
+        # After the loop, check if the file_path was extracted successfully
+        if {$file_path != ""} {
+            #puts "File path to be used for SCP: $file_path"
+            # You can now use this variable in the SCP operation later in the script
+            puts "\n================== Transferring file from ${actual_hostname}${port_info} to SAW JumpServer: $destination_file ================== \n"
+            #puts "DEBUG: SCP command will be: scp $username@$actual_hostname:$file_path ./logs/$destination_file"
+            if {$ssh_port ne ""} {
+                #puts "DEBUG: Using SSH port: $ssh_port"
+                spawn scp -P $ssh_port $username@$actual_hostname:$file_path ./logs/$destination_file
+            } else {
+                #puts "DEBUG: Using default SSH port"
+                spawn scp $username@$actual_hostname:$file_path ./logs/$destination_file
+            }
+            #puts "DEBUG: Waiting for SCP prompts..."
+            log_user 1
+            expect {
+                "continue connecting (yes/no/\[fingerprint\])?" {
+                    #puts "DEBUG: Got fingerprint prompt, sending yes"
+                    send "yes\r"
+                    exp_continue
+                }
+                "assword:" {
+                    #puts "DEBUG: Got password prompt, sending password"
+                    send [format "%s\r" $password]
+                    exp_continue
+                }
+                -re "No such file" {
+                    puts "ERROR: File not found on device: $file_path"
+                    catch {close}
+                    catch {wait}
+                }
+                timeout {
+                    puts "ERROR: SCP from ${actual_hostname}${port_info} timed out"
+                    catch {close}
+                    catch {wait}
+                }
+                eof {
+                    #puts "DEBUG: Got EOF, checking exit status"
+                    catch {wait} scp_status
+                    #puts "DEBUG: wait result: $scp_status"
+                    if {[llength $scp_status] >= 4} {
+                        set exit_code [lindex $scp_status 3]
+                        #puts "DEBUG: Exit code: $exit_code"
+                        
+                        # Check if file was actually transferred successfully
+                        if {[file exists "./logs/$destination_file"] && [file size "./logs/$destination_file"] > 0} {
+                            puts "\n================== SCP from ${actual_hostname}${port_info} completed successfully ==================\n"
+                            
+                            # Skip individual upload for PPDB files - they'll be bundled in --scan mode
+                            if {[regexp {ppdb} $destination_file]} {
+                                puts "PPDB tarball saved to logs/ directory (will be bundled in --scan mode)"
+                            }
+                        } elseif {$exit_code == 0} {
+                            puts "\n================== SCP from ${actual_hostname}${port_info} completed successfully ==================\n"
+                            
+                            # Skip individual upload for PPDB files - they'll be bundled in --scan mode
+                            if {[regexp {ppdb} $destination_file]} {
+                                puts "PPDB tarball saved to logs/ directory (will be bundled in --scan mode)"
+                            }
+                        } else {
+                            puts "\n================== SCP from ${actual_hostname}${port_info} failed with exit code: $exit_code ==================\n"
+                        }
+                    }
+                }
+            }
+            log_user 0            
+        } else {
+            #puts "No valid file path command found in the playbook"
+            continue  ;# Skip the SCP operation
+        }
+
+    }
+} elseif {$mode == "--showtech"} {
+    if {[llength $argv] != 4} {
+        puts "Error: Incorrect number of arguments for --showtech mode."
+        display_help
+    }
+
+    # Extract arguments for showtech mode
+    set showtech_playbook [lindex $argv 0]
+    set input_hostname [lindex $argv 1]
+    if {[file exists $input_hostname] && ![file isdirectory $input_hostname]} {
+        # Treat it as a file containing hostnames
+        set fileHandle [open $input_hostname r]
+        set fileData [read $fileHandle]
+        close $fileHandle
+        # Remove any carriage returns so we are left with Unix-style newlines
+        regsub -all {\r} $fileData {} fileData
+        set hostnames [split $fileData "\n"]
+    } else {
+        # Treat it as a single hostname
+        set hostnames [list $input_hostname]
+    }
+    set sr_number [lindex $argv 2]
+    set cxd_token [lindex $argv 3]
+    
+    foreach hostname $hostnames {
+        # Parse hostname and port if provided in format hostname:port
+        set ssh_port ""
+        set actual_hostname $hostname
+        if {[regexp {^(.+):([0-9]+)$} $hostname match host port]} {
+            set actual_hostname $host
+            set ssh_port $port
+            puts "================== Detected custom SSH port: $ssh_port ==================\n"
+        }
+        
+        # Ping the host to check reachability
+        if {[catch {exec ping -c 1 -W 1 $actual_hostname} ping_output]} {
+            puts "================== Hostname $actual_hostname is unreachable, skipping... ==================\n"
+            continue
+        }
+        
+        # This function initializes the logging process by setting up necessary variables,
+        # generating a unique log file name, checking the password file, setting a timeout,
+        # and starting the logging process.
+        initialize_logging $actual_hostname
+        
+        puts "================== Log start time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]==================\n"
+
+        # Trim any empty lines from the file
+        if {[string trim $actual_hostname] eq ""} {
+            continue
+        }
+        set port_info [expr {$ssh_port ne "" ? ":$ssh_port" : ""}]
+        puts "\n================== Entering Showtech mode. Opening SSH Connection to ${actual_hostname}${port_info}. ================== \n"
+        # SSH into the device with automatic host key acceptance
+        if {$ssh_port ne ""} {
+            spawn ssh -o StrictHostKeyChecking=no -p $ssh_port $username@$actual_hostname
+        } else {
+            spawn ssh -o StrictHostKeyChecking=no $username@$actual_hostname
+        }
+        log_user 1
+        expect {
+            "assword:" {
+                send [format "%s\r" $password]
+                expect -re ":.*\\$ |.*#"  ;# Expect flexible prompt for IOS XR and SONiC
+            }
+            timeout {
+                puts "Connection timed out for $hostname"
+                continue
+            }
+            eof {
+                puts "Connection failed for $hostname"
+                exit 1
+            }
+        }
+    
+        # Identify platform type - try show version first for all platforms
+        log_user 0
+        #exp_internal 1
+        set version_output [execute_command "show version" "(\\r\\n|\\r).*#\\s*$|(\\r\\n|\\r).*\\$\\s*$|:.*\\$\\s*$"]
+ 
+        
+        # If show version fails or returns empty, try IOS XR specific command
+        if {[string trim $version_output] eq "" || [regexp {Invalid|Unknown|command not found} $version_output]} {
+            set version_output [execute_command "show version | include ws" "\r\n.*:.*\\$ |\r\n.*#"]
+        }
+        log_user 1
+        
+        # Debug: Show what we captured
+        puts "\n================== DEBUG: Version output captured (first 500 chars): ==================\n"
+        puts [string range $version_output 0 500]
+        puts "\n================== END DEBUG ==================\n"
+    
+        # Determine the correct playbook directory based on platform
+        # IMPORTANT: Check SONiC first because it may contain "cisco-8000" in ASIC field
+        set platform "unknown"
+        set showtech_playbook_directory ""
+        if {[regexp -nocase {sonic} $version_output]} {
+            # Match sonic case-insensitively to catch SONiC, sonic, SONIC, etc.
+            set platform "sonic"
+            set showtech_playbook_directory "sonic"
+            puts "DEBUG: Matched sonic platform"
+        } elseif {[regexp {ncs5500} $version_output]} {
+            set platform "ncs5500"
+            set showtech_playbook_directory "fretta"
+            puts "DEBUG: Matched ncs5500 platform"
+        } elseif {[regexp {8000} $version_output]} {
+            set platform "8000"
+            set showtech_playbook_directory "spitfire"
+            puts "DEBUG: Matched 8000 platform"
+        } else {
+            puts "Unknown platform. Exiting..."
+            puts "DEBUG: Could not match platform in version output"
+            exit 1
+        }
+    
+        puts "Platform identified: $platform"
+        puts "Showtech directory: $showtech_playbook_directory"
+    
+        # Construct the full playbook path
+        set showtech_file [file join $showtech_playbook_directory $showtech_playbook]
+        puts "DEBUG: Full showtech file path: $showtech_file"
+    
+        # Check if the playbook file exists and has content
+        if {![file exists $showtech_file] || [file size $showtech_file] == 0} {
+            puts "Showtech file $showtech_file is missing or empty!"
+            exit 1
+        }
+        puts "DEBUG: Showtech file found and has content"
+     
+ 
+ 
+    
+        # Open the playbook file for reading
+        set cmd_Fh [open $showtech_file r]
+    
+        # List to store showtech file paths
+        set showtech_files {}
+    
+        # Loop through each showtech command in the showtech playbook file
+        while { [gets $cmd_Fh cmd_line] != -1 } {
+            if {[string trim $cmd_line] == "" || [string index $cmd_line 0] == "#"} {
+                continue
+            }
+    
+            # ==============================================================================
+            # NEW FEATURE: Fretta (NCS5500) Admin Show Tech Handling (No Admin Mode Entry)
+            # ==============================================================================
+            if {$platform eq "ncs5500" && [regexp {^admin show tech} $cmd_line]} {
+                puts "\n================== Executing Fretta Admin Show Tech: $cmd_line ==================\n"
+                
+                # 1. Execute the command from XR prompt
+                set showtech_output [execute_command $cmd_line "RP/.*#"]
+                
+                # 2. Parse the output for the Admin file path
+                # Pattern: Show tech output available at /misc/disk1//showtech/showtech-ctrace-admin-....tgz
+                if {[regexp {Show tech output available at (/misc/disk1/+/showtech/.*\.tgz)} $showtech_output match full_admin_path]} {
+                    set filename [file tail $full_admin_path]
+                    puts "Detected Admin File: $filename"
+                    puts "Full Admin Path: $full_admin_path"
+
+                    # 3. Determine Current RP Location for the Copy Command
+                    # We need to construct: location 0/RP0/CPU0/VM1
+                    # We can extract the current RP from the prompt in the output or previous context
+                    # Typical prompt: RP/0/RP0/CPU0:Host#
+                    set current_rp "0/RP0/CPU0" ;# Default fallback
+                    if {[regexp {RP/(0/RP[0-9]+/CPU0):} $showtech_output match rp_loc]} {
+                        set current_rp $rp_loc
+                    }
+                    puts "Targeting RP Location: $current_rp"
+
+                    # 4. Execute the Internal Copy (Admin VM -> XR VM)
+                    # Command: admin copy harddisk:showtech/<file> harddisk: location <RP>/VM1
+                    # Note: /misc/disk1/ in Admin output maps to 'harddisk:' in admin copy command context
+                    set copy_cmd "admin copy harddisk:showtech/$filename harddisk: location $current_rp/VM1"
+                    
+                    puts "\n================== Copying file to XR VM: $copy_cmd ==================\n"
+                    
+                    # Increase timeout for the copy operation (can be slow for large files)
+                    set old_timeout $timeout
+                    set timeout 600
+                    
+                    send "$copy_cmd\r"
+                    expect {
+                        -re "Destination file name" {
+                            # Handle confirmation prompt if it asks for filename
+                            send "\r"
+                            exp_continue
+                        }
+                        -re "overwrite" {
+                            # Handle overwrite prompt
+                            send "y\r"
+                            exp_continue
+                        }
+                        -re "RP/.*#" {
+                            puts "Copy command completed."
+                        }
+                        timeout {
+                            puts "Timeout waiting for copy command."
+                        }
+                    }
+                    set timeout $old_timeout
+
+                    # 5. Add the new XR path to the list for SCP download
+                    # The file is now at /harddisk:/<filename> on the XR VM
+                    set xr_file_path "/harddisk:/$filename"
+                    lappend showtech_files $xr_file_path
+                    puts "\n================== File ready for download: $xr_file_path ==================\n"
+                    
+                } else {
+                    puts "ERROR: Could not parse filename from Admin Show Tech output."
+                    puts "Output was: $showtech_output"
+                }
+
+            # Check for admin command to switch modes (IOS XR only)
+            } elseif {[string match "admin" $cmd_line]} {
+                enter_admin_mode
+            } elseif {$platform eq "8000" && [string trim $cmd_line] eq "show tech-support os file harddisk: background compressed"} {
+                # Special handling for OS showtech on Spitfire (8000 series) platform
+                puts "\n================== Detected OS showtech command for Spitfire platform ==================\n"
+                
+                # Generate timestamp for the command
+                set os_timestamp [generate_timestamp]
+                
+                # Execute OS showtech command and get log/tgz file paths + RP location
+                set file_paths [execute_os_showtech_command $os_timestamp "RP/.*#"]
+                
+                if {[llength $file_paths] == 3} {
+                    set log_file_path [lindex $file_paths 0]
+                    set tgz_file_path [lindex $file_paths 1]
+                    set active_rp [lindex $file_paths 2]
+                    
+                    puts "Using RP location from showtech output: $active_rp"
+                    
+                    # Monitor log file for completion (pass active_rp for attach location)
+                    set completion_success [monitor_os_showtech_completion $log_file_path $tgz_file_path "RP/.*#" $active_rp]
+                    
+                    if {$completion_success} {
+                        # Add the tgz file to the list for transfer
+                        lappend showtech_files $tgz_file_path
+                        puts "\n================== OS showtech file added to transfer list: $tgz_file_path ==================\n"
+                    } else {
+                        puts "\n================== OS showtech monitoring failed or timed out, skipping file transfer ==================\n"
+                    }
+                } else {
+                    puts "\nERROR: Failed to execute OS showtech command or extract file paths\n"
+                }
+            } else {
+                # Execute command with appropriate prompt based on platform and mode
+                if {$in_admin_mode} {
+                    set showtech_output [execute_command $cmd_line "sysadmin-vm:.*#"]
+                } elseif {$platform eq "sonic"} {
+                    # Use long-running command handler for SONiC show techsupport
+                    set showtech_output [execute_sonic_long_command $cmd_line "\r\n.*:.*\\$ |\r\n.*#"]
+                } else {
+                    set showtech_output [execute_command $cmd_line "RP/.*#"]
+                }
+    
+                # Extract the showtech file path using platform-specific regex
+                set file_found 0
+                
+                # Debug: Show last 500 chars of output
+                # puts "\n================== Command output (last 500 chars): ==================\n"
+                # puts [string range $showtech_output end-500 end]
+                # puts "\n================== End of output ==================\n"
+                
+                # IOS XR pattern
+                if {[regexp {Show tech output available at .* : (.*\.tgz)} $showtech_output match showtech_file]} {
+                    puts "\n================== Show tech file located at: $showtech_file ==================\n "
+                    lappend showtech_files $showtech_file
+                    set file_found 1
+                }
+                
+                # SONiC pattern: /var/dump/sonic_dump_<HOSTNAME>_YYYYMMDD_HHMMSS.tar.gz
+                # Note: Hostname can contain alphanumeric, hyphens, and underscores
+                if {!$file_found && [regexp {(/var/dump/sonic_dump_[A-Za-z0-9_-]+_[0-9]+_[0-9]+\.tar\.gz)} $showtech_output match showtech_file]} {
+                    puts "\n================== Show tech file located at: $showtech_file ==================\n "
+                    lappend showtech_files $showtech_file
+                    set file_found 1
+                }
+ 
+ 
+                
+                if {!$file_found && !($platform eq "ncs5500" && [regexp {^admin show tech} $cmd_line])} {
+                    puts "Failed to locate show tech file path."
+                    puts "Full output length: [string length $showtech_output] characters"
+                    exit 1
+                }
+            }
+        }
+    
+        # Close the playbook file
+        close $cmd_Fh
+        # Exit sysadmin mode if necessary
+        exit_admin_mode
+    
+        # Exit the SSH session
+        send "exit\r"
+        expect eof
+
+        # Log the end time and close the log file
+        puts "================== Log end time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}] ================== \n"
+        #close $log_file_handle
+        log_file
+        
+        # SCP each show tech file from router to local
+        foreach file $showtech_files {
+            puts "\n================== Transferring ShowTech file from $actual_hostname to SAW JumpServer: $file ================== \n"
+            if {$ssh_port ne ""} {
+                spawn scp -P $ssh_port $username@$actual_hostname:$file ./showtechs
+            } else {
+                spawn scp $username@$actual_hostname:$file ./showtechs
+            }
+            expect {
+                "continue connecting (yes/no/\[fingerprint\])?" {
+                    send "yes\r"
+                    expect "assword:" { send [format "%s\r" $password] }
+                    # expect "assword:" { send "$tester\r" }
+                }
+                "assword:" {
+                    send [format "%s\r" $password]
+                    # send "tester\r"
+                }
+                timeout {
+                    puts "SCP from $hostname timed out"
+                    continue
+                }
+                eof {
+                    puts "\n================== SCP from $hostname completed successfully ==================\n"
+                }
+            }
+            expect eof
+        }
+    
+        # Transfer each show tech file to Cisco File Server using curl and cleanup after success
+        foreach file $showtech_files {
+            puts "\n================== Transferring ShowTech file to Cisco File Server - cxd.cisco.com: $file ================== \n"
+            # Use file join to ensure correct path handling
+            set local_file_path [file join ./showtechs [file tail $file]]
+            
+            # Transfer to Cisco File Server using curl
+            set transfer_success [transfer_log_file $local_file_path $sr_number $cxd_token]
+            
+            if {$transfer_success} {
+                # Delete local showtech file only after successful upload
+                if {[file exists $local_file_path]} {
+                    file delete $local_file_path
+                    puts "\n================== Local showtech file $local_file_path removed after successful transfer. ==================\n"
+                }
+            } else {
+                puts "\n================== Transfer of $local_file_path failed; local file retained in ./showtechs/ ==================\n"
+            }
+        }
+    }
+} elseif {$mode == "--archive-log"} {
+    if {[llength $argv] != 3} {
+        puts "Error: Incorrect number of arguments for --archive-log mode."
+        display_help
+    }
+
+    # Extract arguments for archive-log mode (now supports hostname file)
+    set input_hostname [lindex $argv 0]
+    set sr_number [lindex $argv 1]
+    set cxd_token [lindex $argv 2]
+    
+    # Parse input - check if it's a file or single hostname
+    set hostnames {}
+    if {[file exists $input_hostname] && ![file isdirectory $input_hostname]} {
+        # Treat it as a file containing hostnames
+        set fh [open $input_hostname r]
+        set fileData [read $fh]
+        close $fh
+        regsub -all {\r} $fileData {} fileData
+        set all_hosts [split $fileData "\n"]
+        foreach host $all_hosts {
+            if {[string trim $host] ne ""} {
+                lappend hostnames $host
+            }
+        }
+    } else {
+        # Treat it as a single hostname
+        set hostnames [list $input_hostname]
+    }
+
+    # Loop through each hostname
+    foreach hostname $hostnames {
+        # Ping the host to check reachability
+        if {[catch {exec ping -c 1 -W 1 $hostname} ping_output]} {
+            puts "================== Hostname $hostname is unreachable, skipping... ==================\n"
+            continue
+        }
+
+        set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+
+        # This function initializes the logging process by setting up necessary variables,
+        # generating a unique log file name, checking the password file, setting a timeout,
+        # and starting the logging process.
+        initialize_logging $hostname
+
+        puts "\n================== Entering Archive Log mode. Opening SSH Connection to $hostname. ================== \n"
+        # SSH into the IOS XR device with automatic host key acceptance
+        spawn ssh -o StrictHostKeyChecking=no $username@$hostname
+        log_user 1
+        expect {
+            "assword:" {
+                send [format "%s\r" $password]
+                expect -re "RP/.*#"  ;# Expect the full prompt
+            }
+            timeout {
+                puts "Connection timed out for $hostname"
+                continue
+            }
+            eof {
+                puts "Connection failed for $hostname"
+                continue
+            }
+        }
+
+        # Execute the command and capture the output
+        set archive_log [execute_command "show running-config formal logging archive device harddisk" "RP/.*#"]
+
+        # Check if "logging archive" feature is present, if not skip to next host
+        if {[regexp {.*device.*} $archive_log]} {
+            # Get the Active RP of current node
+            set redundancy_output [execute_command "show redundancy | include \"Redundancy information for node 0/\"" "RP/.*#"]
+            # Extract the active RP value from the output
+            regexp {Redundancy information for node (0/RP[0-9]/CPU[0-9])} $redundancy_output match active_rp
+
+            execute_command "attach location $active_rp" ".*#"
+            
+            # Get current year dynamically instead of hardcoded 2025
+            set current_year [clock format [clock seconds] -format {%Y}]
+            
+            # Check if the log directory for current year exists and has actual log files
+            set year_log_path "/harddisk:/var/log/$current_year/"
+            
+            # Use find with -quit to exit immediately if any file is found (more efficient than head)
+            set dir_check [execute_command "find $year_log_path -type f -print -quit" ".*#"]
+            set dir_check_clean [string trim $dir_check]
+            
+            # Debug output
+            puts "\n================== File check result (length: [string length $dir_check_clean]): '$dir_check_clean' ==================\n"
+            
+            # If no output or only whitespace, skip archive creation
+            if {$dir_check_clean eq "" || [string length $dir_check_clean] == 0} {
+                puts "\n================== No log files found in $year_log_path - skipping archive creation ==================\n"
+                puts "Archive Log is not configured or no logs available for year $current_year"
+                send "exit\r"
+                expect -re $prompt
+                continue
+            }
+            
+            # Count files instead of listing all (to avoid expect buffer issues)
+            set file_count [execute_command "find $year_log_path -type f | wc -l" "#"]
+            puts "\n================== Total files in $year_log_path: [string trim $file_count] ==================\n"
+            
+            set archive_file "archive_log-$hostname-$timestamp.tgz"
+            
+            # Use absolute path without -C to avoid issues with empty subdirectories
+            # tar will handle the directory structure and strip leading / automatically
+            execute_command "LOGPATH=/harddisk:/var/log/$current_year/" "#"
+            
+            # Execute tar with extended timeout for large archives
+            puts "\n================== Creating archive (this may take 2-5 minutes for large log directories)... ==================\n"
+            global timeout
+            set old_tar_timeout $timeout
+            set timeout 600  ;# 10 minutes for tar compression
+            
+            send "tar zcf /harddisk:/$archive_file \$LOGPATH\r"
+            expect {
+                -re "\r\n#" {
+                    puts "\n================== Tar command completed ==================\n"
+                }
+                timeout {
+                    puts "\n================== WARNING: Tar command timed out after $timeout seconds ==================\n"
+                }
+            }
+            
+            set timeout $old_tar_timeout
+            
+            # Verify the archive was created and has reasonable size
+            set verify_output [execute_command "ls -lh /harddisk:/$archive_file" ".*#"]
+            puts "\n================== Archive file created: ==================\n$verify_output\n"
+            
+            # List contents of the archive to verify what was included
+            # set archive_contents [execute_command "tar tzf /harddisk:/$archive_file | head -50" ".*#"]
+            # puts "\n================== First 50 files in archive: ==================\n$archive_contents\n"
+
+            puts "\n================== Transferring Archive-Logs Tarball file from $hostname to SAW JumpServer ================== \n"
+            
+            # Save the SSH spawn_id before SCP (which will create a new spawn_id)
+            set ssh_spawn_id $spawn_id
+            
+            set scp_success 0
+            set max_scp_retries 3
+            set scp_retry_delay 5
+            
+            for {set scp_attempt 1} {$scp_attempt <= $max_scp_retries} {incr scp_attempt} {
+                puts "SCP transfer attempt $scp_attempt of $max_scp_retries..."
+                
+                # Note: SCP runs from local machine, so use /harddisk: path (XR context)
+                set scp_spawn_id [spawn scp -o StrictHostKeyChecking=no $username@$hostname:/harddisk:/$archive_file ./logs]
+                
+                set scp_failed 0
+                expect {
+                    "continue connecting (yes/no/\[fingerprint\])?" {
+                        send "yes\r"
+                        exp_continue
+                    }
+                    "assword:" {
+                        send [format "%s\r" $password]
+                        exp_continue
+                    }
+                    "Connection reset by peer" {
+                        puts "\n================== ERROR: Connection reset by peer during SCP transfer ==================\n"
+                        set scp_failed 1
+                        catch {close}
+                        catch {wait}
+                    }
+                    "Connection closed" {
+                        puts "\n================== ERROR: Connection closed during SCP transfer ==================\n"
+                        set scp_failed 1
+                        catch {close}
+                        catch {wait}
+                    }
+                    timeout {
+                        puts "\n================== ERROR: SCP from $hostname timed out ==================\n"
+                        set scp_failed 1
+                        catch {close}
+                        catch {wait}
+                    }
+
+                    eof {
+                        # Check the exit status
+                        catch {wait} wait_result
+                        if {[llength $wait_result] >= 4} {
+                            set exit_status [lindex $wait_result 3]
+                            # Note: Exit status 1 is often a false positive due to banner messages
+                            # If we reached EOF without explicit errors, the transfer likely succeeded
+                            # Verify by checking if the local file exists and has content
+                            set local_archive_path "./logs/$archive_file"
+                            if {[file exists $local_archive_path] && [file size $local_archive_path] > 0} {
+                                puts "\n================== File transfer from $hostname completed successfully (exit status: $exit_status) ==================\n"
+                                set scp_success 1
+                            } else {
+                                puts "\n================== ERROR: SCP exited with status $exit_status and file not found or empty ==================\n"
+                                set scp_failed 1
+                            }
+                        }
+                    }
+                }
+ 
+                
+                # If successful, break out of retry loop
+                if {$scp_success} {
+                    break
+                }
+                
+                # If failed and more retries available, wait before retrying
+                if {$scp_failed && $scp_attempt < $max_scp_retries} {
+                    puts "================== Retrying SCP transfer in $scp_retry_delay seconds... ==================\n"
+                    sleep $scp_retry_delay
+                }
+            }
+
+            # Only proceed with curl transfer if SCP was successful
+            if {$scp_success} {
+                # This function transfers the archive-log file to the Cisco File Server - cxd.cisco.com using curl.
+                set transfer_success [transfer_log_file "logs/$archive_file" $sr_number $cxd_token]
+                if {$transfer_success} {
+                    # If the transfer succeeded, delete the local archive file
+                    if {[file exists "logs/$archive_file"]} {
+                        file delete "logs/$archive_file"
+                        puts "Local archive file logs/$archive_file removed after successful transfer."
+                    }
+                } else {
+                    puts "Transfer of logs/$archive_file to remote host failed; local file retained."
+                }
+            } else {
+                puts "\n================== ERROR: Skipping remote transfer due to SCP failure ==================\n"
+                puts "Archive file remains on device at /harddisk:/$archive_file"
+                puts "Continuing to next host...\n"
+            }
+            
+            # Restore the SSH spawn_id before sending exit
+            set spawn_id $ssh_spawn_id
+            
+            # Exit the bash shell (from attach location) first
+            send "exit\r"
+            expect -re "RP/.*#"
+
+        } else {
+            puts "Archive Log is not configured on this device, skipping to next host..."
+        }
+        
+        # Close SSH session for this host (now spawn_id is correctly set to SSH)
+        send "exit\r"
+        expect eof
+        log_file
+    }
+} elseif {$mode == "--scan"} {
+    # Get the start time using Tcl's clock command
+    set start_time [clock seconds]
+
+    if {[llength $argv] != 4} {
+        puts "Error: Incorrect number of arguments for --scan mode."
+        display_help
+    } else {
+        # Record the current log files in the logs directory
+        set old_files [glob -nocomplain logs/*.log]
+        
+        set hostfile [lindex $argv 0]
+        set playbook [lindex $argv 1]
+        set sr_number [lindex $argv 2]
+        set cxd_token [lindex $argv 3]
+        set date [exec date -u]
+        # Build the scan command that will call msft_collector --playbook for each hostname
+        set scan_cmd "cat $hostfile \| xargs -I {} -P 50 sh -c 'msft_collector --playbook-scan $playbook {} $sr_number $cxd_token'"
+        puts "======== $date ========\n======== Executing scan command: $scan_cmd ========"
+        
+        # Execute the scan command and capture output
+        # Note: SSH sessions closing normally may cause non-zero exit codes, which is expected
+        if {[catch {exec sh -c $scan_cmd} output]} {
+            # Check if this is a real error or just normal subprocess termination
+            if {![string match "*child process exited abnormally*" $::errorInfo]} {
+                puts "Unexpected error during scan: $::errorInfo"
+            }
+        }
+        # Always process results, even if some subprocesses exited with non-zero status
+        puts "Scan execution completed, processing results..."
+        
+        # Include .log, .capture-packets-traps, messages-LC*, and PPDB files in the `logs` directory
+        set new_files [concat \
+            [glob -nocomplain logs/*.log] \
+            [glob -nocomplain logs/*.capture-packets-traps] \
+            [glob -nocomplain logs/*messages-LC*] \
+            [glob -nocomplain logs/ppdb_prod_dump_all_lcs_*.tar.gz] \
+        ]
+            # Determine only the new files by subtracting old_files from new_files
+            set diff_files {}
+            set capture_files_found 0 ;# Flag to check if capture files were created
+            foreach f $new_files {
+                if {[lsearch -exact $old_files $f] == -1} {
+                    lappend diff_files $f
+                    if {[regexp {capture-packets-traps$} $f]} {
+                        incr capture_files_found
+                    }
+                }
+            }
+            
+            if {[llength $diff_files] > 0} {
+                # Check if any capture files were created
+                if {$capture_files_found == 0} {
+                    #puts "Warning: No capture-packets-traps files were created during the scan."
+                }
+                
+                 # Compress only the new log files into a tarball
+                #set tarball "${playbook}-[clock format [clock seconds] -format {%d-%b-%Y}].tar.gz"
+                # Use descriptive name for PPDB collections
+                if {[regexp {ppdb} $playbook]} {
+                    set tarball "ppdb_prod_dump_all_hosts_[clock format [clock seconds] -format {%Y%m%d_%H%M%S}].tar.gz"
+                } else {
+                    set tarball "${playbook}-[clock format [clock seconds] -format {%d-%b-%Y-%H%M%S}].tar.gz"
+                }
+                if {[catch {exec tar -czvf $tarball {*}$diff_files} tar_output]} {
+                    # Check if tarball was created despite error message (e.g., locale warnings)
+                    if {![file exists $tarball] || [file size $tarball] == 0} {
+                        puts "======== Error compressing new scan logs: $tar_output ========"
+                    } else {
+                        puts "======== New scan logs have been compressed into $tarball (with warnings: $tar_output) ========"
+                        
+                        # Transfer the tarball to the remote host
+                        set transfer_success [transfer_log_file $tarball $sr_number $cxd_token]
+                        if {$transfer_success} {
+                            # If the transfer succeeded, remove the local log and capture files
+                            foreach f $diff_files {
+                                if {[file exists $f]} {
+                                    file delete $f
+                                    puts "======== Local file $f removed after successful transfer. ========"
+                                }
+                            }
+                        } else {
+                            puts "======== Transfer of $tarball failed; local file retained. ========"
+                            # Copy the tarball to the /tmp/cisco/ directory for backup
+                            if {![file exists "/tmp/cisco"]} {
+                                file mkdir "/tmp/cisco"
+                            }
+                            file copy -force $tarball "/tmp/cisco/"
+                            puts "======== Tarball $tarball copied to /tmp/cisco/ for backup. ========"
+                            # If the transfer failed, remove the local log and capture files
+                            foreach f $diff_files {
+                                if {[file exists $f]} {
+                                    file delete $f
+                                    puts "======== Local file $f Removed After Unsuccessful Transfer. ========"
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    puts "======== New scan logs have been compressed into $tarball ========"
+                    
+                    # Transfer the tarball to the remote host
+                    set transfer_success [transfer_log_file $tarball $sr_number $cxd_token]
+                    if {$transfer_success} {
+                        # If the transfer succeeded, remove the local log and capture files
+                        foreach f $diff_files {
+                            if {[file exists $f]} {
+                                file delete $f
+                                puts "======== Local file $f removed after successful transfer. ========"
+                            }
+                        }
+                    } else {
+                        puts "======== Transfer of $tarball failed; local file retained. ========"
+                        # Copy the tarball to the /tmp/cisco/ directory for backup
+                        if {![file exists "/tmp/cisco"]} {
+                            file mkdir "/tmp/cisco"
+                        }
+                        file copy -force $tarball "/tmp/cisco/"
+                        puts "======== Tarball $tarball copied to /tmp/cisco/ for backup. ========"
+                        # If the transfer failed, remove the local log and capture files
+                        foreach f $diff_files {
+                            if {[file exists $f]} {
+                                file delete $f
+                                puts "======== Local file $f Removed After Unsuccessful Transfer. ========"
+                            }
+                        }
+                    }
+                }
+            } else {
+                puts "======== No new log files were generated during the scan run. ========"
+            }
+    }
+    # Get the end time
+    set end_time [clock seconds]
+    # Calculate the duration in minutes and seconds
+    set duration [expr {$end_time - $start_time}]
+    set minutes [expr {$duration / 60}]
+    set seconds [expr {$duration % 60}]
+    puts "\n================== Scan completed in $minutes minutes and $seconds seconds. ==================\n"
+    exit 0
+
+} else {
+    puts "Invalid mode specified. Use --list-playbooks, --playbook, --showtech, --interactive or --archive-log."
+    exit 1
+}

@@ -1,0 +1,9 @@
+show tech-support spi
+show tech-support cpa
+show tech-support fabric
+show tech-support install
+show tech-support os file harddisk: background compressed
+show tech ctrace
+show tech ofa
+show tech optics
+show tech sysdb

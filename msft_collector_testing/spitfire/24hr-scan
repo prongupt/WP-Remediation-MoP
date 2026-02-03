@@ -1,0 +1,404 @@
+show platform
+show controllers fourHundredGige *
+show controllers fourHundredGige * stats
+show controllers fabric health 
+show controllers fabric plane all statistics detail 
+show controllers fabric link port fia rx down
+show controllers fabric link port s1 rx down
+show controllers npu link-info rx 0 255 flap instance all location all | ex "0        0       0       0"
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/2/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/3/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/4/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/5/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/6/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/7/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/8/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/9/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/10/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/11/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/12/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/13/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/14/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/15/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/16/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/17/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/2/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/3/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/4/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/5/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/6/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/7/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/8/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/9/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/10/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/11/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/12/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/13/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/14/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/15/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/16/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/17/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/2/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/3/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/4/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/5/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/6/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/7/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/8/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/9/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/10/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/11/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/12/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/13/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/14/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/15/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/16/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/17/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 3" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 4" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 5" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 6" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 7" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 8" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 9" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 10" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 11" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 12" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 13" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 14" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 15" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 16" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 17" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 18" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 19" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 20" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 21" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 22" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 23" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 24" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 25" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 26" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 27" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 28" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 29" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 30" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 31" location 0/RP0/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 0" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 1" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 2" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 3" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 4" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 5" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 6" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 7" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 8" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 9" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 10" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 11" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 12" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 13" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 14" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 15" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 16" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 17" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 18" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 19" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 20" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 21" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 22" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 23" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 24" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 25" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 26" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 27" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 28" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 29" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 30" location 0/RP1/CPU0
+show controllers npu proc-cmd "pd fabinfo unit 31" location 0/RP1/CPU0
+show policy-map interface all
+show lacp counters
+show controllers npu resources all location all 
+show controllers switch statistics location 0/0/CPU0
+show controllers switch statistics location 0/1/CPU0
+show controllers switch statistics location 0/2/CPU0
+show controllers switch statistics location 0/3/CPU0
+show controllers switch statistics location 0/4/CPU0
+show controllers switch statistics location 0/5/CPU0
+show controllers switch statistics location 0/6/CPU0
+show controllers switch statistics location 0/7/CPU0
+show controllers switch statistics location 0/8/CPU0
+show controllers switch statistics location 0/9/CPU0
+show controllers switch statistics location 0/10/CPU0
+show controllers switch statistics location 0/11/CPU0
+show controllers switch statistics location 0/12/CPU0
+show controllers switch statistics location 0/13/CPU0
+show controllers switch statistics location 0/14/CPU0
+show controllers switch statistics location 0/15/CPU0
+show controllers switch statistics location 0/16/CPU0
+show controllers switch statistics location 0/17/CPU0
+show controllers switch statistics location 0/RP1/CPU0
+show controllers switch statistics location 0/RP0/CPU0
+show health gsp 
+show context location all
+show bcdlv2 consumers
+show alarms brief system active 
+show media location all
+show shelfmgr history oir
+show config failed startup 
+show config failed inheritance 
+show config commit changes last 5
+show cef ipv6 retry-db location 0/0/CPU0
+show cef ipv6 retry-db location 0/1/CPU0
+show cef ipv6 retry-db location 0/2/CPU0
+show cef ipv6 retry-db location 0/3/CPU0
+show cef ipv6 retry-db location 0/4/CPU0
+show cef ipv6 retry-db location 0/5/CPU0
+show cef ipv6 retry-db location 0/6/CPU0
+show cef ipv6 retry-db location 0/7/CPU0
+show cef ipv6 retry-db location 0/8/CPU0
+show cef ipv6 retry-db location 0/9/CPU0
+show cef ipv6 retry-db location 0/10/CPU0
+show cef ipv6 retry-db location 0/11/CPU0
+show cef ipv6 retry-db location 0/12/CPU0
+show cef ipv6 retry-db location 0/13/CPU0
+show cef ipv6 retry-db location 0/14/CPU0
+show cef ipv6 retry-db location 0/15/CPU0
+show cef ipv6 retry-db location 0/16/CPU0
+show cef ipv6 retry-db location 0/17/CPU0
+show cef ipv4 retry-db location 0/0/CPU0
+show cef ipv4 retry-db location 0/1/CPU0
+show cef ipv4 retry-db location 0/2/CPU0
+show cef ipv4 retry-db location 0/3/CPU0
+show cef ipv4 retry-db location 0/4/CPU0
+show cef ipv4 retry-db location 0/5/CPU0
+show cef ipv4 retry-db location 0/6/CPU0
+show cef ipv4 retry-db location 0/7/CPU0
+show cef ipv4 retry-db location 0/8/CPU0
+show cef ipv4 retry-db location 0/9/CPU0
+show cef ipv4 retry-db location 0/10/CPU0
+show cef ipv4 retry-db location 0/11/CPU0
+show cef ipv4 retry-db location 0/12/CPU0
+show cef ipv4 retry-db location 0/13/CPU0
+show cef ipv4 retry-db location 0/14/CPU0
+show cef ipv4 retry-db location 0/15/CPU0
+show cef ipv4 retry-db location 0/16/CPU0
+show cef ipv4 retry-db location 0/17/CPU0
+show bgp sessions not-established
+show bgp neighbors
+show bgp ipv4 unicast process detail performance-statistics
+show bgp ipv6 unicast process detail performance-statistics
+show bgp ipv4 unicast update-group  performance-statistics
+show bgp ipv6 unicast update-group  performance-statistics
+show bgp neighbors performance-statistics
+show oor interface summary
+show adjacency ipv4 location 0/0/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/1/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/2/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/3/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/4/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/5/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/6/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/7/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/8/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/9/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/10/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/11/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/12/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/13/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/14/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/15/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/16/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/17/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/0/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/1/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/2/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/3/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/4/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/5/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/6/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/7/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/8/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/9/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/10/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/11/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/12/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/13/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/14/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/15/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/16/CPU0 | ex "src|Interface" | utility wc -l
+show adjacency ipv4 location 0/17/CPU0 | ex "src|Interface" | utility wc -l
+show route vrf all ipv4 summary
+show route vrf all ipv6 summary
+show cef vrf all ipv4 summary
+show cef vrf all ipv6 summary
+show controllers npu stats voq ingress interface all instance all location all | in "TC_|Location|Interface Name" | ex "0               0               0               0"
+show controllers npu stats asic-counters instance 0 location 0/0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/2/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/3/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/4/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/5/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/6/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/7/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/8/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/9/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/10/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/11/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/12/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/13/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/14/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/15/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/16/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/17/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/2/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/3/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/4/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/5/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/6/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/7/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/8/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/9/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/10/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/11/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/12/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/13/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/14/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/15/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/16/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/17/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/2/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/3/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/4/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/5/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/6/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/7/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/8/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/9/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/10/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/11/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/12/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/13/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/14/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/15/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/16/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/17/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 0 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 1 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 2 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 3 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 3 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 4 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 4 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 5 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 5 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 6 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 6 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 7 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 7 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 8 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 8 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 9 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 9 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 10 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 10 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 11 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 11 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 12 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 12 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 13 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 13 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 14 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 14 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 15 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 15 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 16 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 16 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 17 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 17 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 18 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 18 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 19 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 19 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 20 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 20 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 21 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 21 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 22 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 22 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 23 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 23 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 24 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 24 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 25 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 25 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 26 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 26 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 27 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 27 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 28 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 28 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 29 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 29 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 30 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 30 location 0/rp1/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 31 location 0/rp0/cpu0 | inc dmc.pier
+show controllers npu stats asic-counters instance 31 location 0/rp1/cpu0 | inc dmc.pier
+show environment all
+show rib clients redistribution history all
+attach location 0/RP0/CPU0
+cd /harddisk:/
+cp /var/log/messages ./messages-RP0
+scp 172.0.0.1:/var/log/messages ./messages-LC0
+ls -lh messages-LC0
+scp 172.0.1.1:/var/log/messages ./messages-LC1
+ls -lh messages-LC1
+scp 172.0.2.1:/var/log/messages ./messages-LC2
+ls -lh messages-LC2
+scp 172.0.3.1:/var/log/messages ./messages-LC3
+ls -lh messages-LC3
+scp 172.0.4.1:/var/log/messages ./messages-LC4
+ls -lh messages-LC4
+scp 172.0.5.1:/var/log/messages ./messages-LC5
+ls -lh messages-LC5
+scp 172.0.6.1:/var/log/messages ./messages-LC6
+ls -lh messages-LC6
+scp 172.0.7.1:/var/log/messages ./messages-LC7
+ls -lh messages-LC7
+scp 172.0.8.1:/var/log/messages ./messages-LC8
+ls -lh messages-LC8
+scp 172.0.9.1:/var/log/messages ./messages-LC9
+ls -lh messages-LC9
+scp 172.0.10.1:/var/log/messages ./messages-LC10
+ls -lh messages-LC10
+scp 172.0.11.1:/var/log/messages ./messages-LC11
+ls -lh messages-LC11
+scp 172.0.12.1:/var/log/messages ./messages-LC12
+ls -lh messages-LC12
+scp 172.0.13.1:/var/log/messages ./messages-LC13
+ls -lh messages-LC13
+scp 172.0.14.1:/var/log/messages ./messages-LC14
+ls -lh messages-LC14
+scp 172.0.15.1:/var/log/messages ./messages-LC15
+ls -lh messages-LC15
+scp 172.0.16.1:/var/log/messages ./messages-LC16
+ls -lh messages-LC16
+scp 172.0.17.1:/var/log/messages ./messages-LC17
+ls -lh messages-LC17
+exit
+exit

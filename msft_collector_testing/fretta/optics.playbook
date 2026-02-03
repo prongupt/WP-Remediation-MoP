@@ -1,0 +1,7 @@
+terminal length 0
+show controllers Optics *
+show controllers Optics * summary
+show controllers tenGigE *
+show controllers FortyGigE *
+show controllers HundredGigE *
+show running formal

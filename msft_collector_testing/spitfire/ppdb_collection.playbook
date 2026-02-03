@@ -1,0 +1,2 @@
+show ppinfo producer trace all location all
+pd_aib_show_prod -P0

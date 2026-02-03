@@ -1,0 +1,12 @@
+terminal length 0
+show version
+show platform
+show im database brief location all
+show im status brief
+show im status detail
+show interfaces brief
+show interfaces
+show controllers optics *
+show controllers fabric health
+show controllers fabric fsdb-pla rack 0
+show logging start today | ex "mka|sshd|macsec|SSHD|MKA"

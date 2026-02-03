@@ -1,0 +1,9 @@
+show tech-support fabric
+show tech-support optics
+show tech-support platform-fwd
+show tech-support pfi
+show tech-support ofa
+show tech-support interface
+show tech-support ethernet interfaces
+show tech ethernet controllers
+show tech-support bundles

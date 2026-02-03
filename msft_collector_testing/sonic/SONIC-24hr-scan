@@ -1,0 +1,36 @@
+show clock
+show platform inventory
+show environment
+show platform psustatus
+show platform fan
+show platform temperature
+show system-memory
+show interfaces transceiver presence
+show interfaces status
+show interfaces transceiver error-status
+show interfaces autoneg status
+show interfaces transceiver status
+show interface counters
+show interfaces transceiver eeprom -d
+show reboot-cause history
+show queue counters --nonzero
+show pfc counters
+show drop counters count
+show buffer_pool watermark
+show queue watermark unicast
+show priority-group watermark shared
+mmuconfig -l
+ecnconfig -l
+show pfcwd stat
+show pfcwd config
+show version 
+show feature status 
+show processes cpu 
+show tacacs 
+show interfaces portchannel 
+show ip route summary 
+show ip bgp summary 
+show ip bgp neighbors
+show platform voltage
+show platform current
+show clock

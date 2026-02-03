@@ -1,0 +1,43 @@
+show running-config
+show inventory all
+show install active summary 
+show platform 
+show hw-module fpd
+show interface brief
+show controllers npu debugshell 0 "script sf_port_tc_max_delay" location all:f
+show controllers npu debugshell 0 "script sf_rxcgm_hist2 true" location all
+show controllers npu debugshell 0 "script sf_lathist2 all" location all
+show controllers npu debugshell 0 "script exec_sdk_api oq_debug" location all
+show controllers npu debugshell 1 "script exec_sdk_api oq_debug" location all
+show controllers npu debugshell 2 "script exec_sdk_api oq_debug" location all
+show controllers npu driver location all
+show version
+show controllers fabric fsdb-pla rack 0
+show controllers fabric link port fia rx all
+show controllers fabric link port s1 rx all
+show shelfmgr history oir
+show alarms brief system active | in FT
+show environment all location 0/FT0
+show environment all location 0/FT1
+show environment all location 0/FT2
+show environment all location 0/FT3
+show asic-errors all detail location  0/0/CPU0
+show asic-errors all detail location  0/1/CPU0
+show asic-errors all detail location  0/2/CPU0
+show asic-errors all detail location  0/3/CPU0
+show asic-errors all detail location  0/4/CPU0
+show asic-errors all detail location  0/5/CPU0
+show asic-errors all detail location  0/6/CPU0
+show asic-errors all detail location  0/7/CPU0
+show asic-errors all detail location  0/8/CPU0
+show asic-errors all detail location  0/9/CPU0
+show asic-errors all detail location  0/10/CPU0
+show asic-errors all detail location  0/11/CPU0
+show asic-errors all detail location  0/12/CPU0
+show asic-errors all detail location  0/13/CPU0
+show asic-errors all detail location  0/14/CPU0
+show asic-errors all detail location  0/15/CPU0
+show asic-errors all detail location  0/16/CPU0
+show asic-errors all detail location  0/17/CPU0
+show asic-errors all detail location  0/RP0/CPU0
+show asic-errors all detail location  0/RP1/CPU0

@@ -1,0 +1,69 @@
+show bcdlv2 producer-view basic
+show bcdlv2 update-groups tabular
+show watchdog memory-state location all 
+show process cpu location all | inc CPU 
+show captured packets traps all location all | file harddisk:msft_collector_captured_packets
+show controllers npu stats traps-all instance all location all | excl "0                    0"
+show asic-errors all summary location 0/0/CPU0
+show asic-errors all summary location 0/1/CPU0
+show asic-errors all summary location 0/2/CPU0
+show asic-errors all summary location 0/3/CPU0
+show asic-errors all summary location 0/4/CPU0
+show asic-errors all summary location 0/5/CPU0
+show asic-errors all summary location 0/6/CPU0
+show asic-errors all summary location 0/7/CPU0
+show asic-errors all summary location 0/8/CPU0
+show asic-errors all summary location 0/9/CPU0
+show asic-errors all summary location 0/10/CPU0
+show asic-errors all summary location 0/11/CPU0
+show asic-errors all summary location 0/12/CPU0
+show asic-errors all summary location 0/13/CPU0
+show asic-errors all summary location 0/14/CPU0
+show asic-errors all summary location 0/15/CPU0
+show asic-errors all summary location 0/16/CPU0
+show asic-errors all summary location 0/17/CPU0
+show asic-errors all summary location 0/RP0/CPU0
+show asic-errors all summary location 0/RP1/CPU0
+show interfaces * location 0/5/cpu0
+show interfaces * location 0/6/cpu0
+show interfaces * location 0/8/cpu0
+show interfaces * location 0/9/cpu0
+show interfaces * location 0/16/cpu0
+show interfaces * location 0/17/cpu0
+show drops all location 0/0/CPU0
+show drops all location 0/1/CPU0
+show drops all location 0/2/CPU0
+show drops all location 0/3/CPU0
+show drops all location 0/4/CPU0
+show drops all location 0/5/CPU0
+show drops all location 0/6/CPU0
+show drops all location 0/7/CPU0
+show drops all location 0/8/CPU0
+show drops all location 0/9/CPU0
+show drops all location 0/10/CPU0
+show drops all location 0/11/CPU0
+show drops all location 0/12/CPU0
+show drops all location 0/13/CPU0
+show drops all location 0/14/CPU0
+show drops all location 0/15/CPU0
+show drops all location 0/16/CPU0
+show drops all location 0/17/CPU0
+show ofa resources all optimize location 0/0/CPU0
+show ofa resources all optimize location 0/1/CPU0
+show ofa resources all optimize location 0/2/CPU0
+show ofa resources all optimize location 0/3/CPU0
+show ofa resources all optimize location 0/4/CPU0
+show ofa resources all optimize location 0/5/CPU0
+show ofa resources all optimize location 0/6/CPU0
+show ofa resources all optimize location 0/7/CPU0
+show ofa resources all optimize location 0/8/CPU0
+show ofa resources all optimize location 0/9/CPU0
+show ofa resources all optimize location 0/10/CPU0
+show ofa resources all optimize location 0/11/CPU0
+show ofa resources all optimize location 0/12/CPU0
+show ofa resources all optimize location 0/13/CPU0
+show ofa resources all optimize location 0/14/CPU0
+show ofa resources all optimize location 0/15/CPU0
+show ofa resources all optimize location 0/16/CPU0
+show ofa resources all optimize location 0/17/CPU0
+show logging |  exclude "(-4-)|(-5-)|(-6-)"

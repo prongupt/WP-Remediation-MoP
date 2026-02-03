@@ -1,0 +1,17 @@
+terminal length 0
+show version
+show inventory
+show diag
+show logging | ex "mka\|SSHD\|LOGIN\|LOGOUT\|PTICS\|ptics\|bgp\|PORT\_STATE\|Bundle\|undred"
+show running formal
+show install active summary
+show context
+show proc blocked location all
+show controllers fabric plane all
+show controllers fabric link port s1 rx all | exc NC
+show controllers npu driver location all
+show controllers npu resources all location al
+show controllers npu voq-usage interface all instance all location all 
+show environment all
+show hw-module fpd
+show fpd package detail

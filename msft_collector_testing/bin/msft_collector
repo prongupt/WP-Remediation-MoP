@@ -2580,26 +2580,26 @@ day year]} {
                 puts "\n================== No log files found in $year_log_path - skipping archive creation ==================\n"
                 puts "Archive Log is not configured or no logs available for year $current_year"
                 send "exit\r"
-                expect -re $prompt
+                expect -re ".*#"
                 continue
             }
-            
+
             # Count files instead of listing all (to avoid expect buffer issues)
             set file_count [execute_command "find $year_log_path -type f | wc -l" "#"]
             puts "\n================== Total files in $year_log_path: [string trim $file_count] ==================\n"
-            
+
             set archive_file "archive_log-$hostname-$timestamp.tgz"
-            
+
             # Use absolute path without -C to avoid issues with empty subdirectories
             # tar will handle the directory structure and strip leading / automatically
             execute_command "LOGPATH=/harddisk:/var/log/$current_year/" "#"
-            
+
             # Execute tar with extended timeout for large archives
             puts "\n================== Creating archive (this may take 2-5 minutes for large log directories)... ==================\n"
             global timeout
             set old_tar_timeout $timeout
             set timeout 600  ;# 10 minutes for tar compression
-            
+
             send "tar zcf /harddisk:/$archive_file \$LOGPATH\r"
             expect {
                 -re "\r\n#" {
@@ -2609,32 +2609,28 @@ day year]} {
                     puts "\n================== WARNING: Tar command timed out after $timeout seconds ==================\n"
                 }
             }
-            
+
             set timeout $old_tar_timeout
-            
+
             # Verify the archive was created and has reasonable size
             set verify_output [execute_command "ls -lh /harddisk:/$archive_file" ".*#"]
             puts "\n================== Archive file created: ==================\n$verify_output\n"
-            
-            # List contents of the archive to verify what was included
-            # set archive_contents [execute_command "tar tzf /harddisk:/$archive_file | head -50" ".*#"]
-            # puts "\n================== First 50 files in archive: ==================\n$archive_contents\n"
 
             puts "\n================== Transferring Archive-Logs Tarball file from $hostname to SAW JumpServer ================== \n"
-            
+
             # Save the SSH spawn_id before SCP (which will create a new spawn_id)
             set ssh_spawn_id $spawn_id
-            
+
             set scp_success 0
             set max_scp_retries 3
             set scp_retry_delay 5
-            
+
             for {set scp_attempt 1} {$scp_attempt <= $max_scp_retries} {incr scp_attempt} {
                 puts "SCP transfer attempt $scp_attempt of $max_scp_retries..."
-                
+
                 # Note: SCP runs from local machine, so use /harddisk: path (XR context)
                 set scp_spawn_id [spawn scp -o StrictHostKeyChecking=no $username@$hostname:/harddisk:/$archive_file ./logs]
-                
+
                 set scp_failed 0
                 expect {
                     "continue connecting (yes/no/\[fingerprint\])?" {
@@ -2683,13 +2679,13 @@ day year]} {
                         }
                     }
                 }
- 
-                
+
+
                 # If successful, break out of retry loop
                 if {$scp_success} {
                     break
                 }
-                
+
                 # If failed and more retries available, wait before retrying
                 if {$scp_failed && $scp_attempt < $max_scp_retries} {
                     puts "================== Retrying SCP transfer in $scp_retry_delay seconds... ==================\n"
@@ -2715,10 +2711,10 @@ day year]} {
                 puts "Archive file remains on device at /harddisk:/$archive_file"
                 puts "Continuing to next host...\n"
             }
-            
+
             # Restore the SSH spawn_id before sending exit
             set spawn_id $ssh_spawn_id
-            
+
             # Exit the bash shell (from attach location) first
             send "exit\r"
             expect -re "RP/.*#"
@@ -2726,7 +2722,7 @@ day year]} {
         } else {
             puts "Archive Log is not configured on this device, skipping to next host..."
         }
-        
+
         # Close SSH session for this host (now spawn_id is correctly set to SSH)
         send "exit\r"
         expect eof
@@ -2742,7 +2738,7 @@ day year]} {
     } else {
         # Record the current log files in the logs directory
         set old_files [glob -nocomplain logs/*.log]
-        
+
         set hostfile [lindex $argv 0]
         set playbook [lindex $argv 1]
         set sr_number [lindex $argv 2]
@@ -2751,7 +2747,7 @@ day year]} {
         # Build the scan command that will call msft_collector --playbook for each hostname
         set scan_cmd "cat $hostfile \| xargs -I {} -P 50 sh -c 'msft_collector --playbook-scan $playbook {} $sr_number $cxd_token'"
         puts "======== $date ========\n======== Executing scan command: $scan_cmd ========"
-        
+
         # Execute the scan command and capture output
         # Note: SSH sessions closing normally may cause non-zero exit codes, which is expected
         if {[catch {exec sh -c $scan_cmd} output]} {
@@ -2762,7 +2758,7 @@ day year]} {
         }
         # Always process results, even if some subprocesses exited with non-zero status
         puts "Scan execution completed, processing results..."
-        
+
         # Include .log, .capture-packets-traps, messages-LC*, and PPDB files in the `logs` directory
         set new_files [concat \
             [glob -nocomplain logs/*.log] \
@@ -2781,13 +2777,13 @@ day year]} {
                     }
                 }
             }
-            
+
             if {[llength $diff_files] > 0} {
                 # Check if any capture files were created
                 if {$capture_files_found == 0} {
                     #puts "Warning: No capture-packets-traps files were created during the scan."
                 }
-                
+
                  # Compress only the new log files into a tarball
                 #set tarball "${playbook}-[clock format [clock seconds] -format {%d-%b-%Y}].tar.gz"
                 # Use descriptive name for PPDB collections
@@ -2802,7 +2798,7 @@ day year]} {
                         puts "======== Error compressing new scan logs: $tar_output ========"
                     } else {
                         puts "======== New scan logs have been compressed into $tarball (with warnings: $tar_output) ========"
-                        
+
                         # Transfer the tarball to the remote host
                         set transfer_success [transfer_log_file $tarball $sr_number $cxd_token]
                         if {$transfer_success} {
@@ -2832,7 +2828,7 @@ day year]} {
                     }
                 } else {
                     puts "======== New scan logs have been compressed into $tarball ========"
-                    
+
                     # Transfer the tarball to the remote host
                     set transfer_success [transfer_log_file $tarball $sr_number $cxd_token]
                     if {$transfer_success} {

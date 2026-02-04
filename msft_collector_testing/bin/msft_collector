@@ -2492,15 +2492,14 @@ day year]} {
         display_help
     }
 
-    # Extract arguments for archive-log mode (now supports hostname file)
+    # Extract arguments for archive-log mode
     set input_hostname [lindex $argv 0]
     set sr_number [lindex $argv 1]
     set cxd_token [lindex $argv 2]
-    
+
     # Parse input - check if it's a file or single hostname
     set hostnames {}
     if {[file exists $input_hostname] && ![file isdirectory $input_hostname]} {
-        # Treat it as a file containing hostnames
         set fh [open $input_hostname r]
         set fileData [read $fh]
         close $fh
@@ -2512,7 +2511,6 @@ day year]} {
             }
         }
     } else {
-        # Treat it as a single hostname
         set hostnames [list $input_hostname]
     }
 
@@ -2526,19 +2524,15 @@ day year]} {
 
         set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
 
-        # This function initializes the logging process by setting up necessary variables,
-        # generating a unique log file name, checking the password file, setting a timeout,
-        # and starting the logging process.
         initialize_logging $hostname
 
         puts "\n================== Entering Archive Log mode. Opening SSH Connection to $hostname. ================== \n"
-        # SSH into the IOS XR device with automatic host key acceptance
         spawn ssh -o StrictHostKeyChecking=no $username@$hostname
         log_user 1
         expect {
             "assword:" {
                 send [format "%s\r" $password]
-                expect -re "RP/.*#"  ;# Expect the full prompt
+                expect -re "RP/.*#"
             }
             timeout {
                 puts "Connection timed out for $hostname"
@@ -2550,55 +2544,54 @@ day year]} {
             }
         }
 
+        # ==============================================================================
+        # CRITICAL FIX: Force infinite width to prevent line wrapping ($) in screen sessions
+        # ==============================================================================
+        send "terminal length 0\r"
+        expect -re "RP/.*#"
+        send "terminal width 0\r"
+        expect -re "RP/.*#"
+        # ==============================================================================
+
         # Execute the command and capture the output
         set archive_log [execute_command "show running-config formal logging archive device harddisk" "RP/.*#"]
 
-        # Check if "logging archive" feature is present, if not skip to next host
+        # Check if "logging archive" feature is present
         if {[regexp {.*device.*} $archive_log]} {
             # Get the Active RP of current node
             set redundancy_output [execute_command "show redundancy | include \"Redundancy information for node 0/\"" "RP/.*#"]
-            # Extract the active RP value from the output
             regexp {Redundancy information for node (0/RP[0-9]/CPU[0-9])} $redundancy_output match active_rp
 
             execute_command "attach location $active_rp" ".*#"
-            
-            # Get current year dynamically instead of hardcoded 2025
+
             set current_year [clock format [clock seconds] -format {%Y}]
-            
-            # Check if the log directory for current year exists and has actual log files
             set year_log_path "/harddisk:/var/log/$current_year/"
-            
-            # Use find with -quit to exit immediately if any file is found (more efficient than head)
+
+            # Use find with -quit to exit immediately if any file is found
             set dir_check [execute_command "find $year_log_path -type f -print -quit" ".*#"]
             set dir_check_clean [string trim $dir_check]
-            
-            # Debug output
-            puts "\n================== File check result (length: [string length $dir_check_clean]): '$dir_check_clean' ==================\n"
-            
+
             # If no output or only whitespace, skip archive creation
             if {$dir_check_clean eq "" || [string length $dir_check_clean] == 0} {
                 puts "\n================== No log files found in $year_log_path - skipping archive creation ==================\n"
                 puts "Archive Log is not configured or no logs available for year $current_year"
                 send "exit\r"
-                expect -re ".*#"
+                expect -re "RP/.*#"
                 continue
             }
 
-            # Count files instead of listing all (to avoid expect buffer issues)
+            # Count files
             set file_count [execute_command "find $year_log_path -type f | wc -l" "#"]
             puts "\n================== Total files in $year_log_path: [string trim $file_count] ==================\n"
 
             set archive_file "archive_log-$hostname-$timestamp.tgz"
 
-            # Use absolute path without -C to avoid issues with empty subdirectories
-            # tar will handle the directory structure and strip leading / automatically
             execute_command "LOGPATH=/harddisk:/var/log/$current_year/" "#"
 
-            # Execute tar with extended timeout for large archives
             puts "\n================== Creating archive (this may take 2-5 minutes for large log directories)... ==================\n"
             global timeout
             set old_tar_timeout $timeout
-            set timeout 600  ;# 10 minutes for tar compression
+            set timeout 600
 
             send "tar zcf /harddisk:/$archive_file \$LOGPATH\r"
             expect {
@@ -2612,15 +2605,13 @@ day year]} {
 
             set timeout $old_tar_timeout
 
-            # Verify the archive was created and has reasonable size
+            # Verify the archive
             set verify_output [execute_command "ls -lh /harddisk:/$archive_file" ".*#"]
             puts "\n================== Archive file created: ==================\n$verify_output\n"
 
             puts "\n================== Transferring Archive-Logs Tarball file from $hostname to SAW JumpServer ================== \n"
 
-            # Save the SSH spawn_id before SCP (which will create a new spawn_id)
             set ssh_spawn_id $spawn_id
-
             set scp_success 0
             set max_scp_retries 3
             set scp_retry_delay 5
@@ -2628,7 +2619,6 @@ day year]} {
             for {set scp_attempt 1} {$scp_attempt <= $max_scp_retries} {incr scp_attempt} {
                 puts "SCP transfer attempt $scp_attempt of $max_scp_retries..."
 
-                # Note: SCP runs from local machine, so use /harddisk: path (XR context)
                 set scp_spawn_id [spawn scp -o StrictHostKeyChecking=no $username@$hostname:/harddisk:/$archive_file ./logs]
 
                 set scp_failed 0
@@ -2659,18 +2649,13 @@ day year]} {
                         catch {close}
                         catch {wait}
                     }
-
                     eof {
-                        # Check the exit status
                         catch {wait} wait_result
                         if {[llength $wait_result] >= 4} {
                             set exit_status [lindex $wait_result 3]
-                            # Note: Exit status 1 is often a false positive due to banner messages
-                            # If we reached EOF without explicit errors, the transfer likely succeeded
-                            # Verify by checking if the local file exists and has content
                             set local_archive_path "./logs/$archive_file"
                             if {[file exists $local_archive_path] && [file size $local_archive_path] > 0} {
-                                puts "\n================== File transfer from $hostname completed successfully (exit status: $exit_status) ==================\n"
+                                puts "\n================== File transfer from $hostname completed successfully ==================\n"
                                 set scp_success 1
                             } else {
                                 puts "\n================== ERROR: SCP exited with status $exit_status and file not found or empty ==================\n"
@@ -2680,25 +2665,17 @@ day year]} {
                     }
                 }
 
+                if {$scp_success} { break }
 
-                # If successful, break out of retry loop
-                if {$scp_success} {
-                    break
-                }
-
-                # If failed and more retries available, wait before retrying
                 if {$scp_failed && $scp_attempt < $max_scp_retries} {
                     puts "================== Retrying SCP transfer in $scp_retry_delay seconds... ==================\n"
                     sleep $scp_retry_delay
                 }
             }
 
-            # Only proceed with curl transfer if SCP was successful
             if {$scp_success} {
-                # This function transfers the archive-log file to the Cisco File Server - cxd.cisco.com using curl.
                 set transfer_success [transfer_log_file "logs/$archive_file" $sr_number $cxd_token]
                 if {$transfer_success} {
-                    # If the transfer succeeded, delete the local archive file
                     if {[file exists "logs/$archive_file"]} {
                         file delete "logs/$archive_file"
                         puts "Local archive file logs/$archive_file removed after successful transfer."
@@ -2712,10 +2689,7 @@ day year]} {
                 puts "Continuing to next host...\n"
             }
 
-            # Restore the SSH spawn_id before sending exit
             set spawn_id $ssh_spawn_id
-
-            # Exit the bash shell (from attach location) first
             send "exit\r"
             expect -re "RP/.*#"
 
@@ -2723,12 +2697,10 @@ day year]} {
             puts "Archive Log is not configured on this device, skipping to next host..."
         }
 
-        # Close SSH session for this host (now spawn_id is correctly set to SSH)
         send "exit\r"
         expect eof
         log_file
-    }
-} elseif {$mode == "--scan"} {
+    }} elseif {$mode == "--scan"} {
     # Get the start time using Tcl's clock command
     set start_time [clock seconds]
 

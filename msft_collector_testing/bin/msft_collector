@@ -1145,36 +1145,61 @@ if {$bg_index != -1} {
     # 1. Remove the --background flag
     set argv [lreplace $argv $bg_index $bg_index]
 
-    # 2. Generate a unique session name and log file path
+    # 2. Determine Target Name (Hostname or File) based on the mode
+    set mode_arg [lindex $argv 0]
+    set target_name "JOB" ;# Default fallback
+
+    # Group 1: Mode + Playbook + Hostname (Hostname is 3rd argument, index 2)
+    if {$mode_arg == "--playbook" || $mode_arg == "--showtech" || $mode_arg == "--playbook-scan"} {
+        set target_name [lindex $argv 2]
+
+    # Group 2: Mode + Hostname/File (Hostname is 2nd argument, index 1)
+    } elseif {$mode_arg == "--archive-log" || $mode_arg == "--interactive" || $mode_arg == "--scan"} {
+        set target_name [lindex $argv 1]
+    }
+
+    # Sanitize the name: remove directory paths (./ or /tmp/) to get just the name
+    set target_name [file tail $target_name]
+
+    # 3. Generate unique session name: hostname_YYYYMMDD_HHMMSS
     set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
-    set session_name "MSFT_COLL_${timestamp}"
+    set session_name "${target_name}_${timestamp}"
 
     if {![file exists "logs"]} { file mkdir "logs" }
     set session_log "logs/${session_name}.progress"
 
-    # 3. Get interpreter and script paths
+    # 4. Get interpreter and script paths
     set interpreter [info nameofexecutable]
     set script_path [info script]
 
-    # 4. Construct the argument string
+    # 5. Construct the argument string
     set args_str [join $argv " "]
 
     puts "\n\033\[1;32m=================================================================\033\[0m"
     puts "\033\[1;32m INITIALIZING BACKGROUND JOB \033\[0m"
+    puts " Target:        $target_name"
     puts " Session Name:  $session_name"
     puts " Log File:      $session_log"
     puts "\033\[1;32m=================================================================\033\[0m"
     puts "-> Launching Screen Session..."
 
-    # 5. Construct the internal command
-    # Logic: Run script | tee to log file ; Print Footer ; Sleep 10s ; Exit
-    # The 'tee' ensures output goes to the log AND the screen.
-    # The 'sleep 10' ensures you have time to see the success message before the window closes.
+    # 6. Construct the internal command
+    # Logic:
+    # 1. Run script | tee to log
+    # 2. Print Footer
+    # 3. Send notification to user's terminal (using 'write')
+    # 4. Sleep 10s so user can see result if attached
+
     set finish_msg "\n\n\033\[1;32m=======================================================\nJOB FINISHED at \$(date)\nSCREEN SESSION TERMINATING IN 10 SECONDS...\n=======================================================\033\[0m"
 
-    set shell_cmd "$interpreter $script_path $args_str | tee $session_log; echo \"$finish_msg\"; sleep 10"
+    # We construct a notification message.
+    # The 'write' command sends text to the user's active terminals.
+    # We use \$STY to let the internal shell insert the actual Screen ID (PID.SessionName)
+    set notify_cmd "echo -e \"\\n\\033\[1;32m\[\$STY\] Job has COMPLETED.\\033\[0m\\nCheck log: $session_log\" | write $::env(USER)"
 
-    # 6. Launch the detached screen session
+    # Chain the commands
+    set shell_cmd "$interpreter $script_path $args_str | tee $session_log; echo \"$finish_msg\"; $notify_cmd; sleep 10"
+    # 7. Launch the detached screen session
     if {[catch {exec screen -dmS $session_name sh -c $shell_cmd} result]} {
         puts "Error launching screen session: $result"
         exit 1
@@ -1186,13 +1211,11 @@ if {$bg_index != -1} {
     puts "   (If the network drops, the job will keep running)"
     sleep 2
 
-    # 7. Automatically attach to the screen
-    # We use 'spawn' here because we are inside an Expect script, which handles
-    # interactive processes better than 'exec'
+    # 8. Automatically attach to the screen
     spawn screen -r $session_name
     interact
 
-    # 8. When screen terminates (or user detaches), exit this script
+    # 9. When screen terminates (or user detaches), exit this script
     puts "\n\033\[1;32m-> Screen session ended or detached.\033\[0m"
     exit 0
 }

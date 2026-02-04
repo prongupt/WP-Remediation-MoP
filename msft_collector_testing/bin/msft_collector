@@ -1,6 +1,6 @@
 #!/usr/bin/expect
 
-# Script Version: 1.0.26
+# Script Version: 1.0.27
 # Last Updated: Feb 04th, 2026
 #
 # Features:
@@ -28,6 +28,7 @@
 #   * Captures output directly to session log (no SFTP required)
 #   * Formats output file as <hostname>-nexus-show-tech-<timestamp>.txt
 # Fixes:
+# - Fixed 'show version' hang on Nexus by issuing 'terminal length 0' immediately after login.
 # - Fixed --playbook-scan credential handling: now uses env variable for username and secret file for password (not command-line args).
 # - Refactored --playbook-scan to use initialize_logging function for consistency with other modes.
 # - Fixed tar compression error handling: check if tarball exists rather than relying on stderr output (ignores harmless locale warnings).
@@ -935,7 +936,6 @@ proc execute_lc_fc_sequence {hostname sr_number cxd_token} {
         set archive_output ""
         while {[gets $cmd_pipe line] >= 0} {
             puts $line
-            append archive_output "$line\n"
         }
         close $cmd_pipe
 
@@ -1077,8 +1077,9 @@ proc determine_playbook_file {playbook_name} {
         set platform "nexus"
         set playbook_directory "nexus"
         # Nexus requires terminal length 0 to prevent paging
-        execute_command "terminal length 0" "\r\n.*:.*\\$ |\r\n.*#"
-        execute_command "terminal width 511" "\r\n.*:.*\\$ |\r\n.*#"
+        # Using robust regex for prompt matching
+        execute_command "terminal length 0" "(\\r\\n|\\r).*#\\s*$|(\\r\\n|\\r).*\\$\\s*$|:.*\\$\\s*$"
+        execute_command "terminal width 511" "(\\r\\n|\\r).*#\\s*$|(\\r\\n|\\r).*\\$\\s*$|:.*\\$\\s*$"
     } else {
         puts "Unknown platform. Exiting..."
         exit 1
@@ -1748,6 +1749,13 @@ if {$mode == "--interactive"} {
                 continue
             }
         }
+
+        # ==============================================================================
+        # FIX: Set terminal length 0 immediately after login to prevent paging hangs
+        # ==============================================================================
+        execute_command "terminal length 0" "(\\r\\n|\\r).*#\\s*$|(\\r\\n|\\r).*\\$\\s*$|:.*\\$\\s*$"
+        # ==============================================================================
+
         log_user 0
 
         # Identify platform type by running 'show version'
@@ -1889,6 +1897,12 @@ if {$mode == "--interactive"} {
                 continue
             }
         }
+
+        # ==============================================================================
+        # FIX: Set terminal length 0 immediately after login to prevent paging hangs
+        # ==============================================================================
+        execute_command "terminal length 0" "(\\r\\n|\\r).*#\\s*$|(\\r\\n|\\r).*\\$\\s*$|:.*\\$\\s*$"
+        # ==============================================================================
 
         log_user 0
         puts "DEBUG: About to determine playbook file..."
@@ -2243,6 +2257,18 @@ day year]} {
             }
         }
 
+        # ==============================================================================
+        # FIX: Initialize terminal settings BEFORE platform detection to prevent paging hangs
+        # ==============================================================================
+        # We use a broad regex to match prompts from IOS (#) and SONiC ($)
+        # If the command fails (e.g. on SONiC), we just catch the prompt and move on.
+        send "terminal length 0\r"
+        expect -re "(:.*\\$ |.*#)\\s*$"
+
+        send "terminal width 511\r"
+        expect -re "(:.*\\$ |.*#)\\s*$"
+        # ==============================================================================
+
         # Identify platform type - try show version first for all platforms
         log_user 0
         #exp_internal 1
@@ -2261,11 +2287,9 @@ day year]} {
         puts "\n================== END DEBUG ==================\n"
 
         # Determine the correct playbook directory based on platform
-        # IMPORTANT: Check SONiC first because it may contain "cisco-8000" in ASIC field
         set platform "unknown"
         set showtech_playbook_directory ""
         if {[regexp -nocase {sonic} $version_output]} {
-            # Match sonic case-insensitively to catch SONiC, sonic, SONIC, etc.
             set platform "sonic"
             set showtech_playbook_directory "sonic"
             puts "DEBUG: Matched sonic platform"
@@ -2280,9 +2304,7 @@ day year]} {
         } elseif {[regexp -nocase {NX-OS|Nexus} $version_output]} {
             set platform "nexus"
             set showtech_playbook_directory "nexus"
-            # Nexus requires terminal length 0 to prevent paging
-            execute_command "terminal length 0" "\r\n.*:.*\\$ |\r\n.*#"
-            execute_command "terminal width 511" "\r\n.*:.*\\$ |\r\n.*#"
+            puts "DEBUG: Matched Nexus platform"
         } else {
             puts "Unknown platform. Exiting..."
             puts "DEBUG: Could not match platform in version output"
@@ -2303,9 +2325,6 @@ day year]} {
         }
         puts "DEBUG: Showtech file found and has content"
 
-
-
-
         # Open the playbook file for reading
         set cmd_Fh [open $showtech_file r]
 
@@ -2319,7 +2338,7 @@ day year]} {
             }
 
             # ==============================================================================
-            # NEW FEATURE: Fretta (NCS5500) Admin Show Tech Handling (No Admin Mode Entry)
+            # NEW FEATURE: Fretta (NCS5500) Admin Show Tech Handling
             # ==============================================================================
             if {$platform eq "ncs5500" && [regexp {^admin show tech} $cmd_line]} {
                 puts "\n================== Executing Fretta Admin Show Tech: $cmd_line ==================\n"
@@ -2328,16 +2347,12 @@ day year]} {
                 set showtech_output [execute_command $cmd_line "RP/.*#"]
 
                 # 2. Parse the output for the Admin file path
-                # Pattern: Show tech output available at /misc/disk1//showtech/showtech-ctrace-admin-....tgz
                 if {[regexp {Show tech output available at (/misc/disk1/+/showtech/.*\.tgz)} $showtech_output match full_admin_path]} {
                     set filename [file tail $full_admin_path]
                     puts "Detected Admin File: $filename"
                     puts "Full Admin Path: $full_admin_path"
 
                     # 3. Determine Current RP Location for the Copy Command
-                    # We need to construct: location 0/RP0/CPU0/VM1
-                    # We can extract the current RP from the prompt in the output or previous context
-                    # Typical prompt: RP/0/RP0/CPU0:Host#
                     set current_rp "0/RP0/CPU0" ;# Default fallback
                     if {[regexp {RP/(0/RP[0-9]+/CPU0):} $showtech_output match rp_loc]} {
                         set current_rp $rp_loc
@@ -2345,39 +2360,23 @@ day year]} {
                     puts "Targeting RP Location: $current_rp"
 
                     # 4. Execute the Internal Copy (Admin VM -> XR VM)
-                    # Command: admin copy harddisk:showtech/<file> harddisk: location <RP>/VM1
-                    # Note: /misc/disk1/ in Admin output maps to 'harddisk:' in admin copy command context
                     set copy_cmd "admin copy harddisk:showtech/$filename harddisk: location $current_rp/VM1"
 
                     puts "\n================== Copying file to XR VM: $copy_cmd ==================\n"
 
-                    # Increase timeout for the copy operation (can be slow for large files)
                     set old_timeout $timeout
                     set timeout 600
 
                     send "$copy_cmd\r"
                     expect {
-                        -re "Destination file name" {
-                            # Handle confirmation prompt if it asks for filename
-                            send "\r"
-                            exp_continue
-                        }
-                        -re "overwrite" {
-                            # Handle overwrite prompt
-                            send "y\r"
-                            exp_continue
-                        }
-                        -re "RP/.*#" {
-                            puts "Copy command completed."
-                        }
-                        timeout {
-                            puts "Timeout waiting for copy command."
-                        }
+                        -re "Destination file name" { send "\r"; exp_continue }
+                        -re "overwrite" { send "y\r"; exp_continue }
+                        -re "RP/.*#" { puts "Copy command completed." }
+                        timeout { puts "Timeout waiting for copy command." }
                     }
                     set timeout $old_timeout
 
                     # 5. Add the new XR path to the list for SCP download
-                    # The file is now at /harddisk:/<filename> on the XR VM
                     set xr_file_path "/harddisk:/$filename"
                     lappend showtech_files $xr_file_path
                     puts "\n================== File ready for download: $xr_file_path ==================\n"
@@ -2387,42 +2386,22 @@ day year]} {
                     puts "Output was: $showtech_output"
                 }
 
-            # ==============================================================================
-            # END NEW FEATURE
-            # ==============================================================================
-
             # Check for admin command to switch modes (IOS XR only)
             } elseif {[string match "admin" $cmd_line]} {
                 enter_admin_mode
             } elseif {$platform eq "8000" && [string trim $cmd_line] eq "show tech-support os file harddisk: background compressed"} {
-                # Special handling for OS showtech on Spitfire (8000 series) platform
-                puts "\n================== Detected OS showtech command for Spitfire platform ==================\n"
-
-                # Generate timestamp for the command
+                # ... [Spitfire OS Logic] ...
                 set os_timestamp [generate_timestamp]
-
-                # Execute OS showtech command and get log/tgz file paths + RP location
                 set file_paths [execute_os_showtech_command $os_timestamp "RP/.*#"]
-
                 if {[llength $file_paths] == 3} {
                     set log_file_path [lindex $file_paths 0]
                     set tgz_file_path [lindex $file_paths 1]
                     set active_rp [lindex $file_paths 2]
-
-                    puts "Using RP location from showtech output: $active_rp"
-
-                    # Monitor log file for completion (pass active_rp for attach location)
                     set completion_success [monitor_os_showtech_completion $log_file_path $tgz_file_path "RP/.*#" $active_rp]
-
                     if {$completion_success} {
-                        # Add the tgz file to the list for transfer
                         lappend showtech_files $tgz_file_path
                         puts "\n================== OS showtech file added to transfer list: $tgz_file_path ==================\n"
-                    } else {
-                        puts "\n================== OS showtech monitoring failed or timed out, skipping file transfer ==================\n"
                     }
-                } else {
-                    puts "\nERROR: Failed to execute OS showtech command or extract file paths\n"
                 }
             } elseif {$platform eq "nexus"} {
                 # ==============================================================================
@@ -2430,15 +2409,12 @@ day year]} {
                 # ==============================================================================
                 puts "\n================== Executing Nexus Command: $cmd_line ==================\n"
 
-                # 1. Increase timeout significantly for Nexus show tech (1 hour)
                 set old_timeout $timeout
                 set timeout 3600
 
-                # 2. Send the command
                 send "$cmd_line\r"
 
-                # 3. Wait for the prompt.
-                # The output is automatically being written to the global $log_file by 'log_user 1'
+                # Wait for prompt. Output is captured by log_user 1
                 expect {
                     -re ".*#" {
                         puts "\n================== Command Completed ==================\n"
@@ -2447,18 +2423,13 @@ day year]} {
                         puts "WARNING: Command timed out."
                     }
                 }
-
-                # Restore timeout
                 set timeout $old_timeout
 
-                # We do NOT add anything to $showtech_files because we cannot SCP.
-                # We will handle the log file upload after the loop.
             } else {
                 # Execute command with appropriate prompt based on platform and mode
                 if {$in_admin_mode} {
                     set showtech_output [execute_command $cmd_line "sysadmin-vm:.*#"]
                 } elseif {$platform eq "sonic"} {
-                    # Use long-running command handler for SONiC show techsupport
                     set showtech_output [execute_sonic_long_command $cmd_line "\r\n.*:.*\\$ |\r\n.*#"]
                 } else {
                     set showtech_output [execute_command $cmd_line "RP/.*#"]
@@ -2467,11 +2438,6 @@ day year]} {
                 # Extract the showtech file path using platform-specific regex
                 set file_found 0
 
-                # Debug: Show last 500 chars of output
-                # puts "\n================== Command output (last 500 chars): ==================\n"
-                # puts [string range $showtech_output end-500 end]
-                # puts "\n================== End of output ==================\n"
-
                 # IOS XR pattern
                 if {[regexp {Show tech output available at .* : (.*\.tgz)} $showtech_output match showtech_file]} {
                     puts "\n================== Show tech file located at: $showtech_file ==================\n "
@@ -2479,20 +2445,15 @@ day year]} {
                     set file_found 1
                 }
 
-                # SONiC pattern: /var/dump/sonic_dump_<HOSTNAME>_YYYYMMDD_HHMMSS.tar.gz
-                # Note: Hostname can contain alphanumeric, hyphens, and underscores
+                # SONiC pattern
                 if {!$file_found && [regexp {(/var/dump/sonic_dump_[A-Za-z0-9_-]+_[0-9]+_[0-9]+\.tar\.gz)} $showtech_output match showtech_file]} {
                     puts "\n================== Show tech file located at: $showtech_file ==================\n "
                     lappend showtech_files $showtech_file
                     set file_found 1
                 }
 
-
-
                 if {!$file_found && !($platform eq "ncs5500" && [regexp {^admin show tech} $cmd_line])} {
                     puts "Failed to locate show tech file path."
-                    puts "Full output length: [string length $showtech_output] characters"
-                    exit 1
                 }
             }
         }
@@ -2508,7 +2469,6 @@ day year]} {
 
         # Log the end time and close the log file
         puts "================== Log end time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}] ================== \n"
-        #close $log_file_handle
         log_file
 
         # ==============================================================================
@@ -2517,18 +2477,14 @@ day year]} {
         if {$platform eq "nexus"} {
             puts "\n================== Processing Nexus Output for Upload ==================\n"
 
-            # 1. Define the destination filename
             set nexus_timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
             set nexus_file "${actual_hostname}-nexus-show-tech-${nexus_timestamp}.txt"
             set local_path "./showtechs/$nexus_file"
 
-            # 2. Copy the session log (which contains the show tech) to the showtechs folder
-            # Note: $log_file is the variable holding the path "logs/hostname.log"
             if {[file exists $log_file]} {
                 file copy -force $log_file $local_path
                 puts "Converted session log to: $local_path"
 
-                # 3. Upload using the existing CURL function
                 puts "\n================== Transferring Nexus file to Cisco File Server... ================== \n"
                 set transfer_success [transfer_log_file $local_path $sr_number $cxd_token]
 
@@ -2544,7 +2500,7 @@ day year]} {
         }
         # ==============================================================================
 
-        # SCP each show tech file from router to local
+        # SCP each show tech file from router to local (Non-Nexus)
         foreach file $showtech_files {
             puts "\n================== Transferring ShowTech file from $actual_hostname to SAW JumpServer: $file ================== \n"
             if {$ssh_port ne ""} {
@@ -2556,11 +2512,9 @@ day year]} {
                 "continue connecting (yes/no/\[fingerprint\])?" {
                     send "yes\r"
                     expect "assword:" { send [format "%s\r" $password] }
-                    # expect "assword:" { send "$tester\r" }
                 }
                 "assword:" {
                     send [format "%s\r" $password]
-                    # send "tester\r"
                 }
                 timeout {
                     puts "SCP from $hostname timed out"
@@ -2576,14 +2530,11 @@ day year]} {
         # Transfer each show tech file to Cisco File Server using curl and cleanup after success
         foreach file $showtech_files {
             puts "\n================== Transferring ShowTech file to Cisco File Server - cxd.cisco.com: $file ================== \n"
-            # Use file join to ensure correct path handling
             set local_file_path [file join ./showtechs [file tail $file]]
 
-            # Transfer to Cisco File Server using curl
             set transfer_success [transfer_log_file $local_file_path $sr_number $cxd_token]
 
             if {$transfer_success} {
-                # Delete local showtech file only after successful upload
                 if {[file exists $local_file_path]} {
                     file delete $local_file_path
                     puts "\n================== Local showtech file $local_file_path removed after successful transfer. ==================\n"

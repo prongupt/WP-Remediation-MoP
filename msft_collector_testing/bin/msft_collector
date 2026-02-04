@@ -1184,21 +1184,23 @@ if {$bg_index != -1} {
     puts "-> Launching Screen Session..."
 
     # 6. Construct the internal command
-    # Logic:
-    # 1. Run script | tee to log
+    # Logic: Run script | tee to log
     # 2. Print Footer
-    # 3. Send notification to user's terminal (using 'write')
-    # 4. Sleep 10s so user can see result if attached
+    # 3. FORCE Notification: Loop through all TTYs owned by the user and echo the message directly
+    # 4. Sleep 10s
 
     set finish_msg "\n\n\033\[1;32m=======================================================\nJOB FINISHED at \$(date)\nSCREEN SESSION TERMINATING IN 10 SECONDS...\n=======================================================\033\[0m"
 
-    # We construct a notification message.
-    # The 'write' command sends text to the user's active terminals.
-    # We use \$STY to let the internal shell insert the actual Screen ID (PID.SessionName)
-    set notify_cmd "echo -e \"\\n\\033\[1;32m\[\$STY\] Job has COMPLETED.\\033\[0m\\nCheck log: $session_log\" | write $::env(USER)"
+    # Robust Notification Logic:
+    # 1. 'who' lists logged in users.
+    # 2. 'grep' filters for the current user.
+    # 3. 'awk' extracts the TTY name (e.g., pts/0).
+    # 4. Loop writes the message to /dev/pts/X
+    set notify_cmd "for tty in \$(who | grep $::env(USER) | awk '{print \$2}'); do echo -e \"\\n\\033\[1;32m\[\$STY\] Job has COMPLETED.\\033\[0m\\nCheck log: $session_log\" > /dev/\$tty 2>/dev/null; done"
 
     # Chain the commands
     set shell_cmd "$interpreter $script_path $args_str | tee $session_log; echo \"$finish_msg\"; $notify_cmd; sleep 10"
+
     # 7. Launch the detached screen session
     if {[catch {exec screen -dmS $session_name sh -c $shell_cmd} result]} {
         puts "Error launching screen session: $result"

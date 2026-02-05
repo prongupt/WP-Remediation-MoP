@@ -8,11 +8,12 @@
 # ==============================================================================
 # - Nexus 3000/9000 (NX-OS) Show Tech Support:
 #   * Detects NX-OS platform automatically.
-#   * Sets 'terminal length 0' and 'terminal width 511' to prevent paging/wrapping.
+#   * Sets 'terminal length 0' and 'terminal width 511' immediately to prevent paging/wrapping.
 #   * Captures output directly to the session log (bypassing bootflash/SFTP restrictions).
 #   * Automatically formats output filename: <hostname>-nexus-show-tech-<timestamp>.txt.
 #   * Uploads captured log directly to cxd.cisco.com.
-#   * Improved prompt detection to prevent false positives on configuration lines containing '#'.
+#   * Extended timeout to 2 hours (7200s) for large Nexus show techs.
+#   * Improved prompt detection ([\r\n]+.*#\s*$) to prevent false stops on config lines containing '#'.
 #
 # - Background Screen Execution (--background):
 #   * Runs any mode in a detached SCREEN session.
@@ -30,7 +31,7 @@
 # ==============================================================================
 # STANDARD FEATURES:
 # ==============================================================================
-# - Data Exfiltration: CURL Upload Function replacing SCP for cxd.cisco.com.
+# - Data Exfiltration: CURL Upload Function replacing SCP for uploading files to cxd.cisco.com.
 # - Archive-Log: Enhanced functionality with file verification, contents preview, and retry logic.
 # - Spitfire (Cisco 8000): Background monitoring for OS and Fabric Link-Include show techs.
 # - SONiC Support: Platform detection, extended timeouts (40m), and specific file parsing.
@@ -38,6 +39,7 @@
 # - LC-FC Automation: Orchestrated sequence (Playbook -> Archive -> Showtech).
 # - Connectivity: Unreachable device notification and logging.
 # - Security: Secure password handling preventing Tcl variable substitution.
+# - Custom SSH port support (hostname:port format).
 #
 # ==============================================================================
 # FIXES & IMPROVEMENTS:
@@ -45,6 +47,10 @@
 # - Critical: Added 'terminal length 0' and 'terminal width 0/511' immediately after login
 #   to prevent hanging on paging prompts (--More--) or line wrapping ($) during
 #   'show version' or 'show run' commands.
+# - Fixed Archive-Log hanging in background mode by enforcing 'terminal width 0'.
+# - Fixed Nexus prompt detection regex to prevent premature stops on configuration lines.
+# - Fixed file cleanup logic to ensure temporary interactive playbooks are removed from
+#   all platform directories (fretta, spitfire, sonic, and nexus).
 # - Fixed --playbook-scan credential handling to use env vars/secret file.
 # - Fixed tar compression error handling (ignores harmless locale warnings).
 # - Fixed determine_playbook_file for SONiC (prompt matching and case-insensitivity).
@@ -53,7 +59,6 @@
 # - Extended CURL timeout to 60 minutes for large file transfers.
 # - Improved log capture: proper log_user controls ensure command output is captured.
 # - Added Ctrl+C (SIGINT) signal handler for graceful exit.
-# - Improved cleanup logic to ensure temporary playbook files are removed from all platform dirs.
 
 # Declare global variable
 global in_admin_mode

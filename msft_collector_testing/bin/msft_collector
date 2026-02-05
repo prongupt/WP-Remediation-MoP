@@ -2405,25 +2405,41 @@ day year]} {
                 }
             } elseif {$platform eq "nexus"} {
                 # ==============================================================================
-                # NEW: Nexus Direct Capture Logic
+                # NEW: Nexus Direct Capture Logic (Improved)
                 # ==============================================================================
                 puts "\n================== Executing Nexus Command: $cmd_line ==================\n"
 
-                set old_timeout $timeout
-                set timeout 3600
+                # 1. Increase buffer size to handle large chunks of text without overflowing
+                match_max 500000
 
+                # 2. Increase timeout to 2 hours (Nexus show techs can be very slow)
+                set old_timeout $timeout
+                set timeout 7200
+
+                # 3. Send the command
                 send "$cmd_line\r"
 
-                # Wait for prompt. Output is captured by log_user 1
+                # 4. Wait for the specific prompt.
+                # FIX: Changed regex from ".*#" to "[\r\n]+.*#\s*$"
+                # This ensures we only match a # that appears at the end of the output,
+                # preventing false stops on config lines like "description Link #1"
                 expect {
-                    -re ".*#" {
+                    -re "\[\r\n\]+.*#\\s*$" {
                         puts "\n================== Command Completed ==================\n"
                     }
                     timeout {
-                        puts "WARNING: Command timed out."
+                        puts "\n================== WARNING: Command timed out after $timeout seconds ==================\n"
+                    }
+                    eof {
+                        puts "\n================== ERROR: Unexpected EOF during collection ==================\n"
                     }
                 }
+
+                # Restore timeout
                 set timeout $old_timeout
+
+                # We do NOT add anything to $showtech_files because we cannot SCP.
+                # We will handle the log file upload after the loop.
 
             } else {
                 # Execute command with appropriate prompt based on platform and mode

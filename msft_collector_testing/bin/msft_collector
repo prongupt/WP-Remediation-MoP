@@ -1633,9 +1633,11 @@ if {$mode == "--interactive"} {
         file delete $temp_playbook
         puts "======== Removed temporary playbook: $temp_playbook ========"
     }
+
     # Clean up playbook copies from platform directories
     if {[info exists temp_playbook]} {
-        foreach dir {"fretta" "spitfire" "sonic"} {
+        # Added "nexus" to this list to ensure those files are removed too
+        foreach dir {"fretta" "spitfire" "sonic" "nexus"} {
             set dir_playbook "$dir/[file tail $temp_playbook]"
             if {[file exists $dir_playbook]} {
                 file delete $dir_playbook

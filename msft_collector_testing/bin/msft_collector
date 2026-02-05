@@ -1338,7 +1338,7 @@ proc execute_background_showtech_command {timestamp prompt cmd_base file_prefix}
 
     set filename "${file_prefix}-${timestamp}"
 
-    # FIX: Use standard "harddisk:" syntax without leading slash for command execution
+    # Command to execute on router (uses harddisk: syntax)
     set full_cmd "$cmd_base file harddisk:${filename} background compressed"
 
     log_message "INFO" "Initiating background command: $full_cmd"
@@ -1361,41 +1361,43 @@ proc execute_background_showtech_command {timestamp prompt cmd_base file_prefix}
         }
     }
 
-    # 2. Extract Active RP from output (default to 0/RP0/CPU0 if not found)
+    # 2. Extract Active RP from output
     set active_rp "0/RP0/CPU0"
     if {[regexp {(0/RP[0-9]/CPU0)} $output match rp_match]} {
         set active_rp $rp_match
     }
 
     # 3. Define Paths
-    # FIX: Removed leading slash. Correct syntax is "harddisk:filename"
-    set tgz_file_path "harddisk:${filename}.tgz"
-    set log_file_path "harddisk:${filename}.logs"
+    # CLI Path: Used for 'dir' command on the router (Must be "harddisk:filename")
+    set cli_path "harddisk:${filename}.tgz"
+    set cli_log_path "harddisk:${filename}.logs"
 
-    # 4. Polling Loop
+    # SCP Path: Used for downloading (Must be absolute "/harddisk:/filename")
+    # This FIXES the "protocol error: filename does not match request"
+    set scp_path "/harddisk:/${filename}.tgz"
+
+    # 4. Polling Loop (Uses CLI Path)
     set max_retries 100
     set retry_interval 60
     set job_completed 0
 
     for {set i 0} {$i < $max_retries} {incr i} {
-        send "dir $tgz_file_path\r"
+        # Use 'dir | include' to avoid "Path does not exist" errors
+        send "dir harddisk: | include ${filename}.tgz\r"
 
-        # Consume the command echo first so we don't match the filename in the command line
-        expect -re [string map {* \\* . \\. ? \\? + \\+ ( \\( ) \\) \[ \\\[ \] \\\] $ \\$ ^ \\^ | \\|} "dir $tgz_file_path"]
+        # Consume the command echo
+        expect -re "dir harddisk: \\| include ${filename}.tgz"
 
         expect {
-            -re "No such file|Path does not exist" {
-                log_message "INFO" "Background job in progress... (Iteration [expr $i + 1]/$max_retries)"
-                expect -re "$prompt"
-            }
             -re "${filename}.tgz" {
-                # Now we are sure it matches the file listing
+                # File found
                 log_message "SUCCESS" "Background job completed. File detected: ${filename}.tgz"
                 set job_completed 1
                 expect -re "$prompt"
             }
             -re "$prompt" {
-                # Fallback if regexes don't match but prompt returns
+                # File not found yet
+                log_message "INFO" "Background job in progress... (Iteration [expr $i + 1]/$max_retries)"
             }
         }
 
@@ -1408,8 +1410,8 @@ proc execute_background_showtech_command {timestamp prompt cmd_base file_prefix}
         return ""
     }
 
-    # Return the list so the calling code can use it
-    return [list $log_file_path $tgz_file_path $active_rp]
+    # CRITICAL: Return the SCP-compatible absolute path
+    return [list $cli_log_path $scp_path $active_rp]
 }
 
 if {$mode == "--interactive"} {
@@ -2357,6 +2359,12 @@ day year]} {
 
     }
 } elseif {$mode == "--showtech"} {
+    # ANSI Colors for this block
+    set red "\033\[31m"
+    set green "\033\[32m"
+    set yellow "\033\[33m"
+    set reset "\033\[0m"
+
     if {[llength $argv] != 4} {
         puts "Error: Incorrect number of arguments for --showtech mode."
         display_help
@@ -2366,22 +2374,18 @@ day year]} {
     set showtech_playbook [lindex $argv 0]
     set input_hostname [lindex $argv 1]
     if {[file exists $input_hostname] && ![file isdirectory $input_hostname]} {
-        # Treat it as a file containing hostnames
         set fileHandle [open $input_hostname r]
         set fileData [read $fileHandle]
         close $fileHandle
-        # Remove any carriage returns so we are left with Unix-style newlines
         regsub -all {\r} $fileData {} fileData
         set hostnames [split $fileData "\n"]
     } else {
-        # Treat it as a single hostname
         set hostnames [list $input_hostname]
     }
     set sr_number [lindex $argv 2]
     set cxd_token [lindex $argv 3]
 
     foreach hostname $hostnames {
-        # Parse hostname and port if provided in format hostname:port
         set ssh_port ""
         set actual_hostname $hostname
         if {[regexp {^(.+):([0-9]+)$} $hostname match host port]} {
@@ -2390,25 +2394,18 @@ day year]} {
             puts "================== Detected custom SSH port: $ssh_port ==================\n"
         }
 
-        # Ping the host to check reachability
         if {[catch {exec ping -c 1 -W 1 $actual_hostname} ping_output]} {
             puts "================== Hostname $actual_hostname is unreachable, skipping... ==================\n"
             continue
         }
 
-        # This function initializes the logging process
         initialize_logging $actual_hostname
-
         puts "================== Log start time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]==================\n"
 
-        # Trim any empty lines from the file
-        if {[string trim $actual_hostname] eq ""} {
-            continue
-        }
+        if {[string trim $actual_hostname] eq ""} { continue }
         set port_info [expr {$ssh_port ne "" ? ":$ssh_port" : ""}]
         puts "\n================== Entering Showtech mode. Opening SSH Connection to ${actual_hostname}${port_info}. ================== \n"
 
-        # SSH into the device
         if {$ssh_port ne ""} {
             spawn ssh -o StrictHostKeyChecking=no -p $ssh_port $username@$actual_hostname
         } else {
@@ -2418,7 +2415,7 @@ day year]} {
         expect {
             "assword:" {
                 send [format "%s\r" $password]
-                expect -re ":.*\\$ |.*#"  ;# Expect flexible prompt for IOS XR and SONiC
+                expect -re ":.*\\$ |.*#"
             }
             timeout {
                 puts "Connection timed out for $hostname"
@@ -2430,22 +2427,20 @@ day year]} {
             }
         }
 
-        # FIX: Initialize terminal settings BEFORE platform detection to prevent paging hangs
+        # Initialize terminal
         send "terminal length 0\r"
         expect -re "(:.*\\$ |.*#)\\s*$"
         send "terminal width 511\r"
         expect -re "(:.*\\$ |.*#)\\s*$"
 
-        # Identify platform type
+        # Identify platform
         log_user 0
         set version_output [execute_command "show version" "(\\r\\n|\\r).*#\\s*$|(\\r\\n|\\r).*\\$\\s*$|:.*\\$\\s*$"]
-
         if {[string trim $version_output] eq "" || [regexp {Invalid|Unknown|command not found} $version_output]} {
             set version_output [execute_command "show version | include ws" "\r\n.*:.*\\$ |\r\n.*#"]
         }
         log_user 1
 
-        # Determine the correct playbook directory based on platform
         set platform "unknown"
         set showtech_playbook_directory ""
         if {[regexp -nocase {sonic} $version_output]} {
@@ -2464,12 +2459,9 @@ day year]} {
             puts "Unknown platform. Exiting..."
             exit 1
         }
-
         puts "Platform identified: $platform"
 
-        # Construct the full playbook path
         set showtech_file [file join $showtech_playbook_directory $showtech_playbook]
-
         if {![file exists $showtech_file] || [file size $showtech_file] == 0} {
             puts "Showtech file $showtech_file is missing or empty!"
             exit 1
@@ -2478,29 +2470,21 @@ day year]} {
         set cmd_Fh [open $showtech_file r]
         set showtech_files {}
 
-        # Loop through each showtech command
         while { [gets $cmd_Fh cmd_line] != -1 } {
-            if {[string trim $cmd_line] == "" || [string index $cmd_line 0] == "#"} {
-                continue
-            }
+            if {[string trim $cmd_line] == "" || [string index $cmd_line 0] == "#"} { continue }
 
-            # Fretta (NCS5500) Admin Show Tech Handling
+            # Fretta Admin Show Tech
             if {$platform eq "ncs5500" && [regexp {^admin show tech} $cmd_line]} {
                 puts "\n================== Executing Fretta Admin Show Tech: $cmd_line ==================\n"
                 set showtech_output [execute_command $cmd_line "RP/.*#"]
-
                 if {[regexp {Show tech output available at (/misc/disk1/+/showtech/.*\.tgz)} $showtech_output match full_admin_path]} {
                     set filename [file tail $full_admin_path]
                     puts "Detected Admin File: $filename"
-
                     set current_rp "0/RP0/CPU0"
-                    if {[regexp {RP/(0/RP[0-9]+/CPU0):} $showtech_output match rp_loc]} {
-                        set current_rp $rp_loc
-                    }
+                    if {[regexp {RP/(0/RP[0-9]+/CPU0):} $showtech_output match rp_loc]} { set current_rp $rp_loc }
 
                     set copy_cmd "admin copy harddisk:showtech/$filename harddisk: location $current_rp/VM1"
                     puts "\n================== Copying file to XR VM: $copy_cmd ==================\n"
-
                     set old_timeout $timeout
                     set timeout 600
                     send "$copy_cmd\r"
@@ -2511,10 +2495,8 @@ day year]} {
                         timeout { puts "Timeout waiting for copy command." }
                     }
                     set timeout $old_timeout
-
-                    set xr_file_path "/harddisk:/$filename"
-                    lappend showtech_files $xr_file_path
-                    puts "\n================== File ready for download: $xr_file_path ==================\n"
+                    lappend showtech_files "/harddisk:/$filename"
+                    puts "\n================== File ready for download: /harddisk:/$filename ==================\n"
                 } else {
                     puts "ERROR: Could not parse filename from Admin Show Tech output."
                 }
@@ -2523,23 +2505,18 @@ day year]} {
                 enter_admin_mode
 
             } elseif {$platform eq "8000"} {
-                # Spitfire (8000) Background Commands
+                # Spitfire Background Commands
                 set is_background_cmd 0
                 set cmd_base ""
                 set file_prefix ""
                 set trimmed_cmd [string trim $cmd_line]
 
-                # Check for OS Showtech (Matches "show tech..." OR "show tech-support...")
                 if {[string match "show tech* os file harddisk: background compressed" $trimmed_cmd]} {
                     set is_background_cmd 1
-                    # Normalize command base to ensure consistent execution
                     set cmd_base "show tech os"
                     set file_prefix "showtech-os-${actual_hostname}"
-
-                # Check for Fabric Link-Include (Matches "show tech..." OR "show tech-support...")
                 } elseif {[string match "show tech* fabric link-include" $trimmed_cmd]} {
                     set is_background_cmd 1
-                    # Normalize command base
                     set cmd_base "show tech-support fabric link-include"
                     set file_prefix "showtech-fabric-link-include-${actual_hostname}"
                 }
@@ -2547,24 +2524,16 @@ day year]} {
                 if {$is_background_cmd} {
                     puts "\n================== Detected Background Command: $cmd_base ==================\n"
                     set os_timestamp [generate_timestamp]
-
-                    # Execute (includes polling)
                     set file_paths [execute_background_showtech_command $os_timestamp "RP/.*#" $cmd_base $file_prefix]
 
                     if {[llength $file_paths] == 3} {
-                        set log_file_path [lindex $file_paths 0]
                         set tgz_file_path [lindex $file_paths 1]
-                        set active_rp [lindex $file_paths 2]
-
-                        # File is confirmed ready by the function above
                         lappend showtech_files $tgz_file_path
                         puts "\n================== File added to transfer list: $tgz_file_path ==================\n"
                     } else {
                         puts "\nERROR: Failed to execute background command or extract file paths\n"
                     }
                 } else {
-                    # Standard Spitfire command (not background)
-                    # Sends the command EXACTLY as written in the playbook
                     set showtech_output [execute_command $cmd_line "RP/.*#"]
                     if {[regexp {Show tech output available at .* : (.*\.tgz)} $showtech_output match showtech_file]} {
                         puts "\n================== Show tech file located at: $showtech_file ==================\n "
@@ -2573,7 +2542,6 @@ day year]} {
                 }
 
             } elseif {$platform eq "nexus"} {
-                # Nexus Direct Capture Logic
                 puts "\n================== Executing Nexus Command: $cmd_line ==================\n"
                 match_max 500000
                 set old_timeout $timeout
@@ -2587,7 +2555,6 @@ day year]} {
                 set timeout $old_timeout
 
             } else {
-                # Standard Execution (IOS-XR / SONiC)
                 if {$in_admin_mode} {
                     set showtech_output [execute_command $cmd_line "sysadmin-vm:.*#"]
                 } elseif {$platform eq "sonic"} {
@@ -2595,7 +2562,6 @@ day year]} {
                 } else {
                     set showtech_output [execute_command $cmd_line "RP/.*#"]
                 }
-
                 set file_found 0
                 if {[regexp {Show tech output available at .* : (.*\.tgz)} $showtech_output match showtech_file]} {
                     lappend showtech_files $showtech_file
@@ -2616,18 +2582,14 @@ day year]} {
         puts "================== Log end time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}] ================== \n"
         log_file
 
-        # Ensure local showtechs directory exists
-        if {![file exists "showtechs"]} {
-            file mkdir "showtechs"
-        }
+        if {![file exists "showtechs"]} { file mkdir "showtechs" }
 
-        # Nexus Log-to-File Upload Logic
+        # Nexus Upload
         if {$platform eq "nexus"} {
             puts "\n================== Processing Nexus Output for Upload ==================\n"
             set nexus_timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
             set nexus_file "${actual_hostname}-nexus-show-tech-${nexus_timestamp}.txt"
             set local_path "./showtechs/$nexus_file"
-
             if {[file exists $log_file]} {
                 file copy -force $log_file $local_path
                 set transfer_success [transfer_log_file $local_path $sr_number $cxd_token]
@@ -2635,7 +2597,7 @@ day year]} {
             }
         }
 
-        # SCP Loop (Fixed to strip harddisk:)
+        # SCP Loop (With Exit Code Check)
         foreach file $showtech_files {
             set clean_name [file tail $file]
             regsub {^[a-zA-Z0-9]+:} $clean_name "" clean_name
@@ -2646,32 +2608,47 @@ day year]} {
             } else {
                 spawn scp $username@$actual_hostname:$file ./showtechs/$clean_name
             }
+
             expect {
                 "continue connecting" { send "yes\r"; exp_continue }
                 "assword:" { send [format "%s\r" $password] }
-                timeout { puts "SCP timed out"; continue }
-                eof { puts "\n================== SCP completed successfully ==================\n" }
+                timeout { puts "${red}SCP timed out${reset}"; continue }
+                eof {
+                    catch {wait} result
+                    set exit_code [lindex $result 3]
+                    if {$exit_code == 0} {
+                        puts "${green}\n================== SCP completed successfully ==================\n${reset}"
+                    } else {
+                        puts "${red}\n================== SCP failed with exit code $exit_code ==================\n${reset}"
+                    }
+                }
             }
-            expect eof
         }
 
-        # Upload Loop (Fixed to strip harddisk: and use --fail)
+        # Upload Loop (With File Existence Check)
         foreach file $showtech_files {
             set clean_name [file tail $file]
             regsub {^[a-zA-Z0-9]+:} $clean_name "" clean_name
-
-            puts "\n================== Transferring ShowTech file to Cisco File Server: $clean_name ================== \n"
             set local_file_path [file join ./showtechs $clean_name]
 
+            puts "\n================== Processing Upload for: $clean_name ================== \n"
+
+            if {![file exists $local_file_path]} {
+                puts "${red}❌ Error: Local file $local_file_path not found.${reset}"
+                puts "${red}   (The SCP transfer from the device likely failed).${reset}"
+                continue
+            }
+
+            puts "Transferring to Cisco File Server..."
             set transfer_success [transfer_log_file $local_file_path $sr_number $cxd_token]
 
             if {$transfer_success} {
                 if {[file exists $local_file_path]} {
                     file delete $local_file_path
-                    puts "\n================== Local file removed after successful transfer. ==================\n"
+                    puts "${green}\n================== Local file removed after successful transfer. ==================\n${reset}"
                 }
             } else {
-                puts "\n================== Transfer failed; local file retained in ./showtechs/ ==================\n"
+                puts "${red}\n================== Transfer failed; local file retained in ./showtechs/ ==================\n${reset}"
             }
         }
     }

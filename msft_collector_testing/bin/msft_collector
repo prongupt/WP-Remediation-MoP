@@ -2527,13 +2527,19 @@ day year]} {
                 set is_background_cmd 0
                 set cmd_base ""
                 set file_prefix ""
+                set trimmed_cmd [string trim $cmd_line]
 
-                if {[string trim $cmd_line] eq "show tech-support os file harddisk: background compressed"} {
+                # Check for OS Showtech (Matches "show tech..." OR "show tech-support...")
+                if {[string match "show tech* os file harddisk: background compressed" $trimmed_cmd]} {
                     set is_background_cmd 1
+                    # Normalize command base to ensure consistent execution
                     set cmd_base "show tech os"
                     set file_prefix "showtech-os-${actual_hostname}"
-                } elseif {[string trim $cmd_line] eq "show tech-support fabric link-include"} {
+
+                # Check for Fabric Link-Include (Matches "show tech..." OR "show tech-support...")
+                } elseif {[string match "show tech* fabric link-include" $trimmed_cmd]} {
                     set is_background_cmd 1
+                    # Normalize command base
                     set cmd_base "show tech-support fabric link-include"
                     set file_prefix "showtech-fabric-link-include-${actual_hostname}"
                 }
@@ -2557,6 +2563,8 @@ day year]} {
                         puts "\nERROR: Failed to execute background command or extract file paths\n"
                     }
                 } else {
+                    # Standard Spitfire command (not background)
+                    # Sends the command EXACTLY as written in the playbook
                     set showtech_output [execute_command $cmd_line "RP/.*#"]
                     if {[regexp {Show tech output available at .* : (.*\.tgz)} $showtech_output match showtech_file]} {
                         puts "\n================== Show tech file located at: $showtech_file ==================\n "

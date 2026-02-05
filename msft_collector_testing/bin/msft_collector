@@ -12,6 +12,7 @@
 #   * Captures output directly to the session log (bypassing bootflash/SFTP restrictions).
 #   * Automatically formats output filename: <hostname>-nexus-show-tech-<timestamp>.txt.
 #   * Uploads captured log directly to cxd.cisco.com.
+#   * Improved prompt detection to prevent false positives on configuration lines containing '#'.
 #
 # - Background Screen Execution (--background):
 #   * Runs any mode in a detached SCREEN session.
@@ -44,8 +45,6 @@
 # - Critical: Added 'terminal length 0' and 'terminal width 0/511' immediately after login
 #   to prevent hanging on paging prompts (--More--) or line wrapping ($) during
 #   'show version' or 'show run' commands.
-# - Fixed Nexus prompt detection: Improved regex to strict matching ([\r\n]+.*#\s*$) to
-#   prevent false positives on configuration lines containing '#'.
 # - Fixed --playbook-scan credential handling to use env vars/secret file.
 # - Fixed tar compression error handling (ignores harmless locale warnings).
 # - Fixed determine_playbook_file for SONiC (prompt matching and case-insensitivity).
@@ -54,6 +53,7 @@
 # - Extended CURL timeout to 60 minutes for large file transfers.
 # - Improved log capture: proper log_user controls ensure command output is captured.
 # - Added Ctrl+C (SIGINT) signal handler for graceful exit.
+# - Improved cleanup logic to ensure temporary playbook files are removed from all platform dirs.
 
 # Declare global variable
 global in_admin_mode

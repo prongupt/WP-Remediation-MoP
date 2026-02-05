@@ -3,93 +3,57 @@
 # Script Version: 1.0.27
 # Last Updated: Feb 04th, 2026
 #
-# Features:
-# - CURL Upload Function replacing SCP for uploading files to cxd.cisco.com
-# - Enhanced archive-log functionality with file verification and contents preview
-# - SCP retry logic for archive-log transfers (3 attempts with 5-second delays)
-# - SONiC Network OS support for --showtech mode
-# - Custom SSH port support (hostname:port format)
-# - Platform-specific showtech execution with long-running command handling
-# - IOS-XR OS showtech background monitoring with automatic completion detection (Spitfire only)
-# - Interactive mode with direct execution for single hostname (no subprocess spawning)
-# - Interactive mode with TTY detection: supports both interactive and scriptable (piped) modes
-# - Enhanced command execution with proper prompt matching and output capture
-# - Support for sudo commands with automatic password handling in interactive mode
-# - Interactive mode exit options: Ctrl+C, "END", or "exit" commands
-# - LC-FC automated sequence: playbook → archive-log → showtech orchestration with phase tracking
-# - Optional timestamp in log filenames: scan mode creates simple hostnames (hostname.log)
-# - Extended CURL timeout: 60 minutes for large file transfers (50MB+ showtechs)
-# - Secure password handling: prevents Tcl variable substitution of special characters
-# - NEW: Fretta (NCS5500) Admin Show Tech support without entering sysadmin mode
-# - NEW: Background Screen Execution (--background) with auto-attach and robust notification
-# - NEW: Nexus 3000/9000 Show Tech Support
-#   * Detects NX-OS platform
-#   * Sets 'term len 0' and 'term wid 511'
-#   * Captures output directly to session log (no SFTP required)
-#   * Formats output file as <hostname>-nexus-show-tech-<timestamp>.txt
-# Fixes:
-# - Fixed 'show version' hang on Nexus by issuing 'terminal length 0' immediately after login.
-# - Fixed --playbook-scan credential handling: now uses env variable for username and secret file for password (not command-line args).
-# - Refactored --playbook-scan to use initialize_logging function for consistency with other modes.
-# - Fixed tar compression error handling: check if tarball exists rather than relying on stderr output (ignores harmless locale warnings).
-# - Fixed determine_playbook_file function for SONiC compatibility:
-#   * Changed prompt pattern from `:.*\$ |.*#` to `\r\n.*:.*\$ |\r\n.*#` to prevent premature matching
-#   * Made `terminal length 0` conditional - only runs on IOS XR platforms (not SONiC bash)
-#   * Added case-insensitive matching for SONiC platform detection with -nocase flag
+# ==============================================================================
+# NEW FEATURES (v1.0.25 - v1.0.27):
+# ==============================================================================
+# - Nexus 3000/9000 (NX-OS) Show Tech Support:
+#   * Detects NX-OS platform automatically.
+#   * Sets 'terminal length 0' and 'terminal width 511' to prevent paging/wrapping.
+#   * Captures output directly to the session log (bypassing bootflash/SFTP restrictions).
+#   * Automatically formats output filename: <hostname>-nexus-show-tech-<timestamp>.txt.
+#   * Uploads captured log directly to cxd.cisco.com.
+#
+# - Background Screen Execution (--background):
+#   * Runs any mode in a detached SCREEN session.
+#   * Auto-attaches to the session for immediate live viewing.
+#   * Naming convention: <hostname/target>_<date>_<timestamp>.
+#   * Robust Notification: Broadcasts completion message to all user TTYs (even if detached).
+#   * Auto-terminates the screen session 10 seconds after job completion.
+#
+# - Fretta (NCS5500) Admin Show Tech:
+#   * Detects 'admin show tech' commands in playbooks.
+#   * Executes from standard XR prompt (no 'sysadmin' shell login required).
+#   * Parses admin file path (/misc/disk1/...) from output.
+#   * Automates 'admin copy' to move file to XR harddisk for standard retrieval.
+#
+# ==============================================================================
+# STANDARD FEATURES:
+# ==============================================================================
+# - Data Exfiltration: CURL Upload Function replacing SCP for cxd.cisco.com.
+# - Archive-Log: Enhanced functionality with file verification, contents preview, and retry logic.
+# - Spitfire (Cisco 8000): Background monitoring for OS and Fabric Link-Include show techs.
+# - SONiC Support: Platform detection, extended timeouts (40m), and specific file parsing.
+# - Interactive Mode: Direct execution without subprocesses, TTY detection, and sudo support.
+# - LC-FC Automation: Orchestrated sequence (Playbook -> Archive -> Showtech).
+# - Connectivity: Unreachable device notification and logging.
+# - Security: Secure password handling preventing Tcl variable substitution.
+#
+# ==============================================================================
+# FIXES & IMPROVEMENTS:
+# ==============================================================================
+# - Critical: Added 'terminal length 0' and 'terminal width 0/511' immediately after login
+#   to prevent hanging on paging prompts (--More--) or line wrapping ($) during
+#   'show version' or 'show run' commands.
+# - Fixed Nexus prompt detection: Improved regex to strict matching ([\r\n]+.*#\s*$) to
+#   prevent false positives on configuration lines containing '#'.
+# - Fixed --playbook-scan credential handling to use env vars/secret file.
+# - Fixed tar compression error handling (ignores harmless locale warnings).
+# - Fixed determine_playbook_file for SONiC (prompt matching and case-insensitivity).
 # - Fixed SCP command handling for messages-LC files.
 # - Added support for processing captured packets command.
-# - CURL upload function now retries up to 3 times with a delay between attempts.
-# - Added support for processing SCP commands for messages-LC files.
-# - Files deleted after successful upload to cxd.cisco.com.
-# - Files deleted after unsuccessful upload to cxd.cisco.com.
-# - Mechanism to copy the tar file to /tmp/cisco/ in case of CURL timeout.
-# - Added comprehensive error handling for SCP connection failures in archive-log mode.
-# - Archive-log now includes recursive file listing, tar verification, and archive contents preview.
-# - Added SONiC platform detection with fallback logic from IOS XR detection.
-# - Implemented execute_sonic_long_command for handling long-running SONiC commands (20-minute timeout).
-# - Added flexible prompt matching for SONiC bash shell (:.*\\$ |.*#).
-# - Custom SSH port parsing and SCP port flag support (-p for SSH, -P for SCP).
-# - File cleanup only after successful CURL upload to cxd.cisco.com.
-# - Interactive mode refactored for single hostname: direct SSH execution instead of subprocess.
-# - Fixed credential handling: interactive mode now uses cisco username with secret file password.
-# - Enhanced execute_command function: consumes command echo before matching prompt to prevent premature matching.
-# - Improved prompt pattern matching: \r\n prefix ensures prompt matched only after newline (not in command echo).
-# - Added sudo password prompt handling in execute_command for commands requiring privilege escalation.
-# - Fixed tarball naming in interactive mode: includes hostname and timestamp for single host scenarios.
-# - Improved log capture: proper log_user controls ensure command output is captured in log files.
-# - Added Ctrl+C (SIGINT) signal handler for graceful exit during interactive command collection.
-# - Interactive mode now accepts "exit" command as alternative to "END" for exiting command collection.
-# - Added trap handler to restore terminal settings on Ctrl+C interrupt.
-# - Added OS showtech background monitoring for IOS-XR (Spitfire platform):
-#   * Detects 'show tech-support os file harddisk: background compressed' command
-#   * Transforms to timestamped background execution command
-#   * Monitors log file for completion with 1-minute polling intervals
-#   * 100-minute timeout with graceful skip on timeout
-#   * Displays elapsed time during monitoring
-# - Fixed archive-log empty directory handling: checks for actual files before tar, skips gracefully if empty
-# - Fixed archive-log tar command: uses absolute paths without -C flag to handle empty subdirectories
-# - Fixed archive-log command wrapping: uses shell variable (LOGPATH) to prevent line splitting
-# - Fixed archive-log spawn_id management: saves/restores SSH spawn_id around SCP operations
-# - Fixed archive-log session cleanup: exits bash shell (from attach location) before closing SSH
-# - Fixed --scan mode subprocess handling: processes results regardless of exit codes (no false errors)
-# - Fixed LC-FC sequence orchestration: Phase 2/3 continue even if previous phase fails/skips
-# - Added LC-FC playbook auto-detection: automatically triggers 3-phase sequence when lc-fc.playbook is used
-# - Added --no-lc-fc-detection flag: prevents recursive subprocess loops during LC-FC sequence execution
-# - Fixed password security vulnerability: all password sends now use format command to prevent Tcl variable substitution
-#   * Addresses authentication failures with passwords containing special characters like $#, ${}, etc.
-#   * Changed from 'send "$password\r"' to 'send [format "%s\r" $password]' throughout the script
-# - Enhanced interactive mode with improved TTY detection and scriptable mode support
-#   * Better separation between interactive (TTY) and scriptable (piped/redirected stdin) modes
-#   * Improved stdin detection logic: set is_tty [expr {[catch {exec test -t 0}] == 0}]
-#   * Scriptable mode reads commands line-by-line from stdin for automation/CI integration
-# - Enhanced platform detection in interactive mode to prevent incorrect terminal settings
-#   * Added NX-OS and Nexus platform detection alongside existing SONiC detection
-#   * Only applies 'terminal length 0' to IOS-XR platforms (NCS5500, Cisco 8000)
-#   * Prevents terminal configuration errors on non-IOS-XR Cisco platforms
-# - Improved unreachable device notification with enhanced diagnostics
-#   * Added mode and reason parameters to upload_unreachable_notification function
-#   * Better tracking of connection failures with context-aware error reporting
-# - Added support for Fretta (NCS5500) Admin Show Techs without entering admin mode
+# - Extended CURL timeout to 60 minutes for large file transfers.
+# - Improved log capture: proper log_user controls ensure command output is captured.
+# - Added Ctrl+C (SIGINT) signal handler for graceful exit.
 
 # Declare global variable
 global in_admin_mode

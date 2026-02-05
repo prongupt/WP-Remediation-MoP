@@ -2597,12 +2597,13 @@ day year]} {
             }
         }
 
-        # SCP Loop (With Exit Code Check)
+        # SCP Loop (With Exit Code Check and Fix for Wait)
         foreach file $showtech_files {
             set clean_name [file tail $file]
             regsub {^[a-zA-Z0-9]+:} $clean_name "" clean_name
 
             puts "\n================== Transferring ShowTech file from $actual_hostname to SAW JumpServer: $clean_name ================== \n"
+
             if {$ssh_port ne ""} {
                 spawn scp -P $ssh_port $username@$actual_hostname:$file ./showtechs/$clean_name
             } else {
@@ -2610,9 +2611,19 @@ day year]} {
             }
 
             expect {
-                "continue connecting" { send "yes\r"; exp_continue }
-                "assword:" { send [format "%s\r" $password] }
-                timeout { puts "${red}SCP timed out${reset}"; continue }
+                "continue connecting" {
+                    send "yes\r"
+                    exp_continue
+                }
+                "assword:" {
+                    send [format "%s\r" $password]
+                    # CRITICAL FIX: Keep waiting for EOF after sending password
+                    exp_continue
+                }
+                timeout {
+                    puts "${red}SCP timed out${reset}"
+                    continue
+                }
                 eof {
                     catch {wait} result
                     set exit_code [lindex $result 3]

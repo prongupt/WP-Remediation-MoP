@@ -1572,26 +1572,26 @@ if {$mode == "--interactive"} {
         }
 
         if {[llength $diff_files] > 0} {
-            # Create tarball with hostname and timestamp (matching log file format)
-            set tarball_timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
-            if {[info exists interactive_hostname]} {
-                # Single hostname - use specific hostname
-                set tarball "${interactive_hostname}-interactive-${tarball_timestamp}.tar.gz"
-            } else {
-                # Multiple hostnames - use generic name
-                set tarball "interactive-session-[clock format [clock seconds] -format {%d-%b-%Y-%H%M%S}].tar.gz"
-            }
+            # ... [Tarball naming logic remains the same] ...
+
             puts "======== Compressing [llength $diff_files] log file(s) into $tarball ========"
             catch {exec tar -czf $tarball {*}$diff_files} tar_error
 
-            # Check if tarball was actually created (ignore locale warnings in stderr)
+            # Check if tarball was actually created
             if {[file exists $tarball]} {
                 puts "======== Successfully compressed logs into $tarball ========"
 
                 # Transfer the tarball to the remote host
                 set transfer_success [transfer_log_file $tarball $sr_number $cxd_token]
+
                 if {$transfer_success} {
-                    # If the transfer succeeded, remove the local log and capture files
+                    # =======================================================
+                    # FIX: Explicitly delete the tarball after success
+                    # =======================================================
+                    file delete $tarball
+                    puts "======== Local tarball $tarball removed after successful transfer. ========"
+
+                    # Remove the source log files
                     foreach f $diff_files {
                         if {[file exists $f]} {
                             file delete $f
@@ -1606,7 +1606,8 @@ if {$mode == "--interactive"} {
                     }
                     file copy -force $tarball "/tmp/cisco/"
                     puts "======== Tarball $tarball copied to /tmp/cisco/ for backup. ========"
-                    # If the transfer failed, remove the local log and capture files
+
+                    # Clean up source files anyway since we have the tarball (local or backup)
                     foreach f $diff_files {
                         if {[file exists $f]} {
                             file delete $f

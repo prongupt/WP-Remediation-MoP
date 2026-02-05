@@ -1129,19 +1129,15 @@ if {$bg_index != -1} {
     set mode_arg [lindex $argv 0]
     set target_name "JOB" ;# Default fallback
 
-    # Group 1: Mode + Playbook + Hostname (Hostname is 3rd argument, index 2)
     if {$mode_arg == "--playbook" || $mode_arg == "--showtech" || $mode_arg == "--playbook-scan"} {
         set target_name [lindex $argv 2]
-
-    # Group 2: Mode + Hostname/File (Hostname is 2nd argument, index 1)
     } elseif {$mode_arg == "--archive-log" || $mode_arg == "--interactive" || $mode_arg == "--scan"} {
         set target_name [lindex $argv 1]
     }
 
-    # Sanitize the name: remove directory paths (./ or /tmp/) to get just the name
     set target_name [file tail $target_name]
 
-    # 3. Generate unique session name: hostname_YYYYMMDD_HHMMSS
+    # 3. Generate unique session name
     set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
     set session_name "${target_name}_${timestamp}"
 
@@ -1164,19 +1160,14 @@ if {$bg_index != -1} {
     puts "-> Launching Screen Session..."
 
     # 6. Construct the internal command
-    # Logic: Run script | tee to log
-    # 2. Print Footer
-    # 3. FORCE Notification: Loop through all TTYs owned by the user and echo the message directly
-    # 4. Sleep 10s
+    # Improvements:
+    # - Uses 'printf' instead of 'echo' for reliable formatting.
+    # - Checks 'tty' to avoid printing the notification to the screen session itself (keeps log clean).
 
     set finish_msg "\n\n\033\[1;32m=======================================================\nJOB FINISHED at \$(date)\nSCREEN SESSION TERMINATING IN 10 SECONDS...\n=======================================================\033\[0m"
 
-    # Robust Notification Logic:
-    # 1. 'who' lists logged in users.
-    # 2. 'grep' filters for the current user.
-    # 3. 'awk' extracts the TTY name (e.g., pts/0).
-    # 4. Loop writes the message to /dev/pts/X
-    set notify_cmd "for tty in \$(who | grep $::env(USER) | awk '{print \$2}'); do echo -e \"\\n\\033\[1;32m\[\$STY\] Job has COMPLETED.\\033\[0m\\nCheck log: $session_log\" > /dev/\$tty 2>/dev/null; done"
+    # Logic: Get current TTY. Loop through user TTYs. If TTY != Current, print message.
+    set notify_cmd "ct=\$(tty); for t in \$(who | grep $::env(USER) | awk '{print \$2}'); do if \[ \"/dev/\$t\" != \"\$ct\" \]; then printf \"\\r\\n\\033\[1;32m\[\$STY\] Job has COMPLETED.\\033\[0m\\r\\nCheck log: $session_log\\r\\n\" > /dev/\$t 2>/dev/null; fi; done"
 
     # Chain the commands
     set shell_cmd "$interpreter $script_path $args_str | tee $session_log; echo \"$finish_msg\"; $notify_cmd; sleep 10"

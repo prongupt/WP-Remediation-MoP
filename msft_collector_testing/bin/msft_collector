@@ -1,11 +1,17 @@
 #!/usr/bin/expect
 
-# Script Version: 1.0.27
+# Script Version: 1.0.28
 # Last Updated: Feb 04th, 2026
 #
 # ==============================================================================
-# NEW FEATURES (v1.0.25 - v1.0.27):
+# NEW FEATURES (v1.0.25 - v1.0.28):
 # ==============================================================================
+# - Spitfire (Cisco 8000) Enhanced Show Tech Support:
+#   * Added support for 'show tech-support fabric link-include'.
+#   * Generalized background monitoring logic to handle both OS and Fabric show techs.
+#   * Automatically detects background commands, monitors progress via polling,
+#     and retrieves the file upon completion to avoid SSH timeouts.
+#
 # - Nexus 3000/9000 (NX-OS) Show Tech Support:
 #   * Detects NX-OS platform automatically.
 #   * Sets 'terminal length 0' and 'terminal width 511' immediately to prevent paging/wrapping.
@@ -19,7 +25,7 @@
 #   * Runs any mode in a detached SCREEN session.
 #   * Auto-attaches to the session for immediate live viewing.
 #   * Naming convention: <hostname/target>_<date>_<timestamp>.
-#   * Robust Notification: Broadcasts completion message to all user TTYs (even if detached).
+#   * Robust Notification: Broadcasts completion message to all user TTYs (excluding self).
 #   * Auto-terminates the screen session 10 seconds after job completion.
 #
 # - Fretta (NCS5500) Admin Show Tech:
@@ -33,7 +39,6 @@
 # ==============================================================================
 # - Data Exfiltration: CURL Upload Function replacing SCP for uploading files to cxd.cisco.com.
 # - Archive-Log: Enhanced functionality with file verification, contents preview, and retry logic.
-# - Spitfire (Cisco 8000): Background monitoring for OS and Fabric Link-Include show techs.
 # - SONiC Support: Platform detection, extended timeouts (40m), and specific file parsing.
 # - Interactive Mode: Direct execution without subprocesses, TTY detection, and sudo support.
 # - LC-FC Automation: Orchestrated sequence (Playbook -> Archive -> Showtech).
@@ -45,8 +50,7 @@
 # FIXES & IMPROVEMENTS:
 # ==============================================================================
 # - Critical: Added 'terminal length 0' and 'terminal width 0/511' immediately after login
-#   to prevent hanging on paging prompts (--More--) or line wrapping ($) during
-#   'show version' or 'show run' commands.
+#   to prevent hanging on paging prompts (--More--) or line wrapping ($).
 # - Fixed Archive-Log hanging in background mode by enforcing 'terminal width 0'.
 # - Fixed Nexus prompt detection regex to prevent premature stops on configuration lines.
 # - Fixed file cleanup logic to ensure temporary interactive playbooks are removed from
@@ -308,11 +312,12 @@ proc generate_timestamp {} {
     return "${year}-${month}-${day}.${time}.UTC"
 }
 
-# Function to execute OS showtech command and return log file path
-proc execute_os_showtech_command {timestamp prompt} {
-    set transformed_cmd "show tech os file harddisk:showtech-os-${timestamp} background compressed"
+# Function to execute background showtech commands (OS or Fabric)
+proc execute_background_showtech_command {timestamp prompt cmd_base file_prefix} {
+    # Construct command: <cmd_base> file harddisk:<prefix>-<timestamp> background compressed
+    set transformed_cmd "$cmd_base file harddisk:${file_prefix}-${timestamp} background compressed"
 
-    puts "\n================== Executing OS showtech command with timestamp: $timestamp ==================\n"
+    puts "\n================== Executing Background Command: $cmd_base ==================\n"
     puts "Command: $transformed_cmd\n"
 
     send "$transformed_cmd\r"
@@ -330,35 +335,34 @@ proc execute_os_showtech_command {timestamp prompt} {
         }
         -re "$prompt" {
             append output $expect_out(buffer)
-            puts "\n================== OS showtech started in background ==================\n"
+            puts "\n================== Job started in background ==================\n"
             puts "Output: $output\n"
         }
         timeout {
-            puts "ERROR: Timeout waiting for OS showtech command response"
+            puts "ERROR: Timeout waiting for background command response"
             return ""
         }
         eof {
-            puts "ERROR: Unexpected EOF while executing OS showtech command"
+            puts "ERROR: Unexpected EOF while executing background command"
             return ""
         }
     }
 
-    # Extract the actual log file path and RP location from device output
-    # Pattern: "Please check 0/RP1/CPU0 : /harddisk:/showtech-os-2025-Dec-04.124144.UTC.logs"
+    # Extract the actual log file path and RP location
     set log_file_path ""
     set tgz_file_path ""
     set rp_location ""
 
-    # Extract both RP location and log file path from the output
-    if {[regexp {Please check (0/RP[0-9]/CPU0) : (/harddisk:/showtech-os-[^\s]+\.logs)} $output match rp_loc log_path]} {
+    # Regex matches: Please check 0/RP0/CPU0 : /harddisk:/<prefix>-<timestamp>.logs
+    if {[regexp "Please check (0/RP\[0-9\]/CPU0) : (/harddisk:/${file_prefix}-\[^\\s]+\\.logs)" $output match rp_loc log_path]} {
         set log_file_path $log_path
         set rp_location $rp_loc
         # Derive tgz path by removing .logs extension
         regsub {\.logs$} $log_file_path ".tgz" tgz_file_path
 
-        puts "RP Location (from output): $rp_location"
-        puts "Log file path (extracted): $log_file_path"
-        puts "Expected TGZ file path: $tgz_file_path\n"
+        puts "RP Location: $rp_location"
+        puts "Log Path:    $log_file_path"
+        puts "Target File: $tgz_file_path\n"
 
         return [list $log_file_path $tgz_file_path $rp_location]
     } else {
@@ -368,15 +372,18 @@ proc execute_os_showtech_command {timestamp prompt} {
     }
 }
 
-# Function to monitor OS showtech completion by polling log file
-proc monitor_os_showtech_completion {log_file_path tgz_file_path prompt active_rp} {
+# Function to monitor background showtech completion
+proc monitor_background_showtech_completion {tgz_file_path prompt active_rp} {
     set max_timeout_minutes 100
     set poll_interval_seconds 60
     set max_timeout_seconds [expr {$max_timeout_minutes * 60}]
     set start_time [clock seconds]
 
-    puts "\n================== Monitoring OS showtech completion ==================\n"
-    puts "Log file: $log_file_path"
+    # Extract just the filename for regex matching in the dir output
+    set target_filename [file tail $tgz_file_path]
+
+    puts "\n================== Monitoring Background Job Completion ==================\n"
+    puts "Target File: $tgz_file_path"
     puts "Polling interval: $poll_interval_seconds seconds"
     puts "Maximum timeout: $max_timeout_minutes minutes\n"
 
@@ -385,57 +392,52 @@ proc monitor_os_showtech_completion {log_file_path tgz_file_path prompt active_r
         set elapsed_seconds [expr {$current_time - $start_time}]
         set elapsed_minutes [expr {$elapsed_seconds / 60}]
 
-        # Check if we've exceeded the timeout
+        # Check timeout
         if {$elapsed_seconds >= $max_timeout_seconds} {
             set timestamp [clock format $current_time -format {%Y-%m-%d %H:%M:%S}]
-            puts "\n\[$timestamp\] WARNING: OS showtech timed out after $max_timeout_minutes minutes, skipping file transfer and continuing...\n"
+            puts "\n\[$timestamp\] WARNING: Job timed out after $max_timeout_minutes minutes. Skipping.\n"
             return 0
         }
 
-        # Display elapsed time
         set timestamp [clock format $current_time -format {%Y-%m-%d %H:%M:%S}]
-        puts "\[$timestamp\] Elapsed: $elapsed_minutes mins - Checking completion..."
+        puts "\[$timestamp\] Elapsed: $elapsed_minutes mins - Checking for file..."
 
-        # Check if TGZ file exists using dir command from XR prompt (no need to attach to bash)
+        # Check if TGZ file exists
         send "dir $tgz_file_path\r"
 
-        # Wait for command echo to complete
+        # Wait for command echo
         expect -re [string map {* \\* . \\. ? \\? + \\+ ( \\( ) \\) \[ \\\[ \] \\\] $ \\$ ^ \\^ | \\|} "dir $tgz_file_path"]
 
-        # Check for file existence or "Path does not exist" error
         set completion_found 0
         expect {
             -re "Path does not exist|No such file|Error:" {
-                # File doesn't exist yet, showtech still running
+                # File not found yet
                 set completion_found 0
                 expect -re "$prompt"
             }
-            -re "showtech-os-.*\\.tgz" {
-                # File exists in directory listing - showtech complete!
+            -re [string map {. \\.} $target_filename] {
+                # File found in directory listing!
                 set completion_found 1
                 expect -re "$prompt"
             }
             timeout {
                 puts "Timeout checking file existence, will retry..."
                 set completion_found 0
-                # Try to get back to prompt
                 send "\r"
                 expect -re "$prompt"
             }
         }
 
-
-        # Check if completion was found
         if {$completion_found == 1} {
             set completion_time [clock format $current_time -format {%Y-%m-%d %H:%M:%S}]
-            puts "\n\[$completion_time\] ================== OS showtech completed successfully! ==================\n"
+            puts "\n\[$completion_time\] ================== Job completed successfully! ==================\n"
             puts "Total time elapsed: $elapsed_minutes minutes"
-            puts "TGZ file ready at: $tgz_file_path\n"
+            puts "File ready at: $tgz_file_path\n"
             return 1
         }
 
-        # Wait for next poll interval
-        puts "Not completed yet, waiting $poll_interval_seconds seconds before next check...\n"
+        # Wait for next poll
+        puts "Not completed yet, waiting $poll_interval_seconds seconds...\n"
         after [expr {$poll_interval_seconds * 1000}]
     }
 }
@@ -857,7 +859,6 @@ proc process_ppdb_collection {cmd_line prompt hostname} {
 
     return ""
 }
-
 # Function to execute LC-FC automated sequence: playbook -> archive-log -> showtech
 # Function to execute LC-FC automated sequence: playbook -> archive-log -> showtech
 # This function orchestrates three separate script executions as subprocesses
@@ -905,6 +906,7 @@ proc execute_lc_fc_sequence {hostname sr_number cxd_token} {
         set archive_output ""
         while {[gets $cmd_pipe line] >= 0} {
             puts $line
+            append archive_output "$line\n"
         }
         close $cmd_pipe
 
@@ -1129,15 +1131,19 @@ if {$bg_index != -1} {
     set mode_arg [lindex $argv 0]
     set target_name "JOB" ;# Default fallback
 
+    # Group 1: Mode + Playbook + Hostname (Hostname is 3rd argument, index 2)
     if {$mode_arg == "--playbook" || $mode_arg == "--showtech" || $mode_arg == "--playbook-scan"} {
         set target_name [lindex $argv 2]
+
+    # Group 2: Mode + Hostname/File (Hostname is 2nd argument, index 1)
     } elseif {$mode_arg == "--archive-log" || $mode_arg == "--interactive" || $mode_arg == "--scan"} {
         set target_name [lindex $argv 1]
     }
 
+    # Sanitize the name: remove directory paths (./ or /tmp/) to get just the name
     set target_name [file tail $target_name]
 
-    # 3. Generate unique session name
+    # 3. Generate unique session name: hostname_YYYYMMDD_HHMMSS
     set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
     set session_name "${target_name}_${timestamp}"
 
@@ -1160,13 +1166,18 @@ if {$bg_index != -1} {
     puts "-> Launching Screen Session..."
 
     # 6. Construct the internal command
-    # Improvements:
-    # - Uses 'printf' instead of 'echo' for reliable formatting.
-    # - Checks 'tty' to avoid printing the notification to the screen session itself (keeps log clean).
+    # Logic: Run script | tee to log
+    # 2. Print Footer
+    # 3. FORCE Notification: Loop through all TTYs owned by the user and echo the message directly
+    # 4. Sleep 10s
 
     set finish_msg "\n\n\033\[1;32m=======================================================\nJOB FINISHED at \$(date)\nSCREEN SESSION TERMINATING IN 10 SECONDS...\n=======================================================\033\[0m"
 
-    # Logic: Get current TTY. Loop through user TTYs. If TTY != Current, print message.
+    # Robust Notification Logic:
+    # 1. 'who' lists logged in users.
+    # 2. 'grep' filters for the current user.
+    # 3. 'awk' extracts the TTY name (e.g., pts/0).
+    # 4. Loop writes the message to /dev/pts/X
     set notify_cmd "ct=\$(tty); for t in \$(who | grep $::env(USER) | awk '{print \$2}'); do if \[ \"/dev/\$t\" != \"\$ct\" \]; then printf \"\\r\\n\\033\[1;32m\[\$STY\] Job has COMPLETED.\\033\[0m\\r\\nCheck log: $session_log\\r\\n\" > /dev/\$t 2>/dev/null; fi; done"
 
     # Chain the commands
@@ -1572,26 +1583,30 @@ if {$mode == "--interactive"} {
         }
 
         if {[llength $diff_files] > 0} {
-            # ... [Tarball naming logic remains the same] ...
-
+            # Create tarball with hostname and timestamp (matching log file format)
+            set tarball_timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+            if {[info exists interactive_hostname]} {
+                # Single hostname - use specific hostname
+                set tarball "${interactive_hostname}-interactive-${tarball_timestamp}.tar.gz"
+            } else {
+                # Multiple hostnames - use generic name
+                set tarball "interactive-session-[clock format [clock seconds] -format {%d-%b-%Y-%H%M%S}].tar.gz"
+            }
             puts "======== Compressing [llength $diff_files] log file(s) into $tarball ========"
             catch {exec tar -czf $tarball {*}$diff_files} tar_error
 
-            # Check if tarball was actually created
+            # Check if tarball was actually created (ignore locale warnings in stderr)
             if {[file exists $tarball]} {
                 puts "======== Successfully compressed logs into $tarball ========"
 
                 # Transfer the tarball to the remote host
                 set transfer_success [transfer_log_file $tarball $sr_number $cxd_token]
-
                 if {$transfer_success} {
-                    # =======================================================
                     # FIX: Explicitly delete the tarball after success
-                    # =======================================================
                     file delete $tarball
                     puts "======== Local tarball $tarball removed after successful transfer. ========"
 
-                    # Remove the source log files
+                    # If the transfer succeeded, remove the local log and capture files
                     foreach f $diff_files {
                         if {[file exists $f]} {
                             file delete $f
@@ -1606,8 +1621,7 @@ if {$mode == "--interactive"} {
                     }
                     file copy -force $tarball "/tmp/cisco/"
                     puts "======== Tarball $tarball copied to /tmp/cisco/ for backup. ========"
-
-                    # Clean up source files anyway since we have the tarball (local or backup)
+                    # If the transfer failed, remove the local log and capture files
                     foreach f $diff_files {
                         if {[file exists $f]} {
                             file delete $f
@@ -1630,10 +1644,8 @@ if {$mode == "--interactive"} {
         file delete $temp_playbook
         puts "======== Removed temporary playbook: $temp_playbook ========"
     }
-
     # Clean up playbook copies from platform directories
     if {[info exists temp_playbook]} {
-        # Added "nexus" to this list to ensure those files are removed too
         foreach dir {"fretta" "spitfire" "sonic" "nexus"} {
             set dir_playbook "$dir/[file tail $temp_playbook]"
             if {[file exists $dir_playbook]} {
@@ -2250,6 +2262,7 @@ day year]} {
         puts "\n================== END DEBUG ==================\n"
 
         # Determine the correct playbook directory based on platform
+        # IMPORTANT: Check SONiC first because it may contain "cisco-8000" in ASIC field
         set platform "unknown"
         set showtech_playbook_directory ""
         if {[regexp -nocase {sonic} $version_output]} {
@@ -2352,18 +2365,58 @@ day year]} {
             # Check for admin command to switch modes (IOS XR only)
             } elseif {[string match "admin" $cmd_line]} {
                 enter_admin_mode
-            } elseif {$platform eq "8000" && [string trim $cmd_line] eq "show tech-support os file harddisk: background compressed"} {
-                # ... [Spitfire OS Logic] ...
-                set os_timestamp [generate_timestamp]
-                set file_paths [execute_os_showtech_command $os_timestamp "RP/.*#"]
-                if {[llength $file_paths] == 3} {
-                    set log_file_path [lindex $file_paths 0]
-                    set tgz_file_path [lindex $file_paths 1]
-                    set active_rp [lindex $file_paths 2]
-                    set completion_success [monitor_os_showtech_completion $log_file_path $tgz_file_path "RP/.*#" $active_rp]
-                    if {$completion_success} {
-                        lappend showtech_files $tgz_file_path
-                        puts "\n================== OS showtech file added to transfer list: $tgz_file_path ==================\n"
+            } elseif {$platform eq "8000"} {
+                # Logic for Spitfire (8000) Background Commands
+                set is_background_cmd 0
+                set cmd_base ""
+                set file_prefix ""
+
+                # Check for OS Showtech
+                if {[string trim $cmd_line] eq "show tech-support os file harddisk: background compressed"} {
+                    set is_background_cmd 1
+                    set cmd_base "show tech os"
+                    set file_prefix "showtech-os"
+                }
+                # Check for Fabric Link-Include Showtech
+                elseif {[string trim $cmd_line] eq "show tech-support fabric link-include"} {
+                    set is_background_cmd 1
+                    set cmd_base "show tech-support fabric link-include"
+                    set file_prefix "showtech-fabric"
+                }
+
+                if {$is_background_cmd} {
+                    puts "\n================== Detected Background Command: $cmd_base ==================\n"
+
+                    set os_timestamp [generate_timestamp]
+
+                    # Execute using the generalized function
+                    set file_paths [execute_background_showtech_command $os_timestamp "RP/.*#" $cmd_base $file_prefix]
+
+                    if {[llength $file_paths] == 3} {
+                        set log_file_path [lindex $file_paths 0]
+                        set tgz_file_path [lindex $file_paths 1]
+                        set active_rp [lindex $file_paths 2]
+
+                        # Monitor using the generalized function
+                        set completion_success [monitor_background_showtech_completion $tgz_file_path "RP/.*#" $active_rp]
+
+                        if {$completion_success} {
+                            lappend showtech_files $tgz_file_path
+                            puts "\n================== File added to transfer list: $tgz_file_path ==================\n"
+                        } else {
+                            puts "\n================== Monitoring failed or timed out, skipping file transfer ==================\n"
+                        }
+                    } else {
+                        puts "\nERROR: Failed to execute background command or extract file paths\n"
+                    }
+                } else {
+                    # Standard Spitfire command (not background)
+                    set showtech_output [execute_command $cmd_line "RP/.*#"]
+                    if {[regexp {Show tech output available at .* : (.*\.tgz)} $showtech_output match showtech_file]} {
+                        puts "\n================== Show tech file located at: $showtech_file ==================\n "
+                        lappend showtech_files $showtech_file
+                    } else {
+                        puts "Failed to locate show tech file path in output."
                     }
                 }
             } elseif {$platform eq "nexus"} {
@@ -2523,7 +2576,7 @@ day year]} {
             }
         }
     }
-} elseif {$mode == "--archive-log"} {
+   } elseif {$mode == "--archive-log"} {
     if {[llength $argv] != 3} {
         puts "Error: Incorrect number of arguments for --archive-log mode."
         display_help

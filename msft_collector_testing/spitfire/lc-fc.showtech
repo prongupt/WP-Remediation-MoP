@@ -3,7 +3,8 @@ show tech-support cpa
 show tech-support fabric
 show tech-support install
 show tech-support os file harddisk: background compressed
-show tech ctrace
-show tech ofa
-show tech optics
-show tech sysdb
+show tech-support ctrace
+show tech-support ofa
+show tech-support optics
+show tech-support sysdb
+show tech-support fabric link-include

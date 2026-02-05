@@ -1,68 +1,73 @@
 #!/usr/bin/expect
 
-# Script Version: 1.0.28
-# Last Updated: Feb 04th, 2026
+# Script Version: 1.0.29
+# Last Updated: Feb 05th, 2026
+
+# ==============================================================================
+# FUNCTIONALITY MATRIX
+# ==============================================================================
+#
+# | Functionality                              | Required Mode / Syntax                           |
+# |--------------------------------------------|--------------------------------------------------|
+# | Interactive CLI Collection & Upload        | --interactive <host> <sr> <token> [--background] |
+# | Standard IOS-XR                            | --showtech <playbook_name> <host> <sr> <token>   |
+# | SONiC Show Tech                            | --showtech generic.showtech <host> <sr> <token>  |
+# | Nexus (NX-OS) Direct Show Tech Capture     | --showtech nexus.showtech <host> <sr> <token>    |
+# | LC-FC Automated Sequence (Full Suite)      | --playbook lc-fc.playbook <host> <sr> <token>    |
+# | Archive Device Logs (/var/log, etc.)       | --archive-log <host> <sr> <token>                |
+# | Detached Screen Session (Background)       | Add --background to any of the above modes       |
 #
 # ==============================================================================
-# NEW FEATURES (v1.0.25 - v1.0.28):
+#
+# OVERVIEW
 # ==============================================================================
-# - Spitfire (Cisco 8000) Enhanced Show Tech Support:
-#   * Added support for 'show tech-support fabric link-include'.
-#   * Generalized background monitoring logic to handle both OS and Fabric show techs.
-#   * Automatically detects background commands, monitors progress via polling,
-#     and retrieves the file upon completion to avoid SSH timeouts.
-#
-# - Nexus 3000/9000 (NX-OS) Show Tech Support:
-#   * Detects NX-OS platform automatically.
-#   * Sets 'terminal length 0' and 'terminal width 511' immediately to prevent paging/wrapping.
-#   * Captures output directly to the session log (bypassing bootflash/SFTP restrictions).
-#   * Automatically formats output filename: <hostname>-nexus-show-tech-<timestamp>.txt.
-#   * Uploads captured log directly to cxd.cisco.com.
-#   * Extended timeout to 2 hours (7200s) for large Nexus show techs.
-#   * Improved prompt detection ([\r\n]+.*#\s*$) to prevent false stops on config lines containing '#'.
-#
-# - Background Screen Execution (--background):
-#   * Runs any mode in a detached SCREEN session.
-#   * Auto-attaches to the session for immediate live viewing.
-#   * Naming convention: <hostname/target>_<date>_<timestamp>.
-#   * Robust Notification: Broadcasts completion message to all user TTYs (excluding self).
-#   * Auto-terminates the screen session 10 seconds after job completion.
-#
-# - Fretta (NCS5500) Admin Show Tech:
-#   * Detects 'admin show tech' commands in playbooks.
-#   * Executes from standard XR prompt (no 'sysadmin' shell login required).
-#   * Parses admin file path (/misc/disk1/...) from output.
-#   * Automates 'admin copy' to move file to XR harddisk for standard retrieval.
+# A universal network collection tool for Cisco IOS-XR (Fretta/Spitfire),
+# Nexus (NX-OS), and SONiC platforms. It automates log collection, show-tech
+# generation, and data exfiltration to cxd.cisco.com.
 #
 # ==============================================================================
-# STANDARD FEATURES:
+# KEY FEATURES & UPDATES (v1.0.29):
 # ==============================================================================
-# - Data Exfiltration: CURL Upload Function replacing SCP for uploading files to cxd.cisco.com.
-# - Archive-Log: Enhanced functionality with file verification, contents preview, and retry logic.
-# - SONiC Support: Platform detection, extended timeouts (40m), and specific file parsing.
-# - Interactive Mode: Direct execution without subprocesses, TTY detection, and sudo support.
-# - LC-FC Automation: Orchestrated sequence (Playbook -> Archive -> Showtech).
-# - Connectivity: Unreachable device notification and logging.
-# - Security: Secure password handling preventing Tcl variable substitution.
-# - Custom SSH port support (hostname:port format).
+#
+# 1. ROBUST FILE TRANSFER:
+#    - CURL Fix: Added '--fail' flag to correctly detect HTTP errors (401/404)
+#      and trigger retry logic instead of silently failing.
+#    - Filename Sanitization: Automatically strips drive prefixes (harddisk:,
+#      bootflash:) from filenames before saving locally or uploading.
+#
+# 2. SPITFIRE (Cisco 8000) ENHANCEMENTS:
+#    - Background Monitoring: Generalized logic handles 'show tech os' and
+#      'show tech-support fabric link-include' in the background.
+#    - Improved Detection: Uses 'dir | include' to avoid "Path does not exist"
+#      errors and ensure accurate completion detection.
+#    - Naming Consistency: Added hostname and specific types (e.g., link-include)
+#      to generated filenames.
+#
+# 3. NEXUS (NX-OS) SUPPORT:
+#    - Direct Capture: Bypasses bootflash/SFTP restrictions by capturing
+#      'show tech' output directly to the session log.
+#    - Auto-Formatting: Saves as <hostname>-nexus-show-tech-<timestamp>.txt.
+#
+# 4. FRETTA (NCS5500) ADMIN SHOW TECH:
+#    - Seamless Execution: Runs 'admin show tech' from the standard XR prompt.
+#    - Auto-Copy: Parses the admin file path and automates 'admin copy' to
+#      move the file from the Admin VM to the XR VM for retrieval.
+#
+# 5. USER EXPERIENCE:
+#    - Enhanced Help Menu: New ANSI-colored interface with logical grouping.
+#    - Background Execution: Run any mode in a detached 'screen' session with
+#      auto-attach and broadcast notifications to all user TTYs.
 #
 # ==============================================================================
-# FIXES & IMPROVEMENTS:
+# STANDARD CAPABILITIES:
 # ==============================================================================
-# - Critical: Added 'terminal length 0' and 'terminal width 0/511' immediately after login
-#   to prevent hanging on paging prompts (--More--) or line wrapping ($).
-# - Fixed Archive-Log hanging in background mode by enforcing 'terminal width 0'.
-# - Fixed Nexus prompt detection regex to prevent premature stops on configuration lines.
-# - Fixed file cleanup logic to ensure temporary interactive playbooks are removed from
-#   all platform directories (fretta, spitfire, sonic, and nexus).
-# - Fixed --playbook-scan credential handling to use env vars/secret file.
-# - Fixed tar compression error handling (ignores harmless locale warnings).
-# - Fixed determine_playbook_file for SONiC (prompt matching and case-insensitivity).
-# - Fixed SCP command handling for messages-LC files.
-# - Added support for processing captured packets command.
-# - Extended CURL timeout to 60 minutes for large file transfers.
-# - Improved log capture: proper log_user controls ensure command output is captured.
-# - Added Ctrl+C (SIGINT) signal handler for graceful exit.
+# - Data Exfiltration: CURL Upload to cxd.cisco.com (replaces SCP).
+# - LC-FC Automation: Orchestrates Playbook -> Archive -> Showtech sequence.
+# - Interactive Mode: Direct command execution with TTY detection.
+# - Scan Mode: Parallel execution (xargs -P 50) for bulk collection.
+# - Security: Secure password handling (no Tcl substitution in logs).
+#
+# ==============================================================================
 
 # Declare global variable
 global in_admin_mode
@@ -75,6 +80,23 @@ set messages_LC_list {}
 # This function initializes the logging process by setting up necessary variables,
 # generating a unique log file name, checking the password file, setting a timeout,
 # and starting the logging process.
+
+# ==============================================================================
+# HELPER: Standardized Logging
+# ==============================================================================
+proc log_message {level message} {
+    set timestamp [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]
+    set formatted_msg "\[$timestamp\] \[$level\] $message"
+
+    # Print to screen
+    puts $formatted_msg
+
+    # Print to log file if it is open (catch errors if not)
+    catch {
+        send_log "$formatted_msg\n"
+    }
+}
+
 proc initialize_logging {hostname {skip_timestamp 0} {prefix ""}} {
     global log_file
     global username
@@ -167,15 +189,20 @@ proc pull_out_file_from_device {banner messages_LC_list sr_number cxd_token host
 # This function transfers the log file to the Cisco File Server - cxd.cisco.com using curl.
 proc transfer_log_file {log_file sr_number cxd_token} {
     global timeout
-    set remote_host "cxd.cisco.com"
-    #set remote_host "10.88.242.130"
-    set max_retries 3    ;# Maximum number of retry attempts
-    set retry_delay 10   ;# Delay in seconds between retries
-    set transfer_successful 0 ;# Flag to indicate overall success
 
-    # Save current timeout and set a longer timeout for large file transfers
+    # ANSI Colors
+    set red "\033\[31m"
+    set green "\033\[32m"
+    set yellow "\033\[33m"
+    set reset "\033\[0m"
+
+    set remote_host "cxd.cisco.com"
+    set max_retries 3
+    set retry_delay 10
+    set transfer_successful 0
+
     set old_timeout $timeout
-    set timeout 3600  ;# 60 minutes for large showtech files (can be 50MB+)
+    set timeout 3600
 
     puts "================== Transferring log file to Cisco File Server - $remote_host using curl ================== "
     log_user 0
@@ -183,18 +210,14 @@ proc transfer_log_file {log_file sr_number cxd_token} {
     for {set attempt 1} {$attempt <= $max_retries} {incr attempt} {
         puts "Attempt $attempt of $max_retries using curl..."
 
-        # Build and spawn the curl command:
-        # curl --user <sr_number>:<cxd_token> --upload-file <log_file> https://<remote_host>/home/
-        spawn curl -v -# --user "$sr_number:$cxd_token" --upload-file $log_file "https://$remote_host/home/"
+        spawn curl -v -# --fail --user "$sr_number:$cxd_token" --upload-file $log_file "https://$remote_host/home/"
 
         set curl_status ""
         set timeout_occurred 0
 
-        # Expect for completion (curl does not output a prompt,
-        # so we wait for EOF or timeout)
         expect {
             timeout {
-                puts "================== CURL upload timed out after $timeout seconds. =================="
+                puts "${red}================== CURL upload timed out after $timeout seconds. ==================${reset}"
                 set timeout_occurred 1
             }
             eof {
@@ -202,29 +225,26 @@ proc transfer_log_file {log_file sr_number cxd_token} {
             }
         }
 
-        # Ensure curl_status is set
         if {![info exists curl_status] || $curl_status eq ""} {
             catch { set curl_status [wait] }
         }
 
-        # Check if a timeout occurred or if curl exited with a non-zero error code.
         if {$timeout_occurred || ([lindex $curl_status 3] != 0 && [lindex $curl_status 3] ne "")} {
-            puts "================== curl transfer failed for attempt $attempt. Status: $curl_status. ================== "
+            puts "${red}================== curl transfer failed for attempt $attempt. Status: $curl_status. ==================${reset}"
             if {$attempt < $max_retries} {
-                puts "================== Retrying in $retry_delay seconds... ================== "
+                puts "${yellow}================== Retrying in $retry_delay seconds... ==================${reset}"
                 sleep $retry_delay
             } else {
-                puts "================== All curl attempts failed. Transfer of $log_file to $remote_host unsuccessful. =================="
-                return 0 ;# All attempts failed
+                puts "${red}================== All curl attempts failed. Transfer of $log_file to $remote_host unsuccessful. ==================${reset}"
+                return 0
             }
         } else {
-            puts "\n================== curl transfer to $remote_host completed successfully ==================\n"
+            puts "${green}\n================== curl transfer to $remote_host completed successfully ==================\n${reset}"
             set transfer_successful 1
-            break ;# Exit the loop on success
+            break
         }
     }
 
-    # Restore original timeout
     set timeout $old_timeout
     return $transfer_successful
 }
@@ -312,12 +332,11 @@ proc generate_timestamp {} {
     return "${year}-${month}-${day}.${time}.UTC"
 }
 
-# Function to execute background showtech commands (OS or Fabric)
-proc execute_background_showtech_command {timestamp prompt cmd_base file_prefix} {
-    # Construct command: <cmd_base> file harddisk:<prefix>-<timestamp> background compressed
-    set transformed_cmd "$cmd_base file harddisk:${file_prefix}-${timestamp} background compressed"
+# Function to execute OS showtech command and return log file path
+proc execute_os_showtech_command {timestamp prompt} {
+    set transformed_cmd "show tech os file harddisk:showtech-os-${timestamp} background compressed"
 
-    puts "\n================== Executing Background Command: $cmd_base ==================\n"
+    puts "\n================== Executing OS showtech command with timestamp: $timestamp ==================\n"
     puts "Command: $transformed_cmd\n"
 
     send "$transformed_cmd\r"
@@ -335,34 +354,35 @@ proc execute_background_showtech_command {timestamp prompt cmd_base file_prefix}
         }
         -re "$prompt" {
             append output $expect_out(buffer)
-            puts "\n================== Job started in background ==================\n"
+            puts "\n================== OS showtech started in background ==================\n"
             puts "Output: $output\n"
         }
         timeout {
-            puts "ERROR: Timeout waiting for background command response"
+            puts "ERROR: Timeout waiting for OS showtech command response"
             return ""
         }
         eof {
-            puts "ERROR: Unexpected EOF while executing background command"
+            puts "ERROR: Unexpected EOF while executing OS showtech command"
             return ""
         }
     }
 
-    # Extract the actual log file path and RP location
+    # Extract the actual log file path and RP location from device output
+    # Pattern: "Please check 0/RP1/CPU0 : /harddisk:/showtech-os-2025-Dec-04.124144.UTC.logs"
     set log_file_path ""
     set tgz_file_path ""
     set rp_location ""
 
-    # Regex matches: Please check 0/RP0/CPU0 : /harddisk:/<prefix>-<timestamp>.logs
-    if {[regexp "Please check (0/RP\[0-9\]/CPU0) : (/harddisk:/${file_prefix}-\[^\\s]+\\.logs)" $output match rp_loc log_path]} {
+    # Extract both RP location and log file path from the output
+    if {[regexp {Please check (0/RP[0-9]/CPU0) : (/harddisk:/showtech-os-[^\s]+\.logs)} $output match rp_loc log_path]} {
         set log_file_path $log_path
         set rp_location $rp_loc
         # Derive tgz path by removing .logs extension
         regsub {\.logs$} $log_file_path ".tgz" tgz_file_path
 
-        puts "RP Location: $rp_location"
-        puts "Log Path:    $log_file_path"
-        puts "Target File: $tgz_file_path\n"
+        puts "RP Location (from output): $rp_location"
+        puts "Log file path (extracted): $log_file_path"
+        puts "Expected TGZ file path: $tgz_file_path\n"
 
         return [list $log_file_path $tgz_file_path $rp_location]
     } else {
@@ -372,18 +392,16 @@ proc execute_background_showtech_command {timestamp prompt cmd_base file_prefix}
     }
 }
 
-# Function to monitor background showtech completion
-proc monitor_background_showtech_completion {tgz_file_path prompt active_rp} {
+# Function to monitor background showtech completion (OS or Fabric)
+proc monitor_background_showtech_completion {log_file_path tgz_file_path prompt active_rp} {
     set max_timeout_minutes 100
     set poll_interval_seconds 60
     set max_timeout_seconds [expr {$max_timeout_minutes * 60}]
     set start_time [clock seconds]
 
-    # Extract just the filename for regex matching in the dir output
-    set target_filename [file tail $tgz_file_path]
-
-    puts "\n================== Monitoring Background Job Completion ==================\n"
-    puts "Target File: $tgz_file_path"
+    puts "\n================== Monitoring background showtech completion ==================\n"
+    # PRESERVED FUNCTIONALITY: Printing the log file path
+    puts "Log file: $log_file_path"
     puts "Polling interval: $poll_interval_seconds seconds"
     puts "Maximum timeout: $max_timeout_minutes minutes\n"
 
@@ -392,17 +410,18 @@ proc monitor_background_showtech_completion {tgz_file_path prompt active_rp} {
         set elapsed_seconds [expr {$current_time - $start_time}]
         set elapsed_minutes [expr {$elapsed_seconds / 60}]
 
-        # Check timeout
+        # Check if we've exceeded the timeout
         if {$elapsed_seconds >= $max_timeout_seconds} {
             set timestamp [clock format $current_time -format {%Y-%m-%d %H:%M:%S}]
-            puts "\n\[$timestamp\] WARNING: Job timed out after $max_timeout_minutes minutes. Skipping.\n"
+            puts "\n\[$timestamp\] WARNING: Showtech timed out after $max_timeout_minutes minutes, skipping file transfer.\n"
             return 0
         }
 
+        # Display elapsed time
         set timestamp [clock format $current_time -format {%Y-%m-%d %H:%M:%S}]
-        puts "\[$timestamp\] Elapsed: $elapsed_minutes mins - Checking for file..."
+        puts "\[$timestamp\] Elapsed: $elapsed_minutes mins - Checking completion..."
 
-        # Check if TGZ file exists
+        # Check if TGZ file exists using dir command
         send "dir $tgz_file_path\r"
 
         # Wait for command echo
@@ -411,12 +430,10 @@ proc monitor_background_showtech_completion {tgz_file_path prompt active_rp} {
         set completion_found 0
         expect {
             -re "Path does not exist|No such file|Error:" {
-                # File not found yet
                 set completion_found 0
                 expect -re "$prompt"
             }
-            -re [string map {. \\.} $target_filename] {
-                # File found in directory listing!
+            -re ".*\\.tgz" {
                 set completion_found 1
                 expect -re "$prompt"
             }
@@ -430,15 +447,12 @@ proc monitor_background_showtech_completion {tgz_file_path prompt active_rp} {
 
         if {$completion_found == 1} {
             set completion_time [clock format $current_time -format {%Y-%m-%d %H:%M:%S}]
-            puts "\n\[$completion_time\] ================== Job completed successfully! ==================\n"
-            puts "Total time elapsed: $elapsed_minutes minutes"
-            puts "File ready at: $tgz_file_path\n"
+            puts "\n\[$completion_time\] ================== Background showtech completed successfully! ==================\n"
+            puts "TGZ file ready at: $tgz_file_path\n"
             return 1
         }
 
-        # Wait for next poll
-        puts "Not completed yet, waiting $poll_interval_seconds seconds...\n"
-        after [expr {$poll_interval_seconds * 1000}]
+        sleep $poll_interval_seconds
     }
 }
 
@@ -859,99 +873,170 @@ proc process_ppdb_collection {cmd_line prompt hostname} {
 
     return ""
 }
-# Function to execute LC-FC automated sequence: playbook -> archive-log -> showtech
-# Function to execute LC-FC automated sequence: playbook -> archive-log -> showtech
-# This function orchestrates three separate script executions as subprocesses
-proc execute_lc_fc_sequence {hostname sr_number cxd_token} {
-    puts "\n╔════════════════════════════════════════════════════════════════╗"
-    puts "║ LC-FC AUTOMATED SEQUENCE FOR: $hostname"
-    puts "╚════════════════════════════════════════════════════════════════╝\n"
 
-    set phase_results [dict create playbook 0 archive 0 showtech 0]
+# Function to execute LC-FC automated sequence: playbook -> archive-log -> showtech
+# Orchestrates three separate script executions and tracks Execution vs Upload status
+proc execute_lc_fc_sequence {hostname sr_number cxd_token} {
+    # ANSI Colors
+    set bold "\033\[1m"
+    set red "\033\[31m"
+    set green "\033\[32m"
+    set yellow "\033\[33m"
+    set cyan "\033\[36m"
+    set reset "\033\[0m"
+
+    puts "\n${cyan}╔════════════════════════════════════════════════════════════════╗${reset}"
+    puts "${cyan}║ LC-FC AUTOMATED SEQUENCE FOR: $hostname${reset}"
+    puts "${cyan}╚════════════════════════════════════════════════════════════════╝${reset}\n"
+
+    # Initialize Status Dictionary
+    # Status codes: 0=Failed, 1=Success, 2=Skipped, 3=Not Configured/NA
+    set status [dict create \
+        p1_exec 0 p1_up 0 \
+        p2_exec 0 p2_up 0 \
+        p3_exec 0 p3_up 0 \
+    ]
+
     set script_path [info script]
 
     # ==================== PHASE 1: PLAYBOOK EXECUTION ====================
-    puts "\n\[PHASE 1/3\] Executing lc-fc.playbook commands...\n"
+    puts "\n${bold}\[PHASE 1/3\] Executing lc-fc.playbook commands...${reset}\n"
 
+    set p1_upload_failed 0
     if {[catch {
-        set cmd_pipe [open "|$script_path --no-lc-fc-detection --lcfc-prefix --playbook lc-fc.playbook $hostname $sr_number $cxd_token 2>@1" r]
+        set cmd_pipe [open "|\"$script_path\" --no-lc-fc-detection --lcfc-prefix --playbook lc-fc.playbook $hostname $sr_number $cxd_token 2>@1" r]
         while {[gets $cmd_pipe line] >= 0} {
             puts $line
+            # Scan output for upload failures
+            if {[string match "*All curl attempts failed*" $line] || [string match "*Transfer failed*" $line]} {
+                set p1_upload_failed 1
+            }
         }
         close $cmd_pipe
     } playbook_error]} {
-        puts "\[PHASE 1/3\] ❌ Playbook execution failed: $playbook_error\n"
-        dict set phase_results playbook 0
-        puts "Stopping sequence due to playbook failure.\n"
+        puts "${red}\[PHASE 1/3\] ❌ Playbook execution failed: $playbook_error${reset}\n"
+        dict set status p1_exec 0
+        dict set status p1_up 0
 
-        # Print final summary
-        puts "\n╔════════════════════════════════════════════════════════════════╗"
-        puts "║ LC-FC SEQUENCE STOPPED FOR: $hostname"
-        puts "╚════════════════════════════════════════════════════════════════╝\n"
-        puts "Phase Summary:"
-        puts "  Phase 1 (Playbook):  ❌ Failed"
-        puts "  Phase 2 (Archive):   ⚠️  Skipped (due to Phase 1 failure)"
-        puts "  Phase 3 (Showtech):  ⚠️  Skipped (due to Phase 1 failure)\n"
-
-        return $phase_results
+        # Stop sequence on execution failure
+        print_lcfc_summary $hostname $status
+        return $status
     }
-    puts "\[PHASE 1/3\] ✅ Playbook execution completed successfully\n"
-    dict set phase_results playbook 1
+
+    dict set status p1_exec 1
+    dict set status p1_up [expr {$p1_upload_failed ? 0 : 1}]
+    puts "${green}\[PHASE 1/3\] ✅ Playbook execution completed${reset}\n"
 
     # ==================== PHASE 2: ARCHIVE-LOG ====================
-    puts "\n\[PHASE 2/3\] Archiving device logs...\n"
+    puts "\n${bold}\[PHASE 2/3\] Archiving device logs...${reset}\n"
+
+    set p2_upload_failed 0
+    set p2_not_configured 0
 
     if {[catch {
-        set cmd_pipe [open "|$script_path --archive-log $hostname $sr_number $cxd_token 2>@1" r]
-        set archive_output ""
+        set cmd_pipe [open "|\"$script_path\" --archive-log $hostname $sr_number $cxd_token 2>@1" r]
         while {[gets $cmd_pipe line] >= 0} {
             puts $line
-            append archive_output "$line\n"
+            if {[string match "*Archive Log is not configured*" $line]} {
+                set p2_not_configured 1
+            }
+            if {[string match "*All curl attempts failed*" $line] || [string match "*Transfer failed*" $line]} {
+                set p2_upload_failed 1
+            }
         }
         close $cmd_pipe
-
-        if {[string match "*Archive Log is not configured*" $archive_output]} {
-            puts "\[PHASE 2/3\] ⚠️  Archive-log not configured, continuing to showtech phase\n"
-            dict set phase_results archive 0
-        } else {
-            puts "\[PHASE 2/3\] ✅ Archive-log completed successfully\n"
-            dict set phase_results archive 1
-        }
     } archive_error]} {
-        puts "\[PHASE 2/3\] ⚠️  Archive-log failed: $archive_error, continuing to showtech phase\n"
-        dict set phase_results archive 0
+        puts "${yellow}\[PHASE 2/3\] ⚠️  Archive-log failed or timed out, continuing...${reset}\n"
+        dict set status p2_exec 0
+        dict set status p2_up 0
+    } else {
+        if {$p2_not_configured} {
+            puts "${yellow}\[PHASE 2/3\] ⚠️  Archive-log not configured${reset}\n"
+            dict set status p2_exec 3 ;# NA
+            dict set status p2_up 3   ;# NA
+        } else {
+            puts "${green}\[PHASE 2/3\] ✅ Archive-log completed${reset}\n"
+            dict set status p2_exec 1
+            dict set status p2_up [expr {$p2_upload_failed ? 0 : 1}]
+        }
     }
 
     # ==================== PHASE 3: SHOWTECH EXECUTION ====================
-    puts "\n\[PHASE 3/3\] Collecting showtech outputs...\n"
+    puts "\n${bold}\[PHASE 3/3\] Collecting showtech outputs...${reset}\n"
+
+    set p3_upload_failed 0
 
     if {[catch {
-        set cmd_pipe [open "|$script_path --showtech lc-fc.showtech $hostname $sr_number $cxd_token 2>@1" r]
+        set cmd_pipe [open "|\"$script_path\" --showtech lc-fc.showtech $hostname $sr_number $cxd_token 2>@1" r]
         while {[gets $cmd_pipe line] >= 0} {
             puts $line
+            if {[string match "*All curl attempts failed*" $line] || [string match "*Transfer failed*" $line]} {
+                set p3_upload_failed 1
+            }
         }
         close $cmd_pipe
     } showtech_error]} {
-        puts "\[PHASE 3/3\] ❌ Showtech execution failed: $showtech_error\n"
-        dict set phase_results showtech 0
+        puts "${red}\[PHASE 3/3\] ❌ Showtech execution failed: $showtech_error${reset}\n"
+        dict set status p3_exec 0
+        dict set status p3_up 0
     } else {
-        puts "\[PHASE 3/3\] ✅ Showtech execution completed successfully\n"
-        dict set phase_results showtech 1
+        puts "${green}\[PHASE 3/3\] ✅ Showtech execution completed${reset}\n"
+        dict set status p3_exec 1
+        dict set status p3_up [expr {$p3_upload_failed ? 0 : 1}]
     }
 
-    # Print final summary
-    puts "\n╔════════════════════════════════════════════════════════════════╗"
-    puts "║ LC-FC SEQUENCE COMPLETED FOR: $hostname"
-    puts "╚════════════════════════════════════════════════════════════════╝\n"
-    puts "Phase Summary:"
-    set playbook_status [expr {[dict get $phase_results playbook] ? "✅ Success" : "❌ Failed"}]
-    set archive_status [expr {[dict get $phase_results archive] ? "✅ Success" : "⚠️  Skipped/Failed"}]
-    set showtech_status [expr {[dict get $phase_results showtech] ? "✅ Success" : "❌ Failed"}]
-    puts "  Phase 1 (Playbook):  $playbook_status"
-    puts "  Phase 2 (Archive):   $archive_status"
-    puts "  Phase 3 (Showtech):  $showtech_status\n"
+    # Print Final Table
+    print_lcfc_summary $hostname $status
+    return $status
+}
 
-    return $phase_results
+# Helper function to print the summary table
+proc print_lcfc_summary {hostname status} {
+    set bold "\033\[1m"
+    set red "\033\[31m"
+    set green "\033\[32m"
+    set yellow "\033\[33m"
+    set cyan "\033\[36m"
+    set reset "\033\[0m"
+
+    # Box width: 60 chars
+    puts "\n${cyan}╔════════════════════════════════════════════════════════════╗${reset}"
+    puts "${cyan}║ LC-FC SEQUENCE SUMMARY: $hostname${reset}"
+    puts "${cyan}╚════════════════════════════════════════════════════════════╝${reset}"
+
+    # Header Columns
+    puts "${bold} Phase  | Execution Status     | Upload Status       ${reset}"
+    puts "${bold}--------+----------------------+---------------------${reset}"
+
+    # Helper to format columns
+    # The color code (${green}, ${red}, etc.) is applied to the WHOLE string
+
+    proc fmt_col {val width} {
+        set red "\033\[31m"
+        set green "\033\[32m"
+        set yellow "\033\[33m"
+        set reset "\033\[0m"
+
+        if {$width == "exec"} {
+            # Target Width: 22 chars (including padding)
+            if {$val == 1} { return "${green}\[OK\] Success         ${reset}" }
+            if {$val == 0} { return "${red}\[!!\] Failed          ${reset}" }
+            if {$val == 2} { return "${yellow}\[--\] Skipped         ${reset}" }
+            if {$val == 3} { return "${yellow}\[--\] Not Configured  ${reset}" }
+        } else {
+            # Target Width: 21 chars (including padding)
+            if {$val == 1} { return "${green}\[OK\] Success        ${reset}" }
+            if {$val == 0} { return "${red}\[!!\] Failed         ${reset}" }
+            if {$val == 2} { return "${yellow}\[--\] Skipped        ${reset}" }
+            if {$val == 3} { return "${yellow}\[--\] Not Configured ${reset}" }
+        }
+        return "Unknown             "
+    }
+
+    puts " 1      | [fmt_col [dict get $status p1_exec] exec]| [fmt_col [dict get $status p1_up] up]"
+    puts " 2      | [fmt_col [dict get $status p2_exec] exec]| [fmt_col [dict get $status p2_up] up]"
+    puts " 3      | [fmt_col [dict get $status p3_exec] exec]| [fmt_col [dict get $status p3_up] up]"
+    puts ""
 }
 
 # Function to enter sysadmin mode
@@ -989,24 +1074,57 @@ proc exit_admin_mode {} {
 
 # Function to display help information
 proc display_help {} {
-    puts "\nUsage: msft_collector \[options\] <hostname|hostname_file> <args>\n"
-    puts "Options:"
-    puts "  --list-playbooks"
-    puts "      List all available playbook files."
-    puts "  --playbook <playbook_name> <hostname|hostname_file> <sr_number> <cxd_token>"
-    puts "      Execute the specified playbook on one or more hostnames (a single hostname or a file with one hostname per line) using the provided SR number and CXD token."
-    puts "  --showtech <showtech_playbook> <hostname|hostname_file> <sr_number> <cxd_token>"
-    puts "      Run the showtech playbook on one or more hostnames (a single hostname or a file containing hostnames) using the provided SR number and CXD token."
-    puts "  --interactive <hostname|hostname_file> <sr_number> <cxd_token>"
-    puts "      Enter interactive mode for one or more hostnames (a single hostname or a hostname file) to execute commands directly."
-    puts "  --archive-log <hostname|hostname_file> <sr_number> <cxd_token>"
-    puts "      Archive logs from one or more hostnames (a single hostname or a file with hostnames) and upload them to the Cisco File Server."
-    puts "  --scan <hostname_file> <playbook_name> <sr_number> <cxd_token>"
-    puts "      Execute scan mode on a list of hostnames (one hostname per line) concurrently (up to 10 at a time) using the specified playbook."
-    puts "  --background"
-    puts "      Optional. Run the collector in a detached SCREEN session. Useful for long-running scans. The screen terminates automatically when done."
-    puts "  --help, -h"
+    # ANSI Color Codes
+    # FIX: Escaped [ brackets to prevent Tcl command substitution errors
+    set bold "\033\[1m"
+    set cyan "\033\[36m"
+    set green "\033\[32m"
+    set yellow "\033\[33m"
+    set reset "\033\[0m"
+
+    puts "\n${cyan}╔══════════════════════════════════════════════════════════════════════════════╗${reset}"
+    puts "${cyan}║                      MSFT COLLECTOR - HELP MENU                              ║${reset}"
+    puts "${cyan}╚══════════════════════════════════════════════════════════════════════════════╝${reset}"
+
+    puts "\n${bold}USAGE:${reset}"
+    puts "  msft_collector ${green}\[mode\]${reset} <hostname|file> <args> ${yellow}\[--background\]${reset}\n"
+
+    puts "${bold}CORE COLLECTION MODES:${reset}"
+
+    puts "  ${green}--interactive${reset} <hostname|file> <sr_number> <cxd_token>"
+    puts "      Enter interactive mode to execute commands directly on the device(s)."
+    puts "      Supports TTY detection and sudo password handling.\n"
+
+    puts "  ${green}--playbook${reset} <playbook_name> <hostname|file> <sr_number> <cxd_token>"
+    puts "      Execute a specific playbook on one or more hostnames."
+    puts "      (Accepts a single hostname or a file with one hostname per line).\n"
+
+    puts "  ${green}--showtech${reset} <showtech_playbook> <hostname|file> <sr_number> <cxd_token>"
+    puts "      Run a showtech generation playbook. Automatically handles:"
+    puts "      - IOS-XR (Fretta/Spitfire) background generation & retrieval."
+    puts "      - Nexus (NX-OS) direct capture & formatting.\n"
+
+    puts "  ${green}--archive-log${reset} <hostname|file> <sr_number> <cxd_token>"
+    puts "      Archive /var/log/ or device logs from the host and upload to Cisco."
+    puts "      Includes file verification and retry logic.\n"
+
+    puts "  ${green}--scan${reset} <hostname_file> <playbook_name> <sr_number> <cxd_token>"
+    puts "      Bulk execution mode. Runs the playbook on a list of hostnames concurrently"
+    puts "      (up to 10 parallel threads).\n"
+
+    puts "${bold}UTILITIES & MODIFIERS:${reset}"
+
+    puts "  ${yellow}--background${reset}"
+    puts "      ${bold}Optional Flag.${reset} Add this to any mode above to run the collector in a"
+    puts "      detached SCREEN session. Useful for long-running jobs or unstable connections."
+    puts "      (Auto-attaches on launch, auto-terminates on completion).\n"
+
+    puts "  ${green}--list-playbooks${reset}"
+    puts "      List all available playbook and showtech files in the bin directory.\n"
+
+    puts "  ${green}--help, -h${reset}"
     puts "      Display this help message.\n"
+
     exit 1
 }
 # Function to list playbooks
@@ -1181,7 +1299,8 @@ if {$bg_index != -1} {
     set notify_cmd "ct=\$(tty); for t in \$(who | grep $::env(USER) | awk '{print \$2}'); do if \[ \"/dev/\$t\" != \"\$ct\" \]; then printf \"\\r\\n\\033\[1;32m\[\$STY\] Job has COMPLETED.\\033\[0m\\r\\nCheck log: $session_log\\r\\n\" > /dev/\$t 2>/dev/null; fi; done"
 
     # Chain the commands
-    set shell_cmd "$interpreter $script_path $args_str | tee $session_log; echo \"$finish_msg\"; $notify_cmd; sleep 10"
+    # FIX: Wrap paths in quotes to handle spaces in directory names
+    set shell_cmd "\"$interpreter\" \"$script_path\" $args_str | tee \"$session_log\"; echo \"$finish_msg\"; $notify_cmd; sleep 10"
 
     # 7. Launch the detached screen session
     if {[catch {exec screen -dmS $session_name sh -c $shell_cmd} result]} {
@@ -1210,6 +1329,88 @@ if {$bg_index != -1} {
 
 set mode [lindex $argv 0]
 set argv [lrange $argv 1 end]
+
+# ==============================================================================
+# PROCEDURE: Execute Background Showtech (Spitfire/Fretta)
+# ==============================================================================
+proc execute_background_showtech_command {timestamp prompt cmd_base file_prefix} {
+    global spawn_id
+
+    set filename "${file_prefix}-${timestamp}"
+
+    # FIX: Use standard "harddisk:" syntax without leading slash for command execution
+    set full_cmd "$cmd_base file harddisk:${filename} background compressed"
+
+    log_message "INFO" "Initiating background command: $full_cmd"
+    send "$full_cmd\r"
+
+    # 1. Capture output to find RP and confirm launch
+    set output ""
+    expect {
+        -re "Show tech running in background" {
+            append output $expect_out(buffer)
+            exp_continue
+        }
+        -re "$prompt" {
+            append output $expect_out(buffer)
+            log_message "INFO" "Background job launched successfully. Beginning poll sequence..."
+        }
+        timeout {
+            log_message "ERROR" "Timeout waiting for prompt after launching background command."
+            return ""
+        }
+    }
+
+    # 2. Extract Active RP from output (default to 0/RP0/CPU0 if not found)
+    set active_rp "0/RP0/CPU0"
+    if {[regexp {(0/RP[0-9]/CPU0)} $output match rp_match]} {
+        set active_rp $rp_match
+    }
+
+    # 3. Define Paths
+    # FIX: Removed leading slash. Correct syntax is "harddisk:filename"
+    set tgz_file_path "harddisk:${filename}.tgz"
+    set log_file_path "harddisk:${filename}.logs"
+
+    # 4. Polling Loop
+    set max_retries 100
+    set retry_interval 60
+    set job_completed 0
+
+    for {set i 0} {$i < $max_retries} {incr i} {
+        send "dir $tgz_file_path\r"
+
+        # Consume the command echo first so we don't match the filename in the command line
+        expect -re [string map {* \\* . \\. ? \\? + \\+ ( \\( ) \\) \[ \\\[ \] \\\] $ \\$ ^ \\^ | \\|} "dir $tgz_file_path"]
+
+        expect {
+            -re "No such file|Path does not exist" {
+                log_message "INFO" "Background job in progress... (Iteration [expr $i + 1]/$max_retries)"
+                expect -re "$prompt"
+            }
+            -re "${filename}.tgz" {
+                # Now we are sure it matches the file listing
+                log_message "SUCCESS" "Background job completed. File detected: ${filename}.tgz"
+                set job_completed 1
+                expect -re "$prompt"
+            }
+            -re "$prompt" {
+                # Fallback if regexes don't match but prompt returns
+            }
+        }
+
+        if {$job_completed} { break }
+        sleep $retry_interval
+    }
+
+    if {!$job_completed} {
+        log_message "ERROR" "Background job timed out."
+        return ""
+    }
+
+    # Return the list so the calling code can use it
+    return [list $log_file_path $tgz_file_path $active_rp]
+}
 
 if {$mode == "--interactive"} {
     # Get the start time using Tcl's clock command
@@ -1646,6 +1847,7 @@ if {$mode == "--interactive"} {
     }
     # Clean up playbook copies from platform directories
     if {[info exists temp_playbook]} {
+        # Added "nexus" to this list to ensure those files are removed too
         foreach dir {"fretta" "spitfire" "sonic" "nexus"} {
             set dir_playbook "$dir/[file tail $temp_playbook]"
             if {[file exists $dir_playbook]} {
@@ -1669,9 +1871,6 @@ if {$mode == "--interactive"} {
         puts "\n================== Interactive session completed in $minutes minutes and $seconds seconds. ==================\n"
     }
     exit 0
-
-
-
 } elseif {$mode == "--list-playbooks"} {
     list_playbooks
 } elseif {$mode == "--playbook"} {
@@ -2197,9 +2396,7 @@ day year]} {
             continue
         }
 
-        # This function initializes the logging process by setting up necessary variables,
-        # generating a unique log file name, checking the password file, setting a timeout,
-        # and starting the logging process.
+        # This function initializes the logging process
         initialize_logging $actual_hostname
 
         puts "================== Log start time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]==================\n"
@@ -2210,7 +2407,8 @@ day year]} {
         }
         set port_info [expr {$ssh_port ne "" ? ":$ssh_port" : ""}]
         puts "\n================== Entering Showtech mode. Opening SSH Connection to ${actual_hostname}${port_info}. ================== \n"
-        # SSH into the device with automatic host key acceptance
+
+        # SSH into the device
         if {$ssh_port ne ""} {
             spawn ssh -o StrictHostKeyChecking=no -p $ssh_port $username@$actual_hostname
         } else {
@@ -2232,117 +2430,79 @@ day year]} {
             }
         }
 
-        # ==============================================================================
         # FIX: Initialize terminal settings BEFORE platform detection to prevent paging hangs
-        # ==============================================================================
-        # We use a broad regex to match prompts from IOS (#) and SONiC ($)
-        # If the command fails (e.g. on SONiC), we just catch the prompt and move on.
         send "terminal length 0\r"
         expect -re "(:.*\\$ |.*#)\\s*$"
-
         send "terminal width 511\r"
         expect -re "(:.*\\$ |.*#)\\s*$"
-        # ==============================================================================
 
-        # Identify platform type - try show version first for all platforms
+        # Identify platform type
         log_user 0
-        #exp_internal 1
         set version_output [execute_command "show version" "(\\r\\n|\\r).*#\\s*$|(\\r\\n|\\r).*\\$\\s*$|:.*\\$\\s*$"]
 
-
-        # If show version fails or returns empty, try IOS XR specific command
         if {[string trim $version_output] eq "" || [regexp {Invalid|Unknown|command not found} $version_output]} {
             set version_output [execute_command "show version | include ws" "\r\n.*:.*\\$ |\r\n.*#"]
         }
         log_user 1
 
-        # Debug: Show what we captured
-        puts "\n================== DEBUG: Version output captured (first 500 chars): ==================\n"
-        puts [string range $version_output 0 500]
-        puts "\n================== END DEBUG ==================\n"
-
         # Determine the correct playbook directory based on platform
-        # IMPORTANT: Check SONiC first because it may contain "cisco-8000" in ASIC field
         set platform "unknown"
         set showtech_playbook_directory ""
         if {[regexp -nocase {sonic} $version_output]} {
             set platform "sonic"
             set showtech_playbook_directory "sonic"
-            puts "DEBUG: Matched sonic platform"
         } elseif {[regexp {ncs5500} $version_output]} {
             set platform "ncs5500"
             set showtech_playbook_directory "fretta"
-            puts "DEBUG: Matched ncs5500 platform"
         } elseif {[regexp {8000} $version_output]} {
             set platform "8000"
             set showtech_playbook_directory "spitfire"
-            puts "DEBUG: Matched 8000 platform"
         } elseif {[regexp -nocase {NX-OS|Nexus} $version_output]} {
             set platform "nexus"
             set showtech_playbook_directory "nexus"
-            puts "DEBUG: Matched Nexus platform"
         } else {
             puts "Unknown platform. Exiting..."
-            puts "DEBUG: Could not match platform in version output"
             exit 1
         }
 
         puts "Platform identified: $platform"
-        puts "Showtech directory: $showtech_playbook_directory"
 
         # Construct the full playbook path
         set showtech_file [file join $showtech_playbook_directory $showtech_playbook]
-        puts "DEBUG: Full showtech file path: $showtech_file"
 
-        # Check if the playbook file exists and has content
         if {![file exists $showtech_file] || [file size $showtech_file] == 0} {
             puts "Showtech file $showtech_file is missing or empty!"
             exit 1
         }
-        puts "DEBUG: Showtech file found and has content"
 
-        # Open the playbook file for reading
         set cmd_Fh [open $showtech_file r]
-
-        # List to store showtech file paths
         set showtech_files {}
 
-        # Loop through each showtech command in the showtech playbook file
+        # Loop through each showtech command
         while { [gets $cmd_Fh cmd_line] != -1 } {
             if {[string trim $cmd_line] == "" || [string index $cmd_line 0] == "#"} {
                 continue
             }
 
-            # ==============================================================================
-            # NEW FEATURE: Fretta (NCS5500) Admin Show Tech Handling
-            # ==============================================================================
+            # Fretta (NCS5500) Admin Show Tech Handling
             if {$platform eq "ncs5500" && [regexp {^admin show tech} $cmd_line]} {
                 puts "\n================== Executing Fretta Admin Show Tech: $cmd_line ==================\n"
-
-                # 1. Execute the command from XR prompt
                 set showtech_output [execute_command $cmd_line "RP/.*#"]
 
-                # 2. Parse the output for the Admin file path
                 if {[regexp {Show tech output available at (/misc/disk1/+/showtech/.*\.tgz)} $showtech_output match full_admin_path]} {
                     set filename [file tail $full_admin_path]
                     puts "Detected Admin File: $filename"
-                    puts "Full Admin Path: $full_admin_path"
 
-                    # 3. Determine Current RP Location for the Copy Command
-                    set current_rp "0/RP0/CPU0" ;# Default fallback
+                    set current_rp "0/RP0/CPU0"
                     if {[regexp {RP/(0/RP[0-9]+/CPU0):} $showtech_output match rp_loc]} {
                         set current_rp $rp_loc
                     }
-                    puts "Targeting RP Location: $current_rp"
 
-                    # 4. Execute the Internal Copy (Admin VM -> XR VM)
                     set copy_cmd "admin copy harddisk:showtech/$filename harddisk: location $current_rp/VM1"
-
                     puts "\n================== Copying file to XR VM: $copy_cmd ==================\n"
 
                     set old_timeout $timeout
                     set timeout 600
-
                     send "$copy_cmd\r"
                     expect {
                         -re "Destination file name" { send "\r"; exp_continue }
@@ -2352,44 +2512,37 @@ day year]} {
                     }
                     set timeout $old_timeout
 
-                    # 5. Add the new XR path to the list for SCP download
                     set xr_file_path "/harddisk:/$filename"
                     lappend showtech_files $xr_file_path
                     puts "\n================== File ready for download: $xr_file_path ==================\n"
-
                 } else {
                     puts "ERROR: Could not parse filename from Admin Show Tech output."
-                    puts "Output was: $showtech_output"
                 }
 
-            # Check for admin command to switch modes (IOS XR only)
             } elseif {[string match "admin" $cmd_line]} {
                 enter_admin_mode
+
             } elseif {$platform eq "8000"} {
-                # Logic for Spitfire (8000) Background Commands
+                # Spitfire (8000) Background Commands
                 set is_background_cmd 0
                 set cmd_base ""
                 set file_prefix ""
 
-                # Check for OS Showtech
                 if {[string trim $cmd_line] eq "show tech-support os file harddisk: background compressed"} {
                     set is_background_cmd 1
                     set cmd_base "show tech os"
-                    set file_prefix "showtech-os"
-                }
-                # Check for Fabric Link-Include Showtech
-                elseif {[string trim $cmd_line] eq "show tech-support fabric link-include"} {
+                    set file_prefix "showtech-os-${actual_hostname}"
+                } elseif {[string trim $cmd_line] eq "show tech-support fabric link-include"} {
                     set is_background_cmd 1
                     set cmd_base "show tech-support fabric link-include"
-                    set file_prefix "showtech-fabric"
+                    set file_prefix "showtech-fabric-link-include-${actual_hostname}"
                 }
 
                 if {$is_background_cmd} {
                     puts "\n================== Detected Background Command: $cmd_base ==================\n"
-
                     set os_timestamp [generate_timestamp]
 
-                    # Execute using the generalized function
+                    # Execute (includes polling)
                     set file_paths [execute_background_showtech_command $os_timestamp "RP/.*#" $cmd_base $file_prefix]
 
                     if {[llength $file_paths] == 3} {
@@ -2397,68 +2550,36 @@ day year]} {
                         set tgz_file_path [lindex $file_paths 1]
                         set active_rp [lindex $file_paths 2]
 
-                        # Monitor using the generalized function
-                        set completion_success [monitor_background_showtech_completion $tgz_file_path "RP/.*#" $active_rp]
-
-                        if {$completion_success} {
-                            lappend showtech_files $tgz_file_path
-                            puts "\n================== File added to transfer list: $tgz_file_path ==================\n"
-                        } else {
-                            puts "\n================== Monitoring failed or timed out, skipping file transfer ==================\n"
-                        }
+                        # File is confirmed ready by the function above
+                        lappend showtech_files $tgz_file_path
+                        puts "\n================== File added to transfer list: $tgz_file_path ==================\n"
                     } else {
                         puts "\nERROR: Failed to execute background command or extract file paths\n"
                     }
                 } else {
-                    # Standard Spitfire command (not background)
                     set showtech_output [execute_command $cmd_line "RP/.*#"]
                     if {[regexp {Show tech output available at .* : (.*\.tgz)} $showtech_output match showtech_file]} {
                         puts "\n================== Show tech file located at: $showtech_file ==================\n "
                         lappend showtech_files $showtech_file
-                    } else {
-                        puts "Failed to locate show tech file path in output."
                     }
                 }
+
             } elseif {$platform eq "nexus"} {
-                # ==============================================================================
-                # NEW: Nexus Direct Capture Logic (Improved)
-                # ==============================================================================
+                # Nexus Direct Capture Logic
                 puts "\n================== Executing Nexus Command: $cmd_line ==================\n"
-
-                # 1. Increase buffer size to handle large chunks of text without overflowing
                 match_max 500000
-
-                # 2. Increase timeout to 2 hours (Nexus show techs can be very slow)
                 set old_timeout $timeout
                 set timeout 7200
-
-                # 3. Send the command
                 send "$cmd_line\r"
-
-                # 4. Wait for the specific prompt.
-                # FIX: Changed regex from ".*#" to "[\r\n]+.*#\s*$"
-                # This ensures we only match a # that appears at the end of the output,
-                # preventing false stops on config lines like "description Link #1"
                 expect {
-                    -re "\[\r\n\]+.*#\\s*$" {
-                        puts "\n================== Command Completed ==================\n"
-                    }
-                    timeout {
-                        puts "\n================== WARNING: Command timed out after $timeout seconds ==================\n"
-                    }
-                    eof {
-                        puts "\n================== ERROR: Unexpected EOF during collection ==================\n"
-                    }
+                    -re "\[\r\n\]+.*#\\s*$" { puts "\n================== Command Completed ==================\n" }
+                    timeout { puts "\n================== WARNING: Command timed out ==================\n" }
+                    eof { puts "\n================== ERROR: Unexpected EOF ==================\n" }
                 }
-
-                # Restore timeout
                 set timeout $old_timeout
 
-                # We do NOT add anything to $showtech_files because we cannot SCP.
-                # We will handle the log file upload after the loop.
-
             } else {
-                # Execute command with appropriate prompt based on platform and mode
+                # Standard Execution (IOS-XR / SONiC)
                 if {$in_admin_mode} {
                     set showtech_output [execute_command $cmd_line "sysadmin-vm:.*#"]
                 } elseif {$platform eq "sonic"} {
@@ -2467,116 +2588,86 @@ day year]} {
                     set showtech_output [execute_command $cmd_line "RP/.*#"]
                 }
 
-                # Extract the showtech file path using platform-specific regex
                 set file_found 0
-
-                # IOS XR pattern
                 if {[regexp {Show tech output available at .* : (.*\.tgz)} $showtech_output match showtech_file]} {
-                    puts "\n================== Show tech file located at: $showtech_file ==================\n "
                     lappend showtech_files $showtech_file
                     set file_found 1
                 }
-
-                # SONiC pattern
                 if {!$file_found && [regexp {(/var/dump/sonic_dump_[A-Za-z0-9_-]+_[0-9]+_[0-9]+\.tar\.gz)} $showtech_output match showtech_file]} {
-                    puts "\n================== Show tech file located at: $showtech_file ==================\n "
                     lappend showtech_files $showtech_file
                     set file_found 1
-                }
-
-                if {!$file_found && !($platform eq "ncs5500" && [regexp {^admin show tech} $cmd_line])} {
-                    puts "Failed to locate show tech file path."
                 }
             }
         }
 
-        # Close the playbook file
         close $cmd_Fh
-        # Exit sysadmin mode if necessary
         exit_admin_mode
-
-        # Exit the SSH session
         send "exit\r"
         expect eof
 
-        # Log the end time and close the log file
         puts "================== Log end time: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}] ================== \n"
         log_file
 
-        # ==============================================================================
-        # NEW: Nexus Log-to-File Upload Logic
-        # ==============================================================================
+        # Ensure local showtechs directory exists
+        if {![file exists "showtechs"]} {
+            file mkdir "showtechs"
+        }
+
+        # Nexus Log-to-File Upload Logic
         if {$platform eq "nexus"} {
             puts "\n================== Processing Nexus Output for Upload ==================\n"
-
             set nexus_timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
             set nexus_file "${actual_hostname}-nexus-show-tech-${nexus_timestamp}.txt"
             set local_path "./showtechs/$nexus_file"
 
             if {[file exists $log_file]} {
                 file copy -force $log_file $local_path
-                puts "Converted session log to: $local_path"
-
-                puts "\n================== Transferring Nexus file to Cisco File Server... ================== \n"
                 set transfer_success [transfer_log_file $local_path $sr_number $cxd_token]
-
-                if {$transfer_success} {
-                    file delete $local_path
-                    puts "Local file removed after successful transfer."
-                } else {
-                    puts "Transfer failed. File retained at $local_path"
-                }
-            } else {
-                puts "ERROR: Could not find session log file to upload."
+                if {$transfer_success} { file delete $local_path }
             }
         }
-        # ==============================================================================
 
-        # SCP each show tech file from router to local (Non-Nexus)
+        # SCP Loop (Fixed to strip harddisk:)
         foreach file $showtech_files {
-            puts "\n================== Transferring ShowTech file from $actual_hostname to SAW JumpServer: $file ================== \n"
+            set clean_name [file tail $file]
+            regsub {^[a-zA-Z0-9]+:} $clean_name "" clean_name
+
+            puts "\n================== Transferring ShowTech file from $actual_hostname to SAW JumpServer: $clean_name ================== \n"
             if {$ssh_port ne ""} {
-                spawn scp -P $ssh_port $username@$actual_hostname:$file ./showtechs
+                spawn scp -P $ssh_port $username@$actual_hostname:$file ./showtechs/$clean_name
             } else {
-                spawn scp $username@$actual_hostname:$file ./showtechs
+                spawn scp $username@$actual_hostname:$file ./showtechs/$clean_name
             }
             expect {
-                "continue connecting (yes/no/\[fingerprint\])?" {
-                    send "yes\r"
-                    expect "assword:" { send [format "%s\r" $password] }
-                }
-                "assword:" {
-                    send [format "%s\r" $password]
-                }
-                timeout {
-                    puts "SCP from $hostname timed out"
-                    continue
-                }
-                eof {
-                    puts "\n================== SCP from $hostname completed successfully ==================\n"
-                }
+                "continue connecting" { send "yes\r"; exp_continue }
+                "assword:" { send [format "%s\r" $password] }
+                timeout { puts "SCP timed out"; continue }
+                eof { puts "\n================== SCP completed successfully ==================\n" }
             }
             expect eof
         }
 
-        # Transfer each show tech file to Cisco File Server using curl and cleanup after success
+        # Upload Loop (Fixed to strip harddisk: and use --fail)
         foreach file $showtech_files {
-            puts "\n================== Transferring ShowTech file to Cisco File Server - cxd.cisco.com: $file ================== \n"
-            set local_file_path [file join ./showtechs [file tail $file]]
+            set clean_name [file tail $file]
+            regsub {^[a-zA-Z0-9]+:} $clean_name "" clean_name
+
+            puts "\n================== Transferring ShowTech file to Cisco File Server: $clean_name ================== \n"
+            set local_file_path [file join ./showtechs $clean_name]
 
             set transfer_success [transfer_log_file $local_file_path $sr_number $cxd_token]
 
             if {$transfer_success} {
                 if {[file exists $local_file_path]} {
                     file delete $local_file_path
-                    puts "\n================== Local showtech file $local_file_path removed after successful transfer. ==================\n"
+                    puts "\n================== Local file removed after successful transfer. ==================\n"
                 }
             } else {
-                puts "\n================== Transfer of $local_file_path failed; local file retained in ./showtechs/ ==================\n"
+                puts "\n================== Transfer failed; local file retained in ./showtechs/ ==================\n"
             }
         }
     }
-   } elseif {$mode == "--archive-log"} {
+} elseif {$mode == "--archive-log"} {
     if {[llength $argv] != 3} {
         puts "Error: Incorrect number of arguments for --archive-log mode."
         display_help

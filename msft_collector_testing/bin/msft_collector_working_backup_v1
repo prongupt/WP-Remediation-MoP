@@ -97,39 +97,25 @@ proc log_message {level message} {
     }
 }
 
-# ==============================================================================
-# STANDARDIZED FILENAME GENERATION FUNCTIONS
-# ==============================================================================
-proc get_standard_timestamp {} {
-    return [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
-}
-
-proc generate_standard_filename {hostname filetype timestamp extension} {
-    return "${hostname}_${filetype}_${timestamp}.${extension}"
-}
-
 proc initialize_logging {hostname {skip_timestamp 0} {prefix ""}} {
     global log_file
     global username
     global password
     global timeout
 
+
     set password_file [file join [file dirname [info script]] "secret"]
     set username $::env(USER)
 
-    # Generate standardized log file name
+    # Generate a unique log file name based on the current timestamp
+    # set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+
+    # Generate a unique log file name (optionally with timestamp and prefix)
     if {$skip_timestamp} {
-        # STANDARDIZED: hostname_log.log (instead of hostname.log)
-        set log_file "logs/${hostname}_log.log"
+        set log_file "logs/${prefix}${hostname}.log"
     } else {
-        set timestamp [get_standard_timestamp]
-        if {$prefix eq "LCFC-"} {
-            # STANDARDIZED: hostname_lcfc_playbook_timestamp.log (instead of LCFC-hostname_timestamp.log)
-            set log_file "logs/${hostname}_lcfc_playbook_${timestamp}.log"
-        } else {
-            # STANDARDIZED: hostname_log_timestamp.log (instead of hostname_timestamp.log)
-            set log_file "logs/${hostname}_log_${timestamp}.log"
-        }
+        set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+        set log_file "logs/${prefix}${hostname}_${timestamp}.log"
     }
 
     # Check if the password file exists and has content
@@ -168,13 +154,8 @@ proc pull_out_file_from_device {banner messages_LC_list sr_number cxd_token host
     }
 
     foreach lc_file $messages_LC_list {
-        # STANDARDIZED: hostname_messages_lcX_timestamp.log (instead of hostname-timestamp-lc_file)
-        set lc_number ""
-        if {[regexp {messages-LC([0-9]+)} $lc_file match num]} {
-            set lc_number $num
-        }
-        set destination_file "${hostname}_messages_lc${lc_number}_${timestamp}.log"
-
+        # Construct the destination file name with the timestamp
+        set destination_file "${hostname}-${timestamp}-${lc_file}"
         puts "\n================== $banner ==================\n"
         log_user 0
         if {$ssh_port ne ""} {
@@ -280,9 +261,9 @@ proc transfer_log_file {log_file sr_number cxd_token} {
 proc upload_unreachable_notification {hostname sr_number cxd_token mode reason} {
     global username
 
-    # STANDARDIZED: hostname_unreachable_timestamp.log (instead of NOT-REACHABLE-hostname_timestamp.log)
-    set timestamp [get_standard_timestamp]
-    set log_file "logs/${hostname}_unreachable_${timestamp}.log"
+    # Generate timestamp for log file
+    set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+    set log_file "logs/NOT-REACHABLE-${hostname}_${timestamp}.log"
 
     # Create the log file with diagnostic information
     set log_fh [open $log_file w]
@@ -341,15 +322,18 @@ proc upload_unreachable_notification {hostname sr_number cxd_token mode reason} 
     }
 }
 
-# Function to generate timestamp in standardized format: YYYYMMDD_HHMMSS
-# STANDARDIZED: Replaced IOS-XR format with standard format
+# Function to generate timestamp in IOS-XR format: 2025-Dec-04.180630.UTC
 proc generate_timestamp {} {
-    return [get_standard_timestamp]
+    set now [clock seconds]
+    set year [clock format $now -format {%Y}]
+    set month [clock format $now -format {%b}]
+    set day [clock format $now -format {%d}]
+    set time [clock format $now -format {%H%M%S}]
+    return "${year}-${month}-${day}.${time}.UTC"
 }
 
 # Function to execute OS showtech command and return log file path
 proc execute_os_showtech_command {timestamp prompt} {
-    # STANDARDIZED: Will be updated in execute_background_showtech_command for proper naming
     set transformed_cmd "show tech os file harddisk:showtech-os-${timestamp} background compressed"
 
     puts "\n================== Executing OS showtech command with timestamp: $timestamp ==================\n"
@@ -471,6 +455,8 @@ proc monitor_background_showtech_completion {log_file_path tgz_file_path prompt 
         sleep $poll_interval_seconds
     }
 }
+
+
 
 # # Function to execute a command and capture its output
 proc execute_command {cmd prompt} {
@@ -727,9 +713,7 @@ proc process_ppdb_collection {cmd_line prompt hostname} {
     foreach lc $lc_list {
         # Extract LC number (e.g., "1" from "0/1/CPU0")
         regexp {0/([0-9]+)/CPU0} $lc match lc_num
-        # STANDARDIZED: hostname_ppdb_lcX_timestamp.txt (instead of ppdb_prod_dump_file_lcX.txt)
-        set timestamp [get_standard_timestamp]
-        set ppdb_filename "${hostname}_ppdb_lc${lc_num}_${timestamp}.txt"
+        set ppdb_filename "ppdb_prod_dump_file_lc${lc_num}.txt"
 
         puts "\n--- Processing LC: $lc ---"
 
@@ -748,7 +732,7 @@ proc process_ppdb_collection {cmd_line prompt hostname} {
         if {[regexp {File written: (/tmp/ppdb_prod_dump_file\.txt)} $pd_output]} {
             puts "File generated: $default_file"
 
-            # Rename the file to standardized name
+            # Rename the file
             execute_command "mv $default_file /tmp/$ppdb_filename" "#"
 
             # Verify file exists
@@ -791,9 +775,8 @@ proc process_ppdb_collection {cmd_line prompt hostname} {
         puts "\n================== Compressing PPDB files on Active RP ==================\n"
 
         # Generate timestamp for tarball
-        set timestamp [get_standard_timestamp]
-        # STANDARDIZED: hostname_ppdb_collection_timestamp.tar.gz (instead of ppdb_prod_dump_all_lcs_timestamp.tar.gz)
-        set tarball_name "${hostname}_ppdb_collection_${timestamp}.tar.gz"
+        set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+        set tarball_name "ppdb_prod_dump_all_lcs_${timestamp}.tar.gz"
 
         puts "Attaching to Active RP: $active_rp"
 
@@ -845,7 +828,7 @@ proc process_ppdb_collection {cmd_line prompt hostname} {
 
         # Verify files exist before creating tarball
         puts "Verifying files exist in $actual_path..."
-        send "ls -lh ${hostname}_ppdb_lc*.txt\r"
+        send "ls -lh ppdb_prod_dump_file_lc*.txt\r"
         expect -re "#"
 
         # Increase timeout for tar operation
@@ -1144,7 +1127,6 @@ proc display_help {} {
 
     exit 1
 }
-
 # Function to list playbooks
 proc list_playbooks {} {
     puts "Available playbooks:"
@@ -1280,12 +1262,11 @@ if {$bg_index != -1} {
     set target_name [file tail $target_name]
 
     # 3. Generate unique session name: hostname_YYYYMMDD_HHMMSS
-    set timestamp [get_standard_timestamp]
+    set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
     set session_name "${target_name}_${timestamp}"
 
     if {![file exists "logs"]} { file mkdir "logs" }
-    # STANDARDIZED: target_progress_timestamp.log (instead of target_timestamp.progress)
-    set session_log "logs/${target_name}_progress_${timestamp}.log"
+    set session_log "logs/${session_name}.progress"
 
     # 4. Get interpreter and script paths
     set interpreter [info nameofexecutable]
@@ -1345,17 +1326,17 @@ if {$bg_index != -1} {
 # END NEW FEATURE
 # ==============================================================================
 
+
 set mode [lindex $argv 0]
 set argv [lrange $argv 1 end]
 
 # ==============================================================================
-# PROCEDURE: Execute Background Showtech (Spitfire/Fretta) - STANDARDIZED
+# PROCEDURE: Execute Background Showtech (Spitfire/Fretta)
 # ==============================================================================
-proc execute_background_showtech_command {hostname timestamp prompt cmd_base file_type} {
+proc execute_background_showtech_command {timestamp prompt cmd_base file_prefix} {
     global spawn_id
 
-    # STANDARDIZED: hostname_showtech_type_timestamp (instead of showtech-type-hostname-timestamp)
-    set filename "${hostname}_showtech_${file_type}_${timestamp}"
+    set filename "${file_prefix}-${timestamp}"
 
     # Command to execute on router (uses harddisk: syntax)
     set full_cmd "$cmd_base file harddisk:${filename} background compressed"
@@ -1577,9 +1558,7 @@ if {$mode == "--interactive"} {
     }
 
     # Create a temporary playbook file with the collected commands
-    # STANDARDIZED: hostname_interactive_playbook_timestamp.playbook (instead of msft_collector_interactive_playbook_epoch.playbook)
-    set timestamp [get_standard_timestamp]
-    set temp_playbook "/tmp/interactive_playbook_${timestamp}.playbook"
+    set temp_playbook "/tmp/msft_collector_interactive_playbook_[clock seconds].playbook"
     set playbook_fh [open $temp_playbook w]
     foreach cmd $commands_list {
         puts $playbook_fh $cmd
@@ -1662,8 +1641,8 @@ if {$mode == "--interactive"} {
         puts "✓ Device is reachable"
 
         # Setup logging
-        set timestamp [get_standard_timestamp]
-        set log_file "logs/${actual_hostname}_log_${timestamp}.log"
+        set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+        set log_file "logs/${actual_hostname}_${timestamp}.log"
         set timeout 1200
         log_file $log_file  ;# Start logging to file
         log_user 1  ;# Enable output to screen and log file
@@ -1759,6 +1738,9 @@ if {$mode == "--interactive"} {
         }
         close $cmd_Fh
 
+
+
+
         # Exit SSH session
         send "exit\r"
         expect eof
@@ -1805,13 +1787,13 @@ if {$mode == "--interactive"} {
 
         if {[llength $diff_files] > 0} {
             # Create tarball with hostname and timestamp (matching log file format)
-            set tarball_timestamp [get_standard_timestamp]
+            set tarball_timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
             if {[info exists interactive_hostname]} {
-                # STANDARDIZED: hostname_interactive_timestamp.tar.gz (instead of hostname-interactive-timestamp.tar.gz)
-                set tarball "${interactive_hostname}_interactive_${tarball_timestamp}.tar.gz"
+                # Single hostname - use specific hostname
+                set tarball "${interactive_hostname}-interactive-${tarball_timestamp}.tar.gz"
             } else {
-                # STANDARDIZED: interactive_session_timestamp.tar.gz (instead of interactive-session-dd-Mon-yyyy-HHMMSS.tar.gz)
-                set tarball "interactive_session_${tarball_timestamp}.tar.gz"
+                # Multiple hostnames - use generic name
+                set tarball "interactive-session-[clock format [clock seconds] -format {%d-%b-%Y-%H%M%S}].tar.gz"
             }
             puts "======== Compressing [llength $diff_files] log file(s) into $tarball ========"
             catch {exec tar -czf $tarball {*}$diff_files} tar_error
@@ -2225,7 +2207,29 @@ day year]} {
 
         # Disable logging for cleanup
         log_user 0
-        # Close the playbook file
+
+        # # Main loop: Process each command from the playbook file.
+        # while { [gets $cmd_Fh cmd_line] != -1 } {
+        #     if {[string trim $cmd_line] == "" || [string index $cmd_line 0] == "#"} {
+        #         continue
+        #     }
+        #     # Branch by command type.
+        #     if {[regexp {^show logging start} $cmd_line]} {
+        #         process_show_logging $cmd_line
+        #         continue
+        #     } elseif {[regexp {^scp\s+.*\/var/log/messages} $cmd_line]} {
+        #         process_scp_messages_cmd $cmd_line
+        #         continue
+        #     # } elseif {[regexp {show captured packets traps all location all \| file (.*)} $cmd_line]} {
+        #     } elseif {[regexp {show captured packets traps all location all \| file (.*)} $cmd_line match full_match file_path]} {
+        #         process_captured_packets $cmd_line $file_path
+        #         continue
+        #     } else {
+        #         execute_command $cmd_line ":.*\\$ |.*#"
+        #     }
+        # }
+
+        # # Close the playbook file
         close $cmd_Fh
 
         # Exit the SSH session
@@ -2238,19 +2242,48 @@ day year]} {
         log_file
 
         # Generate a unique log file name based on the current timestamp
-        set timestamp [get_standard_timestamp]
+        set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+        # Construct the destination file name with the timestamp
         # Check if this is a PPDB tarball or captured packets file
-        if {$file_path != "" && [regexp {ppdb} $file_path]} {
-            # STANDARDIZED: hostname_ppdb_collection_timestamp.tar.gz (no change needed as already handled in process_ppdb_collection)
-            set destination_file [file tail $file_path]
+        if {$file_path != "" && [regexp {ppdb_prod_dump_all_lcs} $file_path]} {
+            # Extract timestamp from original tarball name and include hostname
+            if {[regexp {ppdb_prod_dump_all_lcs_(\d+_\d+)\.tar\.gz} $ppdb_tarball_name match orig_timestamp]} {
+                set destination_file "ppdb_prod_dump_all_lcs_${actual_hostname}.tar.gz"
+            } else {
+                set destination_file "ppdb_prod_dump_all_lcs_${actual_hostname}.tar.gz"
+            }
         } else {
-            # STANDARDIZED: hostname_captured_packets_timestamp.log (instead of hostname-timestamp.capture-packets-traps)
-            set destination_file "${actual_hostname}_captured_packets_${timestamp}.log"
+            set destination_file "${actual_hostname}-${timestamp}.capture-packets-traps"
         }
 
         if {$messages_LC_list != ""} {
             set banner "Transferring messages-LC files from ${actual_hostname}${port_info} to SAW JumpServer:"
             pull_out_file_from_device $banner $messages_LC_list $sr_number $cxd_token $actual_hostname $password $timestamp $ssh_port
+            # puts "\n================== Transferring messages-LC files from $hostname to SAW JumpServer: ================== \n"
+            # foreach lc_file $messages_LC_list {
+            #     spawn scp dangome2@$hostname:/harddisk:/$lc_file ./logs/
+            #     # Uncomment for production
+            #     #spawn scp -o StrictHostKeyChecking=no $username@$hostname:$lc_file ./logs/
+            #     expect {
+            #         "continue connecting (yes/no/\[fingerprint\])?" {
+            #             send "yes\r"
+            #             expect "assword:" { send "$password\r" }
+            #         }
+            #         "assword:" {
+            #             send "$password\r"
+            #         }
+            #         timeout {
+            #             puts "SCP from $hostname timed out"
+            #             continue
+            #         }
+            #         eof {
+            #             set scp_status [wait]
+            #             puts "\n================== SCP from $hostname terminated with status: $scp_status ==================\n"
+            #         }
+            #     }
+            #     expect eof
+            #     puts "\n================== SCP from $hostname completed successfully ==================\n"
+            # }
         }
 
         # After the loop, check if the file_path was extracted successfully
@@ -2475,24 +2508,23 @@ day year]} {
                 # Spitfire Background Commands
                 set is_background_cmd 0
                 set cmd_base ""
-                set file_type ""
+                set file_prefix ""
                 set trimmed_cmd [string trim $cmd_line]
 
                 if {[string match "show tech* os file harddisk: background compressed" $trimmed_cmd]} {
                     set is_background_cmd 1
                     set cmd_base "show tech os"
-                    set file_type "os"
+                    set file_prefix "showtech-os-${actual_hostname}"
                 } elseif {[string match "show tech* fabric link-include" $trimmed_cmd]} {
                     set is_background_cmd 1
                     set cmd_base "show tech-support fabric link-include"
-                    set file_type "fabric"
+                    set file_prefix "showtech-fabric-link-include-${actual_hostname}"
                 }
 
                 if {$is_background_cmd} {
                     puts "\n================== Detected Background Command: $cmd_base ==================\n"
                     set os_timestamp [generate_timestamp]
-                    # UPDATED: Pass hostname and file_type to the function
-                    set file_paths [execute_background_showtech_command $actual_hostname $os_timestamp "RP/.*#" $cmd_base $file_type]
+                    set file_paths [execute_background_showtech_command $os_timestamp "RP/.*#" $cmd_base $file_prefix]
 
                     if {[llength $file_paths] == 3} {
                         set tgz_file_path [lindex $file_paths 1]
@@ -2555,9 +2587,8 @@ day year]} {
         # Nexus Upload
         if {$platform eq "nexus"} {
             puts "\n================== Processing Nexus Output for Upload ==================\n"
-            set nexus_timestamp [get_standard_timestamp]
-            # STANDARDIZED: hostname_showtech_nexus_timestamp.txt (instead of hostname-nexus-show-tech-timestamp.txt)
-            set nexus_file "${actual_hostname}_showtech_nexus_${nexus_timestamp}.txt"
+            set nexus_timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
+            set nexus_file "${actual_hostname}-nexus-show-tech-${nexus_timestamp}.txt"
             set local_path "./showtechs/$nexus_file"
             if {[file exists $log_file]} {
                 file copy -force $log_file $local_path
@@ -2670,7 +2701,7 @@ day year]} {
             continue
         }
 
-        set timestamp [get_standard_timestamp]
+        set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M%S}]
 
         # This function initializes the logging process by setting up necessary variables,
         # generating a unique log file name, checking the password file, setting a timeout,
@@ -2743,8 +2774,7 @@ day year]} {
             set file_count [execute_command "find $year_log_path -type f | wc -l" "#"]
             puts "\n================== Total files in $year_log_path: [string trim $file_count] ==================\n"
 
-            # STANDARDIZED: hostname_archive_log_timestamp.tgz (instead of archive_log-hostname-timestamp.tgz)
-            set archive_file "${hostname}_archive_log_${timestamp}.tgz"
+            set archive_file "archive_log-$hostname-$timestamp.tgz"
 
             # Use absolute path without -C to avoid issues with empty subdirectories
             # tar will handle the directory structure and strip leading / automatically
@@ -2771,6 +2801,10 @@ day year]} {
             # Verify the archive was created and has reasonable size
             set verify_output [execute_command "ls -lh /harddisk:/$archive_file" ".*#"]
             puts "\n================== Archive file created: ==================\n$verify_output\n"
+
+            # List contents of the archive to verify what was included
+            # set archive_contents [execute_command "tar tzf /harddisk:/$archive_file | head -50" ".*#"]
+            # puts "\n================== First 50 files in archive: ==================\n$archive_contents\n"
 
             puts "\n================== Transferring Archive-Logs Tarball file from $hostname to SAW JumpServer ================== \n"
 
@@ -2941,15 +2975,12 @@ day year]} {
                 }
 
                  # Compress only the new log files into a tarball
+                #set tarball "${playbook}-[clock format [clock seconds] -format {%d-%b-%Y}].tar.gz"
                 # Use descriptive name for PPDB collections
-                set timestamp [get_standard_timestamp]
                 if {[regexp {ppdb} $playbook]} {
-                    # STANDARDIZED: scan_ppdb_collection_timestamp.tar.gz (instead of ppdb_prod_dump_all_hosts_timestamp.tar.gz)
-                    set tarball "scan_ppdb_collection_${timestamp}.tar.gz"
+                    set tarball "ppdb_prod_dump_all_hosts_[clock format [clock seconds] -format {%Y%m%d_%H%M%S}].tar.gz"
                 } else {
-                    # STANDARDIZED: scan_playbook_timestamp.tar.gz (instead of playbook-dd-Mon-yyyy-HHMMSS.tar.gz)
-                    set sanitized_playbook [regsub -all {\.} $playbook "_"]
-                    set tarball "scan_${sanitized_playbook}_${timestamp}.tar.gz"
+                    set tarball "${playbook}-[clock format [clock seconds] -format {%d-%b-%Y-%H%M%S}].tar.gz"
                 }
                 if {[catch {exec tar -czvf $tarball {*}$diff_files} tar_output]} {
                     # Check if tarball was created despite error message (e.g., locale warnings)

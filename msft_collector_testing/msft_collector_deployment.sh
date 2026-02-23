@@ -1,4 +1,4 @@
-#!/usr/bin/expect
+#!/bin/bash
 
 # Script Version: 1.0.23
 # Last Updated: Dec 5th, 2025

@@ -917,7 +917,7 @@ def check_fabric_reachability(shell: paramiko.Channel, cli_output_file=None, cha
 
     valid_reach_masks = ["4/4", "2/2"]
     if chassis_model.startswith("88") or "NCS-88" in chassis_model:
-        valid_reach_masks.extend(["6/6", "8/8", "16/16"])
+        valid_reach_masks.extend(["6/6", "8/8", "16/16", "3/3"])
 
     for line in lines:
         if "----------------------------------------------------------------------------------------------" in line:
